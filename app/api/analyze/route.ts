@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
 - JSON 외 다른 텍스트 출력 금지`
 
       const res = await fetch(
-        `${BASE}/v1beta/models/${MODEL}:generateContent?key=${apiKey}`,
+        `${BASE}/v2beta/models/${MODEL}:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
       // Delete the file after extraction (fire-and-forget)
       const fileName = fileUri.split('/').pop()
       fetch(`${BASE}/v1beta/files/${fileName}?key=${apiKey}`, { method: 'DELETE' }).catch(
-        () => { }
+        () => {}
       )
 
       return NextResponse.json({ raw, subject, examType, year })
@@ -125,7 +125,7 @@ Grounding Rule: 입력 자료 외 법률 내용 생성 금지. 불확실하면 "
 {"핵심개념": string, "관련조문": string, "오답원인": {"가설A": string, "가설B": string, "가설C": string, "선학습적용실패": string|null}, "원인상세": string, "개념요약": string, "혼동주의": string, "체크포인트": string, "위험도": number}`
 
       const res = await fetch(
-        `${BASE}/v1beta/models/${MODEL}:generateContent?key=${apiKey}`,
+        `${BASE}/v2beta/models/${MODEL}:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
