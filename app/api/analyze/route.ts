@@ -56,7 +56,8 @@ export async function POST(req: NextRequest) {
 
       if (!res.ok) {
         const err = await res.text()
-        return NextResponse.json({ error: `Gemini generate failed: ${err}` }, { status: 502 })
+        console.error('Gemini API error:', res.status, res.statusText, err)
+        return NextResponse.json({ error: `Gemini generate failed: [${res.status}] ${err}` }, { status: 502 })
       }
 
       const data = await res.json()
@@ -65,7 +66,7 @@ export async function POST(req: NextRequest) {
       // Delete the file after extraction (fire-and-forget)
       const fileName = fileUri.split('/').pop()
       fetch(`${BASE}/v1beta/files/${fileName}?key=${apiKey}`, { method: 'DELETE' }).catch(
-        () => {}
+        () => { }
       )
 
       return NextResponse.json({ raw, subject, examType, year })
@@ -138,7 +139,8 @@ Grounding Rule: 입력 자료 외 법률 내용 생성 금지. 불확실하면 "
 
       if (!res.ok) {
         const err = await res.text()
-        return NextResponse.json({ error: `Gemini analyze failed: ${err}` }, { status: 502 })
+        console.error('Gemini API error:', res.status, res.statusText, err)
+        return NextResponse.json({ error: `Gemini generate failed: [${res.status}] ${err}` }, { status: 502 })
       }
 
       const data = await res.json()
