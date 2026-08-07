@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 const BASE = 'https://generativelanguage.googleapis.com'
-const MODEL = 'gemini-2.5-flash'
+const MODEL = 'gemini-2.5-flash-preview-05-20'
 
 export async function POST(req: NextRequest) {
   try {
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
       // Delete the file after extraction (fire-and-forget)
       const fileName = fileUri.split('/').pop()
       fetch(`${BASE}/v1beta/files/${fileName}?key=${apiKey}`, { method: 'DELETE' }).catch(
-        () => {}
+        () => { }
       )
 
       return NextResponse.json({ raw, subject, examType, year })
