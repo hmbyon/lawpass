@@ -27,7 +27,6 @@ function safeSet(key: string, value: unknown) {
   }
 }
 
-// ── API Key ──────────────────────────────────────────────────────────────────
 export function getApiKey(): string {
   if (typeof window === 'undefined') return ''
   return localStorage.getItem(KEYS.apiKey) ?? ''
@@ -38,7 +37,6 @@ export function setApiKey(key: string) {
   localStorage.setItem(KEYS.apiKey, key)
 }
 
-// ── Question Bank ─────────────────────────────────────────────────────────────
 export function getQuestions(): Question[] {
   return safeGet<Question[]>(KEYS.questions, [])
 }
@@ -77,7 +75,6 @@ export function addQuestions(incoming: Question[]): { added: number; merged: num
   return { added, merged }
 }
 
-// ── Wrong Notes ───────────────────────────────────────────────────────────────
 export function getWrongNotes(): WrongNote[] {
   return safeGet<WrongNote[]>(KEYS.wrongNotes, [])
 }
