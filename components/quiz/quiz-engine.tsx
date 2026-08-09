@@ -133,8 +133,7 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
   }, [timeLimitSeconds, submitted, handleSubmit])
 
   function goToQuestion(idx: number) {
-    setCurrent(idx)
-    if (mode === 'study') setShowStudyFirst(true)
+  setCurrent(idx)
   }
 
   function setAnswer(val: string) {
