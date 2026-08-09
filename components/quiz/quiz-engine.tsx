@@ -49,8 +49,8 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
     if (submitted) return
     setSubmitted(true)
 
-    const apiKey = typeof window !== 'undefined' 
-      ? localStorage.getItem('lawpass_api_key') ?? '' 
+    const apiKey = typeof window !== 'undefined'
+      ? localStorage.getItem('lawpass_api_key') ?? ''
       : ''
     const wrongs: WrongNote[] = []
     const wrongItems = items.filter(
@@ -212,11 +212,10 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
           {q.choices.map((c) => (
             <label
               key={c.label}
-              className={`flex gap-3 items-start p-3 rounded-lg cursor-pointer border transition-all ${
-                item.userAnswer === c.label
+              className={`flex gap-3 items-start p-3 rounded-lg cursor-pointer border transition-all ${item.userAnswer === c.label
                   ? 'border-primary bg-primary/10'
                   : 'border-border hover:border-primary/40 hover:bg-muted/50'
-              }`}
+                }`}
             >
               <input
                 type="radio"
@@ -282,13 +281,12 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
           <button
             key={idx}
             onClick={() => goToQuestion(idx)}
-            className={`w-6 h-6 rounded text-xs font-medium transition-all ${
-              idx === current
+            className={`w-6 h-6 rounded text-xs font-medium transition-all ${idx === current
                 ? 'bg-primary text-primary-foreground'
                 : it.userAnswer !== null
                   ? 'bg-muted-foreground/30 text-foreground'
                   : 'bg-muted text-muted-foreground'
-            }`}
+              }`}
           >
             {idx + 1}
           </button>
@@ -313,11 +311,10 @@ function StudyPreview({ question, onReady }: { question: Question; onReady: () =
           {question.choices.map((c) => (
             <div
               key={c.label}
-              className={`flex gap-3 items-start p-3 rounded-lg border text-sm ${
-                c.label === question.answer
+              className={`flex gap-3 items-start p-3 rounded-lg border text-sm ${c.label === question.answer
                   ? 'border-emerald-600 bg-emerald-900/20'
                   : 'border-border'
-              }`}
+                }`}
             >
               <span className={`font-semibold ${c.label === question.answer ? 'text-emerald-400' : 'text-primary'}`}>
                 {c.label}
