@@ -8,7 +8,7 @@ import type { Subject, ExamType, Question } from '@/lib/types'
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const EXAM_TYPES: ExamType[] = ['변호사시험', '모의고사']
 const CURRENT_YEAR = new Date().getFullYear()
-const YEARS = Arsray.from({ length: 15 }, (_, i) => CURRENT_YEAR - i)
+const YEARS = Array.from({ length: 15 }, (_, i) => CURRENT_YEAR - i)
 
 interface FileState {
   file: File
@@ -76,20 +76,17 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
           updateFile(i, { progress: pct })
         })
         updateFile(i, { status: 'analyzing', progress: 100 })
-
         await waitForFileActive(apiKey, uri)
-
         const questions = await extractQuestionsFromPdf(apiKey, uri, subject, examType, year)
         const result = addQuestions(questions)
         totalAdded += result.added
         totalMerged += result.merged
-
         updateFile(i, { status: 'done', count: questions.length })
       } catch (err) {
         updateFile(i, { status: 'error', error: String(err) })
       } finally {
         if (uri) {
-          deleteFile(apiKey, uri).catch(() => { })
+          deleteFile(apiKey, uri).catch(() => {})
         }
       }
     }
@@ -154,12 +151,8 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
             연결 확인
           </button>
         </div>
-        {apiStatus === 'ok' && (
-          <p className="text-xs text-emerald-400">연결 성공</p>
-        )}
-        {apiStatus === 'error' && (
-          <p className="text-xs text-red-400">연결 실패 — API 키를 확인하세요</p>
-        )}
+        {apiStatus === 'ok' && <p className="text-xs text-emerald-400">연결 성공</p>}
+        {apiStatus === 'error' && <p className="text-xs text-red-400">연결 실패 — API 키를 확인하세요</p>}
       </div>
 
       {/* Meta */}
@@ -173,9 +166,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
               onChange={(e) => setSubject(e.target.value as Subject)}
               className="w-full bg-input border border-border rounded-lg px-2 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             >
-              {SUBJECTS.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
+              {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
           <div className="space-y-1">
@@ -185,9 +176,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
               onChange={(e) => setExamType(e.target.value as ExamType)}
               className="w-full bg-input border border-border rounded-lg px-2 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             >
-              {EXAM_TYPES.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
+              {EXAM_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
           <div className="space-y-1">
@@ -197,9 +186,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
               onChange={(e) => setYear(Number(e.target.value))}
               className="w-full bg-input border border-border rounded-lg px-2 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             >
-              {YEARS.map((y) => (
-                <option key={y} value={y}>{y}년</option>
-              ))}
+              {YEARS.map((y) => <option key={y} value={y}>{y}년</option>)}
             </select>
           </div>
         </div>
@@ -210,19 +197,21 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
         <div className="flex gap-2">
           <button
             onClick={() => setUploadMode('file')}
-            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${uploadMode === 'file'
+            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+              uploadMode === 'file'
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-muted text-muted-foreground hover:text-foreground'
-              }`}
+            }`}
           >
             📄 PDF 직접 업로드
           </button>
           <button
             onClick={() => setUploadMode('uri')}
-            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${uploadMode === 'uri'
+            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+              uploadMode === 'uri'
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-muted text-muted-foreground hover:text-foreground'
-              }`}
+            }`}
           >
             🔗 File URI 입력
           </button>
@@ -290,70 +279,68 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
         {/* File URI 입력 */}
         {uploadMode === 'uri' && (
           <div className="space-y-3">
-            {/* AI Studio 바로가기 */}
-
-            href="https://aistudio.google.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-between w-full px-4 py-3 bg-blue-900/30 border border-blue-700/40 rounded-xl hover:bg-blue-900/50 transition-colors"
+            
+              <a href="https://aistudio.google.com"
+              targeßt="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-between w-full px-4 py-3 bg-blue-900/30 border border-blue-700/40 rounded-xl hover:bg-blue-900/50 transition-colors"
             >
-            <div>
-              <p className="text-sm font-medium text-blue-300">Google AI Studio에서 대용량 PDF 업로드</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                최대 2GB · 업로드 후 File URI 복사해서 아래에 붙여넣기
-              </p>
+              <div>
+                <p className="text-sm font-medium text-blue-300">Google AI Studio에서 대용량 PDF 업로드</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  최대 2GB · 업로드 후 File URI 복사해서 아래에 붙여넣기
+                </p>
+              </div>
+              <span className="text-blue-400 text-lg shrink-0">→</span>
+            </a>
+
+            <div className="bg-muted rounded-lg p-3 space-y-1 text-xs text-muted-foreground">
+              <p className="font-medium text-foreground">AI Studio에서 File URI 얻는 법</p>
+              <p>1. aistudio.google.com 접속</p>
+              <p>2. 우측 상단 파일 아이콘 클릭 → PDF 업로드</p>
+              <p>3. 업로드된 파일 클릭 → "Copy file URI" 선택</p>
+              <p>4. 아래 입력란에 붙여넣기</p>
             </div>
-            <span className="text-blue-400 text-lg shrink-0">→</span>
-          </a>
 
-            {/* AI Studio 사용법 */}
-        <div className="bg-muted rounded-lg p-3 space-y-1 text-xs text-muted-foreground">
-          <p className="font-medium text-foreground">AI Studio에서 File URI 얻는 법</p>
-          <p>1. aistudio.google.com 접속</p>
-          <p>2. 우측 상단 파일 아이콘 클릭 → PDF 업로드</p>
-          <p>3. 업로드된 파일 클릭 → "Copy file URI" 선택</p>
-          <p>4. 아래 입력란에 붙여넣기</p>
-        </div>
+            <div className="space-y-2">
+              <label className="text-xs text-muted-foreground">File URI</label>
+              <input
+                type="text"
+                value={fileUri}
+                onChange={(e) => {
+                  setFileUri(e.target.value)
+                  setUriStatus('idle')
+                  setUriError('')
+                }}
+                placeholder="https://generativelanguage.googleapis.com/v1beta/files/..."
+                className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
 
-        <div className="space-y-2">
-          <label className="text-xs text-muted-foreground">File URI</label>
-          <input
-            type="text"
-            value={fileUri}
-            onChange={(e) => {
-              setFileUri(e.target.value)
-              setUriStatus('idle')
-              setUriError('')
-            }}
-            placeholder="https://generativelanguage.googleapis.com/v1beta/files/..."
-            className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          />
-        </div>
+            {uriStatus === 'error' && (
+              <p className="text-xs text-red-400 break-all">{uriError}</p>
+            )}
 
-        {uriStatus === 'error' && (
-          <p className="text-xs text-red-400 break-all">{uriError}</p>
+            <button
+              onClick={startUriAnalysis}
+              disabled={uriStatus === 'analyzing' || !apiKey || !fileUri.trim()}
+              className="w-full py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            >
+              {uriStatus === 'analyzing' ? 'Gemini 분석 중...' : '분석 시작'}
+            </button>
+          </div>
         )}
 
-        <button
-          onClick={startUriAnalysis}
-          disabled={uriStatus === 'analyzing' || !apiKey || !fileUri.trim()}
-          className="w-full py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-        >
-          {uriStatus === 'analyzing' ? 'Gemini 분석 중...' : '분석 시작'}
-        </button>
+        {summary && (
+          <div className="bg-emerald-900/30 border border-emerald-700/40 rounded-lg p-3 text-sm">
+            <p className="text-emerald-300 font-medium">
+              완료: <span className="font-bold">{summary.added}문제</span> 추가,{' '}
+              <span className="font-bold">{summary.merged}문제</span> 병합
+            </p>
+          </div>
+        )}
       </div>
-        )}
-
-      {summary && (
-        <div className="bg-emerald-900/30 border border-emerald-700/40 rounded-lg p-3 text-sm">
-          <p className="text-emerald-300 font-medium">
-            완료: <span className="font-bold">{summary.added}문제</span> 추가,{' '}
-            <span className="font-bold">{summary.merged}문제</span> 병합
-          </p>
-        </div>
-      )}
     </div>
-    </div >
   )
 }
 
