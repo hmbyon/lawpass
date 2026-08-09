@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { Question, QuestionStatus, WrongNote, CauseType } from '@/lib/types'
 import { analyzeWrongAnswer } from '@/lib/gemini'
-import { getApiKey, addWrongNote } from '@/lib/store'
+import { addWrongNote } from '@/lib/store'
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
 
@@ -37,7 +37,6 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
     questions.map((q) => ({ question: q, userAnswer: null, status: null }))
   )
   const [current, setCurrent] = useState(0)
-  const [showStudyFirst, setShowStudyFirst] = useState(mode === 'study')
   const [submitted, setSubmitted] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [results, setResults] = useState<{ correct: number; wrong: WrongNote[] } | null>(null)
@@ -133,7 +132,7 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
   }, [timeLimitSeconds, submitted, handleSubmit])
 
   function goToQuestion(idx: number) {
-  setCurrent(idx)
+    setCurrent(idx)
   }
 
   function setAnswer(val: string) {
@@ -157,15 +156,6 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
 
   const item = items[current]
   const q = item.question
-
-  if (showStudyFirst) {
-    return (
-      <StudyPreview
-        question={q}
-        onReady={() => setShowStudyFirst(false)}
-      />
-    )
-  }
 
   if (analyzing) {
     return (
@@ -293,51 +283,6 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
           </button>
         ))}
       </div>
-    </div>
-  )
-}
-
-function StudyPreview({ question, onReady }: { question: Question; onReady: () => void }) {
-  return (
-    <div className="space-y-4 max-w-2xl mx-auto">
-      <div className="bg-card border border-border rounded-xl p-5 space-y-4">
-        <div className="flex items-center gap-2">
-          <span className="bg-purple-800/50 text-purple-300 text-xs px-2 py-0.5 rounded-full border border-purple-700/40">
-            선학습 미리보기
-          </span>
-          <span className="text-xs text-muted-foreground">{question.subject} · {question.year}년</span>
-        </div>
-        <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">{question.passage}</p>
-        <div className="space-y-2">
-          {question.choices.map((c) => (
-            <div
-              key={c.label}
-              className={`flex gap-3 items-start p-3 rounded-lg border text-sm ${
-                c.label === question.answer
-                  ? 'border-emerald-600 bg-emerald-900/20'
-                  : 'border-border'
-              }`}
-            >
-              <span className={`font-semibold ${c.label === question.answer ? 'text-emerald-400' : 'text-primary'}`}>
-                {c.label}
-              </span>
-              <span className="text-foreground">{c.text}</span>
-            </div>
-          ))}
-        </div>
-        {question.explanation && (
-          <div className="bg-muted rounded-lg p-3">
-            <p className="text-xs text-muted-foreground mb-1 font-medium">해설</p>
-            <p className="text-sm text-foreground leading-relaxed">{question.explanation}</p>
-          </div>
-        )}
-      </div>
-      <button
-        onClick={onReady}
-        className="w-full py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 transition-opacity"
-      >
-        학습 완료 — 풀기
-      </button>
     </div>
   )
 }
