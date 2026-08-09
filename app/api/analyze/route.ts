@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 const BASE = 'https://generativelanguage.googleapis.com'
-const MODEL = 'gemini-3.5-flash'
+const MODEL = 'gemini-2.5-flash'
 
 export async function POST(req: NextRequest) {
   try {
