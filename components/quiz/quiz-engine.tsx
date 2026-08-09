@@ -20,15 +20,14 @@ interface QuizEngineProps {
   onFinish: () => void
 }
 
-function getDominantCause(analysis: WrongNote['analysis']): CauseType | null {
+function getDominantCause(analysis: WrongNote['analysis'], isStudyMode: boolean): CauseType | null {
   if (!analysis) return null
   const { 가설A, 가설B, 가설C, 선학습적용실패 } = analysis.오답원인
-  if (선학습적용실패 && 선학습적용실패 !== 'null' && 선학습적용실패 !== '-') return 'study'
+  if (isStudyMode && 선학습적용실패 && 선학습적용실패 !== 'null' && 선학습적용실패 !== '-') return 'study'
   const scores: Record<CauseType, number> = { A: 0, B: 0, C: 0, study: 0 }
-  const words = (s: string) => s.length
-  scores.A = words(가설A)
-  scores.B = words(가설B)
-  scores.C = words(가설C)
+  scores.A = 가설A.length
+  scores.B = 가설B.length
+  scores.C = 가설C.length
   const best = (['A', 'B', 'C'] as CauseType[]).reduce((a, b) => (scores[a] > scores[b] ? a : b))
   return best
 }
@@ -49,13 +48,21 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
     if (submitted) return
     setSubmitted(true)
 
-    const apiKey = typeof window !== 'undefined' 
-      ? localStorage.getItem('lawpass_api_key') ?? '' 
+    const apiKey = typeof window !== 'undefined'
+      ? localStorage.getItem('lawpass_api_key') ?? ''
       : ''
     const wrongs: WrongNote[] = []
     const wrongItems = items.filter(
       (item) => item.userAnswer !== null && item.userAnswer !== item.question.answer
     )
+
+    if (wrongItems.length === 0) {
+      const correct = items.filter(
+        (item) => item.userAnswer !== null && item.userAnswer === item.question.answer
+      ).length
+      setResults({ correct, wrong: [] })
+      return
+    }
 
     setAnalyzing(true)
     setAnalyzeProgress(0)
@@ -78,7 +85,7 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
           status: item.status,
           isStudyMode: mode === 'study',
           analysis,
-          dominantCause: getDominantCause(analysis),
+          dominantCause: getDominantCause(analysis, mode === 'study'),
           createdAt: Date.now(),
         }
         addWrongNote(note)
@@ -109,7 +116,6 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
     setResults({ correct, wrong: wrongs })
   }, [items, submitted, mode])
 
-  // Timer
   useEffect(() => {
     if (timeLimitSeconds === null || submitted) return
     setTimeLeft(timeLimitSeconds)
@@ -153,7 +159,6 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
   const item = items[current]
   const q = item.question
 
-  // Study mode: show answer first
   if (showStudyFirst) {
     return (
       <StudyPreview
@@ -191,7 +196,6 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
 
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
-      {/* Header bar */}
       <div className="flex items-center justify-between bg-card border border-border rounded-xl px-4 py-2.5 text-sm">
         <span className="text-muted-foreground">
           {current + 1} / {questions.length}
@@ -205,7 +209,6 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
         <span className="text-xs text-muted-foreground">{q.subject} · {q.year}년</span>
       </div>
 
-      {/* Question */}
       <div className="bg-card border border-border rounded-xl p-5 space-y-4">
         <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">{q.passage}</p>
         <div className="space-y-2">
@@ -234,7 +237,6 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
           ))}
         </div>
 
-        {/* Status */}
         <div className="flex gap-3">
           {(['헷갈림', '찍음'] as QuestionStatus[]).map((s) => (
             <label key={s} className="flex items-center gap-1.5 cursor-pointer text-xs">
@@ -250,7 +252,6 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
         </div>
       </div>
 
-      {/* Navigation */}
       <div className="flex gap-2">
         <button
           onClick={() => goToQuestion(Math.max(0, current - 1))}
@@ -276,7 +277,6 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
         )}
       </div>
 
-      {/* Dot navigation */}
       <div className="flex flex-wrap gap-1 justify-center">
         {items.map((it, idx) => (
           <button
