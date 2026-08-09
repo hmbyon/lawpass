@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react'
 import { getApiKey, setApiKey, addQuestions } from '@/lib/store'
 import { uploadPdfToFileApi, waitForFileActive, extractQuestionsFromPdf, deleteFile } from '@/lib/gemini'
-import type { Subject, ExamType } from '@/lib/types'
+import type { Subject, ExamType, Question } from '@/lib/types'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const EXAM_TYPES: ExamType[] = ['변호사시험', '모의고사']
