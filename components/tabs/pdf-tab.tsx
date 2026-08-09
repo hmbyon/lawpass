@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import { PDFDocument } from 'pdf-lib'
 import { getApiKey, setApiKey, addQuestions } from '@/lib/store'
 import { uploadPdfToFileApi, waitForFileActive, extractQuestionsFromPdf, deleteFile } from '@/lib/gemini'
 import type { Subject, ExamType, Question } from '@/lib/types'
@@ -16,6 +17,9 @@ interface FileState {
   status: 'pending' | 'uploading' | 'analyzing' | 'done' | 'error'
   error?: string
   count?: number
+  pageCount?: number
+  chunkIndex?: number
+  chunkTotal?: number
 }
 
 type UploadMode = 'file' | 'uri'
@@ -68,26 +72,45 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
 
     for (let i = 0; i < files.length; i++) {
       const entry = files[i]
-      updateFile(i, { status: 'uploading', progress: 0 })
-
-      let uri = ''
+      let totalPages = 0
       try {
-        uri = await uploadPdfToFileApi(apiKey, entry.file, (pct) => {
-          updateFile(i, { progress: pct })
-        })
-        updateFile(i, { status: 'analyzing', progress: 100 })
-        await waitForFileActive(apiKey, uri)
-        const questions = await extractQuestionsFromPdf(apiKey, uri, subject, examType, year)
-        const result = addQuestions(questions)
-        totalAdded += result.added
-        totalMerged += result.merged
-        updateFile(i, { status: 'done', count: questions.length })
+        const sourcePdf = await PDFDocument.load(await entry.file.arrayBuffer())
+        totalPages = sourcePdf.getPageCount()
+        const chunkTotal = Math.ceil(totalPages / 50)
+        updateFile(i, { status: 'uploading', progress: 0, pageCount: totalPages, chunkIndex: 0, chunkTotal })
+
+        let fileQuestionCount = 0
+        for (let chunkIndex = 0; chunkIndex < chunkTotal; chunkIndex++) {
+          const chunkPdf = await PDFDocument.create()
+          const startPage = chunkIndex * 50
+          const endPage = Math.min(startPage + 50, totalPages)
+          const pages = await chunkPdf.copyPages(sourcePdf, Array.from({ length: endPage - startPage }, (_, page) => startPage + page))
+          pages.forEach((page) => chunkPdf.addPage(page))
+          const chunkBytes = await chunkPdf.save()
+          const chunkFile = new File([chunkBytes], `${entry.file.name.replace(/\.pdf$/i, '')}-chunk-${chunkIndex + 1}.pdf`, { type: 'application/pdf' })
+
+          updateFile(i, { status: 'uploading', progress: 0, chunkIndex: chunkIndex + 1 })
+          let uri = ''
+          try {
+            uri = await uploadPdfToFileApi(apiKey, chunkFile, (pct) => {
+              const overallProgress = ((chunkIndex + pct / 100) / chunkTotal) * 100
+              updateFile(i, { progress: overallProgress })
+            })
+            updateFile(i, { status: 'analyzing', progress: ((chunkIndex + 0.9) / chunkTotal) * 100, chunkIndex: chunkIndex + 1 })
+            await waitForFileActive(apiKey, uri)
+            const questions = await extractQuestionsFromPdf(apiKey, uri, subject, examType, year)
+            const result = addQuestions(questions)
+            totalAdded += result.added
+            totalMerged += result.merged
+            fileQuestionCount += questions.length
+            updateFile(i, { progress: ((chunkIndex + 1) / chunkTotal) * 100, chunkIndex: chunkIndex + 1, count: fileQuestionCount })
+          } finally {
+            if (uri) await deleteFile(apiKey, uri).catch(() => {})
+          }
+        }
+        updateFile(i, { status: 'done', progress: 100, chunkIndex: chunkTotal })
       } catch (err) {
         updateFile(i, { status: 'error', error: String(err) })
-      } finally {
-        if (uri) {
-          deleteFile(apiKey, uri).catch(() => {})
-        }
       }
     }
 
@@ -255,8 +278,15 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
                         />
                       </div>
                     )}
+                    {f.status === 'uploading' && f.chunkTotal && (
+                      <p className="text-xs text-primary animate-pulse">
+                        청크 {f.chunkIndex ?? 1}/{f.chunkTotal} 업로드 중...
+                      </p>
+                    )}
                     {f.status === 'analyzing' && (
-                      <p className="text-xs text-primary animate-pulse">Gemini 분석 중...</p>
+                      <p className="text-xs text-primary animate-pulse">
+                        청크 {f.chunkIndex ?? 1}/{f.chunkTotal ?? 1} 분석 중...
+                      </p>
                     )}
                     {f.status === 'error' && (
                       <p className="text-xs text-red-400 break-all">{f.error}</p>
@@ -281,7 +311,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
           <div className="space-y-3">
             
               <a href="https://aistudio.google.com"
-              targeßt="_blank"
+              target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-between w-full px-4 py-3 bg-blue-900/30 border border-blue-700/40 rounded-xl hover:bg-blue-900/50 transition-colors"
             >
