@@ -2,42 +2,104 @@
 
 import type { Question, Subject, ExamType, ErrorAnalysis, QuestionStatus } from './types'
 
-// ── Upload PDF via server proxy ──────────────────────────────────────────────
-// Returns the Gemini fileUri once the file is ACTIVE.
-// Progress callback fires at 50 % (before upload) and 100 % (once ACTIVE).
+const BASE = 'https://generativelanguage.googleapis.com'
+
+// ── Upload PDF directly from browser to Gemini File API ──────────────────────
 export async function uploadPdfToFileApi(
   apiKey: string,
   file: File,
   onProgress?: (pct: number) => void
 ): Promise<string> {
-  onProgress?.(10)
+  onProgress?.(5)
 
-  const form = new FormData()
-  form.append('file', file)
-  form.append('apiKey', apiKey)
+  // 1. Initiate resumable upload
+  const initRes = await fetch(
+    `${BASE}/upload/v1beta/files?uploadType=resumable&key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: {
+        'X-Goog-Upload-Protocol': 'resumable',
+        'X-Goog-Upload-Command': 'start',
+        'X-Goog-Upload-Header-Content-Length': String(file.size),
+        'X-Goog-Upload-Header-Content-Type': 'application/pdf',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ file: { display_name: file.name } }),
+    }
+  )
 
-  const res = await fetch('/api/upload', { method: 'POST', body: form })
-
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(data?.error ?? `Upload failed (${res.status})`)
+  if (!initRes.ok) {
+    const err = await initRes.text()
+    throw new Error(`File API init failed: ${err}`)
   }
 
-  const data = await res.json()
-  if (!data.fileUri) throw new Error('No fileUri returned from upload API')
+  const uploadUrl = initRes.headers.get('X-Goog-Upload-URL')
+  if (!uploadUrl) throw new Error('No upload URL returned')
 
-  onProgress?.(100)
-  return data.fileUri as string
+  // 2. Upload in chunks (5 MB each)
+  const CHUNK = 5 * 1024 * 1024
+  let offset = 0
+  let fileUri = ''
+
+  while (offset < file.size) {
+    const end = Math.min(offset + CHUNK, file.size)
+    const chunk = file.slice(offset, end)
+    const isLast = end >= file.size
+    const command = isLast ? 'upload, finalize' : 'upload'
+
+    const chunkRes = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        'X-Goog-Upload-Command': command,
+        'X-Goog-Upload-Offset': String(offset),
+        'Content-Length': String(end - offset),
+        'Content-Type': 'application/pdf',
+      },
+      body: chunk,
+    })
+
+    if (!chunkRes.ok) {
+      const err = await chunkRes.text()
+      throw new Error(`Chunk upload failed: ${err}`)
+    }
+
+    offset = end
+    onProgress?.(Math.round((offset / file.size) * 80))
+
+    if (isLast) {
+      const data = await chunkRes.json()
+      fileUri = data?.file?.uri ?? ''
+    }
+  }
+
+  if (!fileUri) throw new Error('No file URI returned after upload')
+
+  // 3. Wait for ACTIVE
+  onProgress?.(85)
+  const fileName = fileUri.split('/').pop()
+  for (let i = 0; i < 30; i++) {
+    const stateRes = await fetch(`${BASE}/v1beta/files/${fileName}?key=${apiKey}`)
+    if (!stateRes.ok) throw new Error('Failed to check file state')
+    const stateData = await stateRes.json()
+    if (stateData.state === 'ACTIVE') {
+      onProgress?.(100)
+      return fileUri
+    }
+    if (stateData.state === 'FAILED') throw new Error('Gemini file processing failed')
+    await new Promise((r) => setTimeout(r, 2000))
+  }
+
+  throw new Error('File did not become ACTIVE in time')
 }
 
-// ── waitForFileActive & deleteFile are handled server-side now ───────────────
-// Kept as no-ops so callers that still invoke them don't break.
+// ── waitForFileActive & deleteFile ───────────────────────────────────────────
 export async function waitForFileActive(_apiKey: string, _fileUri: string): Promise<void> {
-  // No-op: the /api/upload route polls until ACTIVE before returning.
+  // No-op: handled inside uploadPdfToFileApi
 }
 
-export async function deleteFile(_apiKey: string, _fileUri: string): Promise<void> {
-  // No-op: the /api/analyze route deletes the file after extraction.
+export async function deleteFile(apiKey: string, fileUri: string): Promise<void> {
+  const fileName = fileUri.split('/').pop()
+  await fetch(`${BASE}/v1beta/files/${fileName}?key=${apiKey}`, { method: 'DELETE' }).catch(() => { })
 }
 
 // ── Parse questions from PDF via server proxy ────────────────────────────────
