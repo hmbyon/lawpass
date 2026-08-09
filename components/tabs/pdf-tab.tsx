@@ -11,7 +11,7 @@ const EXAM_TYPES: ExamType[] = ['변호사시험', '모의고사']
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = Array.from({ length: 15 }, (_, i) => CURRENT_YEAR - i)
 
-const CHUNK_SIZE = 30
+const CHUNK_SIZE = 10
 
 interface FileState {
   file: File
