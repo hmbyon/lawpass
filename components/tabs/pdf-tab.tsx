@@ -11,6 +11,8 @@ const EXAM_TYPES: ExamType[] = ['변호사시험', '모의고사']
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = Array.from({ length: 15 }, (_, i) => CURRENT_YEAR - i)
 
+const CHUNK_SIZE = 30
+
 interface FileState {
   file: File
   progress: number
@@ -72,22 +74,28 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
 
     for (let i = 0; i < files.length; i++) {
       const entry = files[i]
-      let totalPages = 0
       try {
         const sourcePdf = await PDFDocument.load(await entry.file.arrayBuffer())
-        totalPages = sourcePdf.getPageCount()
-        const chunkTotal = Math.ceil(totalPages / 50)
+        const totalPages = sourcePdf.getPageCount()
+        const chunkTotal = Math.ceil(totalPages / CHUNK_SIZE)
         updateFile(i, { status: 'uploading', progress: 0, pageCount: totalPages, chunkIndex: 0, chunkTotal })
 
         let fileQuestionCount = 0
         for (let chunkIndex = 0; chunkIndex < chunkTotal; chunkIndex++) {
           const chunkPdf = await PDFDocument.create()
-          const startPage = chunkIndex * 50
-          const endPage = Math.min(startPage + 50, totalPages)
-          const pages = await chunkPdf.copyPages(sourcePdf, Array.from({ length: endPage - startPage }, (_, page) => startPage + page))
+          const startPage = chunkIndex * CHUNK_SIZE
+          const endPage = Math.min(startPage + CHUNK_SIZE, totalPages)
+          const pages = await chunkPdf.copyPages(
+            sourcePdf,
+            Array.from({ length: endPage - startPage }, (_, p) => startPage + p)
+          )
           pages.forEach((page) => chunkPdf.addPage(page))
           const chunkBytes = await chunkPdf.save()
-          const chunkFile = new File([chunkBytes], `${entry.file.name.replace(/\.pdf$/i, '')}-chunk-${chunkIndex + 1}.pdf`, { type: 'application/pdf' })
+          const chunkFile = new File(
+            [chunkBytes],
+            `${entry.file.name.replace(/\.pdf$/i, '')}-chunk-${chunkIndex + 1}.pdf`,
+            { type: 'application/pdf' }
+          )
 
           updateFile(i, { status: 'uploading', progress: 0, chunkIndex: chunkIndex + 1 })
           let uri = ''
@@ -96,14 +104,22 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
               const overallProgress = ((chunkIndex + pct / 100) / chunkTotal) * 100
               updateFile(i, { progress: overallProgress })
             })
-            updateFile(i, { status: 'analyzing', progress: ((chunkIndex + 0.9) / chunkTotal) * 100, chunkIndex: chunkIndex + 1 })
+            updateFile(i, {
+              status: 'analyzing',
+              progress: ((chunkIndex + 0.9) / chunkTotal) * 100,
+              chunkIndex: chunkIndex + 1,
+            })
             await waitForFileActive(apiKey, uri)
             const questions = await extractQuestionsFromPdf(apiKey, uri, subject, examType, year)
             const result = addQuestions(questions)
             totalAdded += result.added
             totalMerged += result.merged
             fileQuestionCount += questions.length
-            updateFile(i, { progress: ((chunkIndex + 1) / chunkTotal) * 100, chunkIndex: chunkIndex + 1, count: fileQuestionCount })
+            updateFile(i, {
+              progress: ((chunkIndex + 1) / chunkTotal) * 100,
+              chunkIndex: chunkIndex + 1,
+              count: fileQuestionCount,
+            })
           } finally {
             if (uri) await deleteFile(apiKey, uri).catch(() => {})
           }
@@ -251,7 +267,9 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
               <p className="text-sm text-muted-foreground">
                 PDF 파일을 클릭하여 선택하거나 여러 파일을 동시에 업로드하세요
               </p>
-              <p className="text-xs text-muted-foreground mt-1">50페이지씩 자동 분할하여 처리 · 대용량 가능</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                30페이지씩 자동 분할하여 처리 · 대용량 가능
+              </p>
             </div>
             <input
               ref={fileRef}
@@ -274,18 +292,19 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
                       <div className="w-full bg-border rounded-full h-1.5">
                         <div
                           className="bg-primary h-1.5 rounded-full transition-all duration-300"
-                          style={{ width: `${f.status === 'analyzing' ? 100 : f.progress}%` }}
+                          style={{ width: `${f.progress}%` }}
                         />
                       </div>
                     )}
                     {f.status === 'uploading' && f.chunkTotal && (
                       <p className="text-xs text-primary animate-pulse">
                         청크 {f.chunkIndex ?? 1}/{f.chunkTotal} 업로드 중...
+                        {f.pageCount && ` (총 ${f.pageCount}페이지)`}
                       </p>
                     )}
                     {f.status === 'analyzing' && (
-                      <p className="text-xs text-primary animate-pulse">
-                        청크 {f.chunkIndex ?? 1}/{f.chunkTotal ?? 1} 분석 중...
+                      <p className="text-xs text-yellow-400 animate-pulse">
+                        청크 {f.chunkIndex ?? 1}/{f.chunkTotal ?? 1} Gemini 분석 중...
                       </p>
                     )}
                     {f.status === 'error' && (
@@ -310,7 +329,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
         {uploadMode === 'uri' && (
           <div className="space-y-3">
             
-              <a href="https://aistudio.google.com"
+            <a href="https://aistudio.google.com"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-between w-full px-4 py-3 bg-blue-900/30 border border-blue-700/40 rounded-xl hover:bg-blue-900/50 transition-colors"
