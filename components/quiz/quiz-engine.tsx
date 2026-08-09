@@ -204,11 +204,10 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
           {q.choices.map((c) => (
             <label
               key={c.label}
-              className={`flex gap-3 items-start p-3 rounded-lg cursor-pointer border transition-all ${
-                item.userAnswer === c.label
+              className={`flex gap-3 items-start p-3 rounded-lg cursor-pointer border transition-all ${item.userAnswer === c.label
                   ? 'border-primary bg-primary/10'
                   : 'border-border hover:border-primary/40 hover:bg-muted/50'
-              }`}
+                }`}
             >
               <input
                 type="radio"
@@ -271,13 +270,12 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
           <button
             key={idx}
             onClick={() => goToQuestion(idx)}
-            className={`w-6 h-6 rounded text-xs font-medium transition-all ${
-              idx === current
+            className={`w-6 h-6 rounded text-xs font-medium transition-all ${idx === current
                 ? 'bg-primary text-primary-foreground'
                 : it.userAnswer !== null
                   ? 'bg-muted-foreground/30 text-foreground'
                   : 'bg-muted text-muted-foreground'
-            }`}
+              }`}
           >
             {idx + 1}
           </button>
