@@ -268,7 +268,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
                 PDF 파일을 클릭하여 선택하거나 여러 파일을 동시에 업로드하세요
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                30페이지씩 자동 분할하여 처리 · 대용량 가능
+                5페이지씩 자동 분할하여 처리 · 대용량 가능
               </p>
             </div>
             <input
