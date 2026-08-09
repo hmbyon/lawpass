@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import type { WrongNote, Subject, CauseType } from '@/lib/types'
+import type { WrongNote, Subject } from '@/lib/types'
 import { deleteWrongNote, saveWrongNotes } from '@/lib/store'
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
@@ -37,20 +37,52 @@ function DetailModal({ note, onClose }: DetailModalProps) {
         </div>
 
         <div className="p-4 space-y-4 text-sm">
-          {/* Question */}
+          {/* 문제 지문 */}
           <div className="bg-muted rounded-lg p-3">
             <p className="text-xs text-muted-foreground mb-1">문제 지문</p>
             <p className="text-foreground leading-relaxed text-xs whitespace-pre-wrap">{note.question.passage}</p>
           </div>
-          <div className="text-xs text-muted-foreground">
+
+          {/* 선지 */}
+          <div className="space-y-1">
+            {note.question.choices.map((c) => (
+              <div
+                key={c.label}
+                className={`flex gap-2 p-2 rounded-lg text-xs border ${c.label === note.question.answer
+                    ? 'border-emerald-600 bg-emerald-900/20 text-emerald-300'
+                    : c.label === note.userAnswer
+                      ? 'border-red-600 bg-red-900/20 text-red-300'
+                      : 'border-border text-muted-foreground'
+                  }`}
+              >
+                <span className="font-semibold shrink-0">{c.label}</span>
+                <span>{c.text}</span>
+                {c.label === note.question.answer && <span className="ml-auto shrink-0">✓ 정답</span>}
+                {c.label === note.userAnswer && c.label !== note.question.answer && <span className="ml-auto shrink-0">✗ 내 답</span>}
+              </div>
+            ))}
+          </div>
+
+          {/* 해설 */}
+          {note.question.explanation && (
+            <div className="bg-muted rounded-lg p-3">
+              <p className="text-xs text-muted-foreground mb-1 font-medium">해설</p>
+              <p className="text-foreground text-xs leading-relaxed">{note.question.explanation}</p>
+            </div>
+          )}
+
+          <div className="text-xs text-muted-foreground border-t border-border pt-2">
             내 답: <span className="text-red-400 font-medium">{note.userAnswer}</span>{' '}
             정답: <span className="text-emerald-400 font-medium">{note.question.answer}</span>
             {note.status && <span className="ml-2 text-yellow-400">({note.status})</span>}
           </div>
 
-          {/* Analysis */}
+          {/* AI 분석 */}
           {a ? (
             <>
+              <div className="border-t border-border pt-3">
+                <p className="text-xs font-semibold text-primary mb-2">AI 오답 분석</p>
+              </div>
               <Section label="핵심개념" value={a.핵심개념} />
               <Section label="관련조문" value={a.관련조문} />
               <Section label="오답원인 상세" value={a.원인상세} />
@@ -104,7 +136,10 @@ export function WrongTab({
     if (subjects.length) list = list.filter((n) => subjects.includes(n.question.subject))
     if (risks.length) {
       const levels = risks.map((r) => Number(r.replace('★', '')))
-      list = list.filter((n) => levels.includes(n.analysis?.위험도 ?? 0))
+      list = list.filter((n) => {
+        const risk = n.analysis?.위험도
+        return risk !== undefined && risk !== null && levels.includes(Number(risk))
+      })
     }
     if (sort === '날짜순') list.sort((a, b) => b.createdAt - a.createdAt)
     else list.sort((a, b) => (b.analysis?.위험도 ?? 0) - (a.analysis?.위험도 ?? 0))
@@ -144,9 +179,13 @@ export function WrongTab({
       </p>
 
       {/* List */}
-      {filtered.length === 0 ? (
+      {filtered.length === 0 && risks.length === 0 && subjects.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground text-sm">
           오답노트가 없습니다. CBT나 선학습 모드에서 문제를 풀어보세요.
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground text-sm">
+          필터 조건에 맞는 오답이 없습니다.
         </div>
       ) : (
         <div className="space-y-2">
