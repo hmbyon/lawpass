@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
       const raw: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '[]'
 
       const fileName = fileUri.split('/').pop()
-      fetch(`${BASE}/v1beta/files/${fileName}?key=${apiKey}`, { method: 'DELETE' }).catch(() => { })
+      fetch(`${BASE}/v1beta/files/${fileName}?key=${apiKey}`, { method: 'DELETE' }).catch(() => {})
 
       return NextResponse.json({ raw, subject, examType, year })
     }
