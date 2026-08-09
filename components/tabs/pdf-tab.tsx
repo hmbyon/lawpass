@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react'
 import { getApiKey, setApiKey, addQuestions } from '@/lib/store'
 import { uploadPdfToFileApi, waitForFileActive, extractQuestionsFromPdf, deleteFile } from '@/lib/gemini'
-import type { Subject, ExamType, Question } from '@/lib/types'
+import type { Subject, ExamType } from '@/lib/types'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const EXAM_TYPES: ExamType[] = ['변호사시험', '모의고사']
@@ -18,15 +18,21 @@ interface FileState {
   count?: number
 }
 
+type UploadMode = 'file' | 'uri'
+
 export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   const [apiKey, setApiKeyLocal] = useState(() => getApiKey())
   const [apiStatus, setApiStatus] = useState<'untested' | 'ok' | 'error'>('untested')
+  const [uploadMode, setUploadMode] = useState<UploadMode>('file')
   const [files, setFiles] = useState<FileState[]>([])
+  const [fileUri, setFileUri] = useState('')
   const [subject, setSubject] = useState<Subject>('민법')
   const [examType, setExamType] = useState<ExamType>('변호사시험')
   const [year, setYear] = useState<number>(CURRENT_YEAR)
   const [isRunning, setIsRunning] = useState(false)
   const [summary, setSummary] = useState<{ added: number; merged: number } | null>(null)
+  const [uriStatus, setUriStatus] = useState<'idle' | 'analyzing' | 'done' | 'error'>('idle')
+  const [uriError, setUriError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   function saveKey(k: string) {
@@ -64,16 +70,16 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       const entry = files[i]
       updateFile(i, { status: 'uploading', progress: 0 })
 
-      let fileUri = ''
+      let uri = ''
       try {
-        fileUri = await uploadPdfToFileApi(apiKey, entry.file, (pct) => {
+        uri = await uploadPdfToFileApi(apiKey, entry.file, (pct) => {
           updateFile(i, { progress: pct })
         })
         updateFile(i, { status: 'analyzing', progress: 100 })
 
-        await waitForFileActive(apiKey, fileUri)
+        await waitForFileActive(apiKey, uri)
 
-        const questions = await extractQuestionsFromPdf(apiKey, fileUri, subject, examType, year)
+        const questions = await extractQuestionsFromPdf(apiKey, uri, subject, examType, year)
         const result = addQuestions(questions)
         totalAdded += result.added
         totalMerged += result.merged
@@ -82,8 +88,8 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       } catch (err) {
         updateFile(i, { status: 'error', error: String(err) })
       } finally {
-        if (fileUri) {
-          deleteFile(apiKey, fileUri).catch(() => {})
+        if (uri) {
+          deleteFile(apiKey, uri).catch(() => { })
         }
       }
     }
@@ -91,6 +97,24 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     setSummary({ added: totalAdded, merged: totalMerged })
     setIsRunning(false)
     onQuestionsAdded()
+  }
+
+  async function startUriAnalysis() {
+    if (!apiKey || !fileUri.trim()) return
+    setUriStatus('analyzing')
+    setUriError('')
+    setSummary(null)
+
+    try {
+      const questions = await extractQuestionsFromPdf(apiKey, fileUri.trim(), subject, examType, year)
+      const result = addQuestions(questions)
+      setSummary({ added: result.added, merged: result.merged })
+      setUriStatus('done')
+      onQuestionsAdded()
+    } catch (err) {
+      setUriError(String(err))
+      setUriStatus('error')
+    }
   }
 
   function updateFile(i: number, patch: Partial<FileState>) {
@@ -131,7 +155,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
           </button>
         </div>
         {apiStatus === 'ok' && (
-          <p className="text-xs text-emerald-400">연결 성공 — gemini-2.5-flash 사용 가능</p>
+          <p className="text-xs text-emerald-400">연결 성공</p>
         )}
         {apiStatus === 'error' && (
           <p className="text-xs text-red-400">연결 실패 — API 키를 확인하세요</p>
@@ -181,73 +205,155 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
         </div>
       </div>
 
-      {/* File Upload */}
-      <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-        <h2 className="font-semibold text-sm text-foreground">PDF 업로드</h2>
-        <div
-          className="border-2 border-dashed border-border hover:border-primary/50 rounded-xl p-8 text-center cursor-pointer transition-colors"
-          onClick={() => fileRef.current?.click()}
-        >
-          <div className="text-4xl mb-2">📄</div>
-          <p className="text-sm text-muted-foreground">
-            PDF 파일을 클릭하여 선택하거나 여러 파일을 동시에 업로드하세요
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">Gemini File API로 대용량 파일 처리</p>
+      {/* Upload Mode Toggle */}
+      <div className="bg-card border border-border rounded-xl p-4 space-y-4">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setUploadMode('file')}
+            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${uploadMode === 'file'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground hover:text-foreground'
+              }`}
+          >
+            📄 PDF 직접 업로드
+          </button>
+          <button
+            onClick={() => setUploadMode('uri')}
+            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${uploadMode === 'uri'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground hover:text-foreground'
+              }`}
+          >
+            🔗 File URI 입력
+          </button>
         </div>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="application/pdf"
-          multiple
-          className="hidden"
-          onChange={handleFileChange}
-        />
 
-        {files.length > 0 && (
-          <div className="space-y-2">
-            {files.map((f, i) => (
-              <div key={i} className="bg-muted rounded-lg p-3 space-y-1">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="font-medium truncate max-w-[60%]">{f.file.name}</span>
-                  <StatusChip status={f.status} count={f.count} />
-                </div>
-                {(f.status === 'uploading' || f.status === 'analyzing') && (
-                  <div className="w-full bg-border rounded-full h-1.5">
-                    <div
-                      className="bg-primary h-1.5 rounded-full transition-all duration-300"
-                      style={{ width: `${f.status === 'analyzing' ? 100 : f.progress}%` }}
-                    />
+        {/* 직접 업로드 */}
+        {uploadMode === 'file' && (
+          <div className="space-y-3">
+            <div
+              className="border-2 border-dashed border-border hover:border-primary/50 rounded-xl p-8 text-center cursor-pointer transition-colors"
+              onClick={() => fileRef.current?.click()}
+            >
+              <div className="text-4xl mb-2">📄</div>
+              <p className="text-sm text-muted-foreground">
+                PDF 파일을 클릭하여 선택하거나 여러 파일을 동시에 업로드하세요
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">50MB 이하 권장</p>
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/pdf"
+              multiple
+              className="hidden"
+              onChange={handleFileChange}
+            />
+
+            {files.length > 0 && (
+              <div className="space-y-2">
+                {files.map((f, i) => (
+                  <div key={i} className="bg-muted rounded-lg p-3 space-y-1">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="font-medium truncate max-w-[60%]">{f.file.name}</span>
+                      <StatusChip status={f.status} count={f.count} />
+                    </div>
+                    {(f.status === 'uploading' || f.status === 'analyzing') && (
+                      <div className="w-full bg-border rounded-full h-1.5">
+                        <div
+                          className="bg-primary h-1.5 rounded-full transition-all duration-300"
+                          style={{ width: `${f.status === 'analyzing' ? 100 : f.progress}%` }}
+                        />
+                      </div>
+                    )}
+                    {f.status === 'analyzing' && (
+                      <p className="text-xs text-primary animate-pulse">Gemini 분석 중...</p>
+                    )}
+                    {f.status === 'error' && (
+                      <p className="text-xs text-red-400 break-all">{f.error}</p>
+                    )}
                   </div>
-                )}
-                {f.status === 'analyzing' && (
-                  <p className="text-xs text-primary animate-pulse">Gemini 분석 중...</p>
-                )}
-                {f.status === 'error' && (
-                  <p className="text-xs text-red-400 break-all">{f.error}</p>
-                )}
+                ))}
               </div>
-            ))}
+            )}
+
+            <button
+              onClick={startAnalysis}
+              disabled={isRunning || !apiKey || files.length === 0}
+              className="w-full py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            >
+              {isRunning ? '분석 중...' : '분석 시작'}
+            </button>
           </div>
+        )}
+
+        {/* File URI 입력 */}
+        {uploadMode === 'uri' && (
+          <div className="space-y-3">
+            {/* AI Studio 바로가기 */}
+
+            href="https://aistudio.google.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-between w-full px-4 py-3 bg-blue-900/30 border border-blue-700/40 rounded-xl hover:bg-blue-900/50 transition-colors"
+            >
+            <div>
+              <p className="text-sm font-medium text-blue-300">Google AI Studio에서 대용량 PDF 업로드</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                최대 2GB · 업로드 후 File URI 복사해서 아래에 붙여넣기
+              </p>
+            </div>
+            <span className="text-blue-400 text-lg shrink-0">→</span>
+          </a>
+
+            {/* AI Studio 사용법 */}
+        <div className="bg-muted rounded-lg p-3 space-y-1 text-xs text-muted-foreground">
+          <p className="font-medium text-foreground">AI Studio에서 File URI 얻는 법</p>
+          <p>1. aistudio.google.com 접속</p>
+          <p>2. 우측 상단 파일 아이콘 클릭 → PDF 업로드</p>
+          <p>3. 업로드된 파일 클릭 → "Copy file URI" 선택</p>
+          <p>4. 아래 입력란에 붙여넣기</p>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-xs text-muted-foreground">File URI</label>
+          <input
+            type="text"
+            value={fileUri}
+            onChange={(e) => {
+              setFileUri(e.target.value)
+              setUriStatus('idle')
+              setUriError('')
+            }}
+            placeholder="https://generativelanguage.googleapis.com/v1beta/files/..."
+            className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+
+        {uriStatus === 'error' && (
+          <p className="text-xs text-red-400 break-all">{uriError}</p>
         )}
 
         <button
-          onClick={startAnalysis}
-          disabled={isRunning || !apiKey || files.length === 0}
+          onClick={startUriAnalysis}
+          disabled={uriStatus === 'analyzing' || !apiKey || !fileUri.trim()}
           className="w-full py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
         >
-          {isRunning ? '분석 중...' : '분석 시작'}
+          {uriStatus === 'analyzing' ? 'Gemini 분석 중...' : '분석 시작'}
         </button>
-
-        {summary && (
-          <div className="bg-emerald-900/30 border border-emerald-700/40 rounded-lg p-3 text-sm">
-            <p className="text-emerald-300 font-medium">
-              완료: <span className="font-bold">{summary.added}문제</span> 추가,{' '}
-              <span className="font-bold">{summary.merged}문제</span> 병합 (중복 해설 통합)
-            </p>
-          </div>
-        )}
       </div>
+        )}
+
+      {summary && (
+        <div className="bg-emerald-900/30 border border-emerald-700/40 rounded-lg p-3 text-sm">
+          <p className="text-emerald-300 font-medium">
+            완료: <span className="font-bold">{summary.added}문제</span> 추가,{' '}
+            <span className="font-bold">{summary.merged}문제</span> 병합
+          </p>
+        </div>
+      )}
     </div>
+    </div >
   )
 }
 
