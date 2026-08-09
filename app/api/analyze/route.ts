@@ -63,11 +63,8 @@ export async function POST(req: NextRequest) {
       const data = await res.json()
       const raw: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '[]'
 
-      // Delete the file after extraction (fire-and-forget)
       const fileName = fileUri.split('/').pop()
-      fetch(`${BASE}/v1beta/files/${fileName}?key=${apiKey}`, { method: 'DELETE' }).catch(
-        () => { }
-      )
+      fetch(`${BASE}/v1beta/files/${fileName}?key=${apiKey}`, { method: 'DELETE' }).catch(() => { })
 
       return NextResponse.json({ raw, subject, examType, year })
     }
@@ -118,12 +115,13 @@ Step1. 핵심 개념/조문/판례 한 줄 정의
 Step2. 정답과 오답 선지의 결정적 차이 분석
 Step3. 가설A(개념부족)/B(암기혼동)/C(지문오독) 각각 평가
 Step4. 상태값 참고하여 최종 원인 가중치 반영
-Step5. JSON만 출력
+Step5. 위험도는 반드시 1~5 사이의 정수로만 출력 (예: 4)
+Step6. JSON만 출력
 
 Grounding Rule: 입력 자료 외 법률 내용 생성 금지. 불확실하면 "근거부족" 표시.
 
 출력 형식:
-{"핵심개념": string, "관련조문": string, "오답원인": {"가설A": string, "가설B": string, "가설C": string, "선학습적용실패": string|null}, "원인상세": string, "개념요약": string, "혼동주의": string, "체크포인트": string, "위험도": number}`
+{"핵심개념": string, "관련조문": string, "오답원인": {"가설A": string, "가설B": string, "가설C": string, "선학습적용실패": string|null}, "원인상세": string, "개념요약": string, "혼동주의": string, "체크포인트": string, "위험도": 1~5 사이의 정수}`
 
       const res = await fetch(
         `${BASE}/v1beta/models/${MODEL}:generateContent?key=${apiKey}`,
@@ -140,7 +138,7 @@ Grounding Rule: 입력 자료 외 법률 내용 생성 금지. 불확실하면 "
       if (!res.ok) {
         const err = await res.text()
         console.error('Gemini API error:', res.status, res.statusText, err)
-        return NextResponse.json({ error: `Gemini generate failed: [${res.status}] ${err}` }, { status: 502 })
+        return NextResponse.json({ error: `Gemini analyze failed: [${res.status}] ${err}` }, { status: 502 })
       }
 
       const data = await res.json()
