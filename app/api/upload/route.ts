@@ -1,3 +1,13 @@
+export const maxDuration = 60
+
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '50mb',
+    },
+  },
+}
+
 import { NextRequest, NextResponse } from 'next/server'
 
 const BASE = 'https://generativelanguage.googleapis.com'
