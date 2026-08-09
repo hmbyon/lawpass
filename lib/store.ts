@@ -29,11 +29,13 @@ function safeSet(key: string, value: unknown) {
 
 // ── API Key ──────────────────────────────────────────────────────────────────
 export function getApiKey(): string {
-  return safeGet<string>(KEYS.apiKey, '')
+  if (typeof window === 'undefined') return ''
+  return localStorage.getItem(KEYS.apiKey) ?? ''
 }
 
 export function setApiKey(key: string) {
-  safeSet(KEYS.apiKey, key)
+  if (typeof window === 'undefined') return
+  localStorage.setItem(KEYS.apiKey, key)
 }
 
 // ── Question Bank ─────────────────────────────────────────────────────────────
@@ -56,7 +58,6 @@ export function addQuestions(incoming: Question[]): { added: number; merged: num
     const key = q.passage.slice(0, 100)
     const found = byPassage.get(key)
     if (found) {
-      // merge explanations
       const expl = new Set([
         ...(found.explanations ?? (found.explanation ? [found.explanation] : [])),
         ...(q.explanations ?? (q.explanation ? [q.explanation] : [])),
