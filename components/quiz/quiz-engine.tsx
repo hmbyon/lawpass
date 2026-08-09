@@ -124,6 +124,11 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
     return () => clearInterval(interval)
   }, [timeLimitSeconds, submitted, handleSubmit])
 
+  function goToQuestion(idx: number) {
+    setCurrent(idx)
+    if (mode === 'study') setShowStudyFirst(true)
+  }
+
   function setAnswer(val: string) {
     setItems((prev) => {
       const next = [...prev]
@@ -246,7 +251,7 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
       {/* Navigation */}
       <div className="flex gap-2">
         <button
-          onClick={() => setCurrent((c) => Math.max(0, c - 1))}
+          onClick={() => goToQuestion(Math.max(0, current - 1))}
           disabled={current === 0}
           className="flex-1 py-2 bg-muted rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-muted/70 transition-colors"
         >
@@ -254,7 +259,7 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
         </button>
         {current < questions.length - 1 ? (
           <button
-            onClick={() => setCurrent((c) => Math.min(questions.length - 1, c + 1))}
+            onClick={() => goToQuestion(Math.min(questions.length - 1, current + 1))}
             className="flex-1 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
           >
             다음
@@ -274,7 +279,7 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
         {items.map((it, idx) => (
           <button
             key={idx}
-            onClick={() => setCurrent(idx)}
+            onClick={() => goToQuestion(idx)}
             className={`w-6 h-6 rounded text-xs font-medium transition-all ${
               idx === current
                 ? 'bg-primary text-primary-foreground'
