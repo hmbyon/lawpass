@@ -8,7 +8,7 @@ import type { Subject, ExamType } from '@/lib/types'
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const EXAM_TYPES: ExamType[] = ['변호사시험', '모의고사']
 const CURRENT_YEAR = new Date().getFullYear()
-const YEARS = Array.from({ length: 15 }, (_, i) => CURRENT_YEAR - i)
+const YEARS = Arsray.from({ length: 15 }, (_, i) => CURRENT_YEAR - i)
 
 interface FileState {
   file: File
