@@ -49,7 +49,9 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
     if (submitted) return
     setSubmitted(true)
 
-    const apiKey = getApiKey()
+    const apiKey = typeof window !== 'undefined' 
+      ? localStorage.getItem('lawpass_api_key') ?? '' 
+      : ''
     const wrongs: WrongNote[] = []
     const wrongItems = items.filter(
       (item) => item.userAnswer !== null && item.userAnswer !== item.question.answer
