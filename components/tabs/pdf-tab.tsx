@@ -251,7 +251,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
               <p className="text-sm text-muted-foreground">
                 PDF 파일을 클릭하여 선택하거나 여러 파일을 동시에 업로드하세요
               </p>
-              <p className="text-xs text-muted-foreground mt-1">50MB 이하 권장</p>
+              <p className="text-xs text-muted-foreground mt-1">50페이지씩 자동 분할하여 처리 · 대용량 가능</p>
             </div>
             <input
               ref={fileRef}
