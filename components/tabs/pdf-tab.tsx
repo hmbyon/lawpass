@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { getApiKey, addQuestions } from '@/lib/store'
+import { getApiKey, setApiKey, addQuestions } from '@/lib/store'
 import { uploadPdfToFileApi, waitForFileActive, extractQuestionsFromPdf, deleteFile } from '@/lib/gemini'
 import type { Subject, ExamType, Question } from '@/lib/types'
 
@@ -32,9 +32,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   function saveKey(k: string) {
     setApiKeyLocal(k)
     setApiStatus('untested')
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('lawpass_api_key', k)
-    }
+    setApiKey(k)
   }
 
   async function testApiKey() {
