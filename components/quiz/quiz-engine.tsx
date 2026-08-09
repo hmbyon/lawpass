@@ -42,10 +42,20 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
   const [results, setResults] = useState<{ correct: number; wrong: WrongNote[] } | null>(null)
   const [timeLeft, setTimeLeft] = useState(timeLimitSeconds)
   const [analyzeProgress, setAnalyzeProgress] = useState(0)
+  const [unansweredWarning, setUnansweredWarning] = useState(false)
 
   const handleSubmit = useCallback(async () => {
     if (submitted) return
+
+    // 미답변 문제 체크
+    const unanswered = items.filter((item) => item.userAnswer === null)
+    if (unanswered.length > 0) {
+      setUnansweredWarning(true)
+      return
+    }
+
     setSubmitted(true)
+    setUnansweredWarning(false)
 
     const apiKey = typeof window !== 'undefined'
       ? localStorage.getItem('lawpass_api_key') ?? ''
@@ -133,6 +143,7 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
 
   function goToQuestion(idx: number) {
     setCurrent(idx)
+    setUnansweredWarning(false)
   }
 
   function setAnswer(val: string) {
@@ -141,6 +152,7 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
       next[current] = { ...next[current], userAnswer: val }
       return next
     })
+    setUnansweredWarning(false)
   }
 
   function setStatus(val: QuestionStatus) {
@@ -156,6 +168,8 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
 
   const item = items[current]
   const q = item.question
+  const isCurrentAnswered = item.userAnswer !== null
+  const unansweredCount = items.filter((i) => i.userAnswer === null).length
 
   if (analyzing) {
     return (
@@ -240,6 +254,13 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
         </div>
       </div>
 
+      {/* 미답변 경고 */}
+      {unansweredWarning && (
+        <div className="bg-red-900/30 border border-red-700/40 rounded-lg px-4 py-3 text-sm text-red-300">
+          ⚠ 아직 {unansweredCount}개 문제에 답을 선택하지 않았습니다. 미답변 문제를 확인해주세요.
+        </div>
+      )}
+
       <div className="flex gap-2">
         <button
           onClick={() => goToQuestion(Math.max(0, current - 1))}
@@ -251,7 +272,8 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
         {current < questions.length - 1 ? (
           <button
             onClick={() => goToQuestion(Math.min(questions.length - 1, current + 1))}
-            className="flex-1 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+            disabled={!isCurrentAnswered}
+            className="flex-1 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
           >
             다음
           </button>
@@ -274,7 +296,9 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
                 ? 'bg-primary text-primary-foreground'
                 : it.userAnswer !== null
                   ? 'bg-muted-foreground/30 text-foreground'
-                  : 'bg-muted text-muted-foreground'
+                  : unansweredWarning
+                    ? 'bg-red-900/50 text-red-300'
+                    : 'bg-muted text-muted-foreground'
               }`}
           >
             {idx + 1}
