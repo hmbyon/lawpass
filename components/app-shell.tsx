@@ -41,7 +41,6 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      {/* Header */}
       <header className="sticky top-0 z-40 bg-background/90 backdrop-blur-sm border-b border-border">
         <div className="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -63,7 +62,6 @@ export function AppShell() {
         </div>
       </header>
 
-      {/* Tab bar */}
       <nav className="sticky top-14 z-30 bg-background/90 backdrop-blur-sm border-b border-border no-print">
         <div className="max-w-3xl mx-auto px-2">
           <div className="flex overflow-x-auto scrollbar-hide">
@@ -95,23 +93,12 @@ export function AppShell() {
         </div>
       </nav>
 
-      {/* Content */}
       <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-5">
-        {tab === 'pdf' && (
-          <PdfTab onQuestionsAdded={refresh} />
-        )}
-        {tab === 'cbt' && (
-          <CbtTab questions={questions} />
-        )}
-        {tab === 'study' && (
-          <StudyTab questions={questions} />
-        )}
-        {tab === 'wrong' && (
-          <WrongTab notes={wrongNotes} onNotesChanged={refresh} />
-        )}
-        {tab === 'memo' && (
-          <MemoTab notes={wrongNotes} />
-        )}
+        {tab === 'pdf' && <PdfTab onQuestionsAdded={refresh} />}
+        {tab === 'cbt' && <CbtTab questions={questions} onDone={refresh} />}
+        {tab === 'study' && <StudyTab questions={questions} onDone={refresh} />}
+        {tab === 'wrong' && <WrongTab notes={wrongNotes} onNotesChanged={refresh} />}
+        {tab === 'memo' && <MemoTab notes={wrongNotes} />}
       </main>
     </div>
   )

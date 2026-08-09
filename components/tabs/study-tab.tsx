@@ -5,7 +5,7 @@ import type { Question } from '@/lib/types'
 import { QuizFilter } from '@/components/quiz/quiz-filter'
 import { QuizEngine } from '@/components/quiz/quiz-engine'
 
-export function StudyTab({ questions }: { questions: Question[] }) {
+export function StudyTab({ questions, onDone }: { questions: Question[]; onDone: () => void }) {
   const [session, setSession] = useState<{ questions: Question[]; timeLimit: number | null } | null>(null)
 
   if (!session) {
@@ -31,7 +31,10 @@ export function StudyTab({ questions }: { questions: Question[] }) {
       questions={session.questions}
       mode="study"
       timeLimitSeconds={session.timeLimit}
-      onFinish={() => setSession(null)}
+      onFinish={() => {
+        setSession(null)
+        onDone()
+      }}
     />
   )
 }

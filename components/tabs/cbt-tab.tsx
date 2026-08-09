@@ -5,7 +5,7 @@ import type { Question } from '@/lib/types'
 import { QuizFilter } from '@/components/quiz/quiz-filter'
 import { QuizEngine } from '@/components/quiz/quiz-engine'
 
-export function CbtTab({ questions }: { questions: Question[] }) {
+export function CbtTab({ questions, onDone }: { questions: Question[]; onDone: () => void }) {
   const [session, setSession] = useState<{ questions: Question[]; timeLimit: number | null } | null>(null)
 
   if (!session) {
@@ -31,7 +31,10 @@ export function CbtTab({ questions }: { questions: Question[] }) {
       questions={session.questions}
       mode="cbt"
       timeLimitSeconds={session.timeLimit}
-      onFinish={() => setSession(null)}
+      onFinish={() => {
+        setSession(null)
+        onDone()
+      }}
     />
   )
 }
