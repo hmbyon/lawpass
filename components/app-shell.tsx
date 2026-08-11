@@ -6,6 +6,7 @@ import type { Question, WrongNote } from '@/lib/types'
 import { getQuestions, getWrongNotes, clearAll } from '@/lib/store'
 import { logout } from '@/lib/firebaseServices/auth'
 import { pullFromFirebase, pushToFirebase } from '@/lib/firebaseServices/sync'
+import { ThemeToggle } from '@/components/theme-toggle'
 import { PdfTab } from '@/components/tabs/pdf-tab'
 import { CbtTab } from '@/components/tabs/cbt-tab'
 import { StudyTab } from '@/components/tabs/study-tab'
@@ -37,7 +38,6 @@ export function AppShell({ user }: Props) {
     setWrongNotes(getWrongNotes())
   }, [])
 
-  // 로그인하면 Firebase에서 데이터 불러오기
   useEffect(() => {
     async function loadFromFirebase() {
       setSyncing(true)
@@ -53,7 +53,6 @@ export function AppShell({ user }: Props) {
     loadFromFirebase()
   }, [user.uid, refresh])
 
-  // 데이터 바뀔 때마다 Firebase에 저장
   const refreshAndSync = useCallback(async () => {
     refresh()
     try {
@@ -81,6 +80,7 @@ export function AppShell({ user }: Props) {
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             {syncing && <span className="text-primary animate-pulse">동기화 중...</span>}
+            <ThemeToggle />
             <span>{questions.length}문제</span>
             <span>오답 {wrongNotes.length}</span>
             <button
