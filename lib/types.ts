@@ -30,6 +30,7 @@ export interface Question {
   // dedup support
   explanations?: string[]
   addedAt: number
+  sourceFile?: string  // 업로드한 파일명
 }
 
 export interface ErrorAnalysis {
@@ -58,8 +59,15 @@ export interface WrongNote {
   status: QuestionStatus
   isStudyMode: boolean
   analysis: ErrorAnalysis | null
+  analysisHistory: ErrorAnalysis[]
   dominantCause: CauseType | null
   createdAt: number
+  memo?: string
+  hiddenFields?: string[]
+  wrongCount: number
+  totalCount: number
+  isBookmarked: boolean
+  choiceMemos?: Record<string, string>  // 선지별 메모 (키: ①②③④⑤)
 }
 
 export interface SessionResult {

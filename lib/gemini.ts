@@ -60,6 +60,8 @@ export async function extractQuestionsFromPdf(
 
   let parsed: {
     문제번호: number
+    연도?: number
+    단원?: string
     지문: string
     선지: Record<string, string>
     정답: string
@@ -80,7 +82,8 @@ export async function extractQuestionsFromPdf(
     no: item.문제번호,
     subject,
     examType,
-    year,
+    year: item.연도 ?? year,  // AI가 추출한 연도 우선, 없으면 fallback
+    unit: item.단원 ?? undefined,
     passage: item.지문,
     choices: LABELS.map((l) => ({ label: l, text: item.선지?.[l] ?? '' })),
     answer: item.정답,

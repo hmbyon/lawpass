@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { Question, QuestionStatus, WrongNote, CauseType } from '@/lib/types'
 import { analyzeWrongAnswer } from '@/lib/gemini'
-import { addWrongNote } from '@/lib/store'
+import { addWrongNote, addCorrectNote } from '@/lib/store'
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
 
@@ -47,7 +47,6 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
   const handleSubmit = useCallback(async () => {
     if (submitted) return
 
-    // 미답변 문제 체크
     const unanswered = items.filter((item) => item.userAnswer === null)
     if (unanswered.length > 0) {
       setUnansweredWarning(true)
@@ -60,21 +59,27 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
     const apiKey = typeof window !== 'undefined'
       ? localStorage.getItem('lawpass_api_key') ?? ''
       : ''
-    const wrongs: WrongNote[] = []
+
+    const correctItems = items.filter(
+      (item) => item.userAnswer !== null && item.userAnswer === item.question.answer
+    )
     const wrongItems = items.filter(
       (item) => item.userAnswer !== null && item.userAnswer !== item.question.answer
     )
 
+    for (const item of correctItems) {
+      addCorrectNote(item.question.id)
+    }
+
     if (wrongItems.length === 0) {
-      const correct = items.filter(
-        (item) => item.userAnswer !== null && item.userAnswer === item.question.answer
-      ).length
-      setResults({ correct, wrong: [] })
+      setResults({ correct: correctItems.length, wrong: [] })
       return
     }
 
     setAnalyzing(true)
     setAnalyzeProgress(0)
+
+    const wrongs: WrongNote[] = []
 
     for (let i = 0; i < wrongItems.length; i++) {
       const item = wrongItems[i]
@@ -94,14 +99,18 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
           status: item.status,
           isStudyMode: mode === 'study',
           analysis,
+          analysisHistory: [],
           dominantCause: getDominantCause(analysis, mode === 'study'),
           createdAt: Date.now(),
+          wrongCount: 1,
+          totalCount: 1,
+          isBookmarked: false,
         }
         addWrongNote(note)
         wrongs.push(note)
       } catch (err) {
         console.error('[v0] Analysis failed for question', item.question.id, err)
-        const note: WrongNote = {
+        const failNote: WrongNote = {
           id: `${item.question.id}_${Date.now()}`,
           questionId: item.question.id,
           question: item.question,
@@ -109,20 +118,21 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
           status: item.status,
           isStudyMode: mode === 'study',
           analysis: null,
+          analysisHistory: [],
           dominantCause: null,
           createdAt: Date.now(),
+          wrongCount: 1,
+          totalCount: 1,
+          isBookmarked: false,
         }
-        addWrongNote(note)
-        wrongs.push(note)
+        addWrongNote(failNote)
+        wrongs.push(failNote)
       }
       setAnalyzeProgress(Math.round(((i + 1) / wrongItems.length) * 100))
     }
 
     setAnalyzing(false)
-    const correct = items.filter(
-      (item) => item.userAnswer !== null && item.userAnswer === item.question.answer
-    ).length
-    setResults({ correct, wrong: wrongs })
+    setResults({ correct: correctItems.length, wrong: wrongs })
   }, [items, submitted, mode])
 
   useEffect(() => {
@@ -218,10 +228,11 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
           {q.choices.map((c) => (
             <label
               key={c.label}
-              className={`flex gap-3 items-start p-3 rounded-lg cursor-pointer border transition-all ${item.userAnswer === c.label
+              className={`flex gap-3 items-start p-3 rounded-lg cursor-pointer border transition-all ${
+                item.userAnswer === c.label
                   ? 'border-primary bg-primary/10'
                   : 'border-border hover:border-primary/40 hover:bg-muted/50'
-                }`}
+              }`}
             >
               <input
                 type="radio"
@@ -254,7 +265,6 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
         </div>
       </div>
 
-      {/* 미답변 경고 */}
       {unansweredWarning && (
         <div className="bg-red-900/30 border border-red-700/40 rounded-lg px-4 py-3 text-sm text-red-300">
           ⚠ 아직 {unansweredCount}개 문제에 답을 선택하지 않았습니다. 미답변 문제를 확인해주세요.
@@ -292,14 +302,15 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
           <button
             key={idx}
             onClick={() => goToQuestion(idx)}
-            className={`w-6 h-6 rounded text-xs font-medium transition-all ${idx === current
+            className={`w-6 h-6 rounded text-xs font-medium transition-all ${
+              idx === current
                 ? 'bg-primary text-primary-foreground'
                 : it.userAnswer !== null
                   ? 'bg-muted-foreground/30 text-foreground'
                   : unansweredWarning
                     ? 'bg-red-900/50 text-red-300'
                     : 'bg-muted text-muted-foreground'
-              }`}
+            }`}
           >
             {idx + 1}
           </button>
@@ -345,7 +356,7 @@ function ResultsView({
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs text-muted-foreground">{note.question.subject}</span>
                     {note.dominantCause && <CauseBadge cause={note.dominantCause} />}
-                    {note.analysis && <StarRating value={note.analysis.위험도} />}
+                    <StarRating value={note.analysis?.위험도 ?? 1} />
                   </div>
                   <p className="text-sm text-foreground line-clamp-2">{note.question.passage.slice(0, 80)}...</p>
                   <p className="text-xs text-muted-foreground">

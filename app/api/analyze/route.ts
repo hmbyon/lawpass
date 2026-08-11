@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
         year: number
       }
 
-      if (!fileUri || !subject || !examType || !year) {
+      if (!fileUri || !subject || !examType) {
         return NextResponse.json(
           { error: 'fileUri, subject, examType, year are required for extract mode' },
           { status: 400 }
@@ -30,10 +30,21 @@ export async function POST(req: NextRequest) {
 
       const prompt = `당신은 변호사시험 문제 추출 전문가입니다.
 이 PDF에서 모든 문제를 추출하여 JSON 배열만 출력하세요.
-각 항목 형식: {"문제번호": number, "지문": string, "선지": {"①": string, "②": string, "③": string, "④": string, "⑤": string}, "정답": string, "해설": string|null}
+각 항목 형식: {"문제번호": number, "연도": number, "단원": string, "지문": string, "선지": {"①": string, "②": string, "③": string, "④": string,"⑤": string}, "정답": string, "해설": string|null}
+- 단원은 아래 목록에서 반드시 하나만 선택하세요:
+  민법: 민법총칙, 물권법, 채권총론, 채권각론, 가족법
+  민사소송법: 소송요건, 소송절차, 증거, 상소, 강제집행
+  상법: 총칙, 회사법, 어음수표법, 보험법, 해상법
+  형법: 총론, 각론, 특별형법
+  형사소송법: 수사, 공소, 공판, 증거, 상소
+  헌법: 총론, 기본권, 통치구조
+  행정법: 총론, 각론
+- PDF에 단원 표시가 없으면 문제 내용으로 추론하세요
+- 연도는 PDF 표지나 문제에서 직접 읽어서 추출하세요 (예: "2023년도 제12회 변호사시험" → 2023). 찾을 수 없으면 ${subject} ${examType} 시험의 실제 연도를 추론하세요.
 - 문제가 없으면 빈 배열 []
 - PDF 내용 이외의 법률 내용을 절대 생성하지 마세요
 - JSON 외 다른 텍스트 출력 금지`
+
 
       const res = await fetch(
         `${BASE}/v1beta/models/${MODEL}:generateContent?key=${apiKey}`,

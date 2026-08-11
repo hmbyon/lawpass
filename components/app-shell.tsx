@@ -1,8 +1,11 @@
 'use client'
 
 import { useState, useCallback, useEffect } from 'react'
+import type { User } from 'firebase/auth'
 import type { Question, WrongNote } from '@/lib/types'
 import { getQuestions, getWrongNotes, clearAll } from '@/lib/store'
+import { logout } from '@/lib/firebaseServices/auth'
+import { pullFromFirebase, pushToFirebase } from '@/lib/firebaseServices/sync'
 import { PdfTab } from '@/components/tabs/pdf-tab'
 import { CbtTab } from '@/components/tabs/cbt-tab'
 import { StudyTab } from '@/components/tabs/study-tab'
@@ -19,19 +22,46 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'memo', label: 'D-1 암기장', icon: '⭐' },
 ]
 
-export function AppShell() {
+interface Props {
+  user: User
+}
+
+export function AppShell({ user }: Props) {
   const [tab, setTab] = useState<Tab>('pdf')
   const [questions, setQuestions] = useState<Question[]>([])
   const [wrongNotes, setWrongNotes] = useState<WrongNote[]>([])
+  const [syncing, setSyncing] = useState(false)
 
   const refresh = useCallback(() => {
     setQuestions(getQuestions())
     setWrongNotes(getWrongNotes())
   }, [])
 
+  // 로그인하면 Firebase에서 데이터 불러오기
   useEffect(() => {
+    async function loadFromFirebase() {
+      setSyncing(true)
+      try {
+        await pullFromFirebase(user.uid)
+      } catch (e) {
+        console.error('Firebase 불러오기 실패 (오프라인?)', e)
+      } finally {
+        refresh()
+        setSyncing(false)
+      }
+    }
+    loadFromFirebase()
+  }, [user.uid, refresh])
+
+  // 데이터 바뀔 때마다 Firebase에 저장
+  const refreshAndSync = useCallback(async () => {
     refresh()
-  }, [refresh])
+    try {
+      await pushToFirebase(user.uid)
+    } catch (e) {
+      console.error('Firebase 저장 실패 (오프라인?)', e)
+    }
+  }, [user.uid, refresh])
 
   function handleClearAll() {
     if (!confirm('모든 데이터(문제은행 + 오답노트)를 초기화할까요? 되돌릴 수 없습니다.')) return
@@ -50,6 +80,7 @@ export function AppShell() {
             </span>
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            {syncing && <span className="text-primary animate-pulse">동기화 중...</span>}
             <span>{questions.length}문제</span>
             <span>오답 {wrongNotes.length}</span>
             <button
@@ -57,6 +88,12 @@ export function AppShell() {
               className="text-red-400/70 hover:text-red-400 transition-colors"
             >
               초기화
+            </button>
+            <button
+              onClick={() => logout()}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              로그아웃
             </button>
           </div>
         </div>
@@ -94,11 +131,11 @@ export function AppShell() {
       </nav>
 
       <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-5">
-        {tab === 'pdf' && <PdfTab onQuestionsAdded={refresh} />}
-        {tab === 'cbt' && <CbtTab questions={questions} onDone={refresh} />}
-        {tab === 'study' && <StudyTab questions={questions} onDone={refresh} />}
-        {tab === 'wrong' && <WrongTab notes={wrongNotes} onNotesChanged={refresh} />}
-        {tab === 'memo' && <MemoTab notes={wrongNotes} />}
+        {tab === 'pdf' && <PdfTab onQuestionsAdded={refreshAndSync} />}
+        {tab === 'cbt' && <CbtTab questions={questions} onDone={refreshAndSync} />}
+        {tab === 'study' && <StudyTab questions={questions} onDone={refreshAndSync} />}
+        {tab === 'wrong' && <WrongTab notes={wrongNotes} onNotesChanged={refreshAndSync} />}
+        {tab === 'memo' && <MemoTab notes={wrongNotes} onNotesChanged={refreshAndSync} />}
       </main>
     </div>
   )
