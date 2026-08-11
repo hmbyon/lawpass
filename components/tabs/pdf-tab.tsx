@@ -12,6 +12,7 @@ const CHUNK_SIZE = 5
 
 interface FileState {
   file: File
+  displayName: string
   progress: number
   status: 'pending' | 'uploading' | 'analyzing' | 'done' | 'error'
   error?: string
@@ -134,8 +135,23 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(e.target.files ?? []).filter((f) => f.type === 'application/pdf')
-    setFiles(selected.map((f) => ({ file: f, progress: 0, status: 'pending' })))
+    setFiles(
+      selected.map((f) => ({
+        file: f,
+        displayName: f.name.replace(/\.pdf$/i, ''),
+        progress: 0,
+        status: 'pending',
+      }))
+    )
     setSummary(null)
+  }
+
+  function updateDisplayName(i: number, name: string) {
+    setFiles((prev) => {
+      const next = [...prev]
+      next[i] = { ...next[i], displayName: name }
+      return next
+    })
   }
 
   async function startAnalysis() {
@@ -147,7 +163,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
 
     for (let i = 0; i < files.length; i++) {
       const entry = files[i]
-      const sourceFile = entry.file.name
+      const sourceFile = entry.displayName.trim() || entry.file.name.replace(/\.pdf$/i, '')
       try {
         const sourcePdf = await PDFDocument.load(await entry.file.arrayBuffer())
         const totalPages = sourcePdf.getPageCount()
@@ -500,10 +516,21 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
             {files.length > 0 && (
               <div className="space-y-2">
                 {files.map((f, i) => (
-                  <div key={i} className="bg-muted rounded-lg p-3 space-y-1">
+                  <div key={i} className="bg-muted rounded-lg p-3 space-y-2">
                     <div className="flex justify-between items-center text-xs">
-                      <span className="font-medium truncate max-w-[60%]">{f.file.name}</span>
+                      <span className="text-muted-foreground truncate max-w-[60%]">{f.file.name}</span>
                       <StatusChip status={f.status} count={f.count} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground">저장될 문제집 이름</label>
+                      <input
+                        type="text"
+                        value={f.displayName}
+                        onChange={(e) => updateDisplayName(i, e.target.value)}
+                        disabled={isRunning}
+                        placeholder="문제집 이름"
+                        className="w-full bg-input border border-border rounded-lg px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                      />
                     </div>
                     {(f.status === 'uploading' || f.status === 'analyzing') && (
                       <div className="w-full bg-border rounded-full h-1.5">
