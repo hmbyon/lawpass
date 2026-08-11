@@ -340,8 +340,8 @@ export function getSavedStudySessions(): SavedStudySession[] {
 
 export function addSavedStudySession(session: SavedStudySession) {
   const sessions = getSavedStudySessions()
-  // 같은 id 있으면 덮어쓰기
-  const idx = sessions.findIndex((s) => s.allQuestions[0]?.id === session.allQuestions[0]?.id)
+  // savedAt이 같으면 덮어쓰기, 다르면 새로 추가
+  const idx = sessions.findIndex((s) => s.savedAt === session.savedAt)
   if (idx >= 0) {
     sessions[idx] = session
   } else {

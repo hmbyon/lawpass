@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { Noto_Sans_KR, Inter } from 'next/font/google'
+import Script from 'next/script'
 import './globals.css'
 
 const notoSansKR = Noto_Sans_KR({
@@ -37,16 +38,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ko" suppressHydrationWarning className={`${notoSansKR.variable} ${inter.variable}`}>
       <head>
-        <script dangerouslySetInnerHTML={{
-          __html: `
-            (function() {
-              try {
-                var theme = localStorage.getItem('lawpass_theme') || 'dark';
-                document.documentElement.classList.add(theme);
-              } catch(e) {}
-            })()
-          `
-        }} />
+        <Script id="theme-init" strategy="beforeInteractive">
+          {`
+            try {
+              var theme = localStorage.getItem('lawpass_theme') || 'dark';
+              document.documentElement.classList.add(theme);
+            } catch(e) {}
+          `}
+        </Script>
       </head>
       <body className="antialiased font-sans min-h-screen bg-background text-foreground">{children}</body>
     </html>
