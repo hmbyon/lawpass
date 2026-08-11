@@ -37,7 +37,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ko" suppressHydrationWarning className={`${notoSansKR.variable} ${inter.variable}`}>
-      <head>
+      <body className="antialiased font-sans min-h-screen bg-background text-foreground">
         <Script id="theme-init" strategy="beforeInteractive">
           {`
             try {
@@ -46,8 +46,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             } catch(e) {}
           `}
         </Script>
-      </head>
-      <body className="antialiased font-sans min-h-screen bg-background text-foreground">{children}</body>
+        {children}
+      </body>
     </html>
   )
 }

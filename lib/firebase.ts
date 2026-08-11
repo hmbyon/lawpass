@@ -1,6 +1,6 @@
-import { initializeApp } from 'firebase/app';
+import { getApps, getApp, initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { initializeFirestore } from 'firebase/firestore';
+import { initializeFirestore, getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -11,8 +11,8 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+// Next.js HMR로 이 모듈이 재실행돼도 기존 앱을 재사용 (중복 초기화 방지)
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 // Initialize Firebase Authentication and get a reference to the service
 export const auth = getAuth(app);
@@ -20,8 +20,16 @@ export const auth = getAuth(app);
 // Initialize Cloud Firestore and get a reference to the service
 // Safari에서 백그라운드 전환 시 WebChannel 스트림이 끊기며 발생하는
 // "Database is closing/hidden" 오류를 막기 위해 long polling을 강제
-export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
-});
+// HMR 재실행 시 이미 초기화된 Firestore가 있으면 재사용 (다른 옵션으로
+// 재호출 시 발생하는 "initializeFirestore() has already been called" 방지)
+let db: ReturnType<typeof getFirestore>;
+try {
+  db = initializeFirestore(app, {
+    experimentalForceLongPolling: true,
+  });
+} catch {
+  db = getFirestore(app);
+}
+export { db };
 
 export default app;
