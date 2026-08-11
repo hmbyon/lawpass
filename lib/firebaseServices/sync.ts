@@ -1,5 +1,5 @@
 import { db } from '@/lib/firebase'
-import { doc, setDoc, getDoc } from 'firebase/firestore'
+import { doc, setDoc, getDoc, deleteDoc } from 'firebase/firestore'
 import {
   getQuestions, saveQuestions,
   getWrongNotes, saveWrongNotes,
@@ -24,6 +24,12 @@ export async function pushToFirebase(userId: string) {
   if (quizSession) {
     await setDoc(doc(db, 'users', userId, 'data', 'quizSession'), quizSession)
   }
+}
+
+// Firebase의 임시저장(studySessions) / 진행중인 퀴즈(quizSession) 문서 삭제
+export async function clearFirebaseSessions(userId: string) {
+  await deleteDoc(doc(db, 'users', userId, 'data', 'studySessions'))
+  await deleteDoc(doc(db, 'users', userId, 'data', 'quizSession'))
 }
 
 // Firebase에서 전체 데이터 불러와서 로컬에 저장

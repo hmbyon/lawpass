@@ -65,7 +65,6 @@ export function AppShell({ user }: Props) {
   }, [user.uid, refresh])
 
   function handleClearAll() {
-    if (!confirm('모든 데이터(문제은행 + 오답노트)를 초기화할까요? 되돌릴 수 없습니다.')) return
     clearAll()
     refresh()
   }
@@ -139,6 +138,7 @@ export function AppShell({ user }: Props) {
           <SettingsTab
             questionCount={questions.length}
             wrongNoteCount={wrongNotes.length}
+            userId={user.uid}
             onClearAll={handleClearAll}
             onLogout={logout}
           />
