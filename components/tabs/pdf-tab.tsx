@@ -71,6 +71,24 @@ function computeProgress(): Record<string, ProgressRow[]> {
   return bySubject
 }
 
+// 과목 내 rows를 연도별로 묶고 연도 내림차순 정렬
+function groupRowsByYear(rows: ProgressRow[]) {
+  const map = new Map<number, ProgressRow[]>()
+  for (const r of rows) {
+    const arr = map.get(r.year) ?? []
+    arr.push(r)
+    map.set(r.year, arr)
+  }
+  return Array.from(map.entries())
+    .map(([year, yearRows]) => ({
+      year,
+      rows: yearRows.slice().sort((a, b) => a.examType.localeCompare(b.examType) || a.unit.localeCompare(b.unit)),
+      total: yearRows.reduce((sum, r) => sum + r.total, 0),
+      solved: yearRows.reduce((sum, r) => sum + r.solved, 0),
+    }))
+    .sort((a, b) => b.year - a.year)
+}
+
 export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   const [apiKey, setApiKeyLocal] = useState(() => getApiKey())
   const [apiStatus, setApiStatus] = useState<'untested' | 'ok' | 'error'>('untested')
@@ -87,6 +105,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   const [sourceFiles, setSourceFiles] = useState<{ name: string; count: number }[]>([])
   const [progress, setProgress] = useState<Record<string, ProgressRow[]>>({})
   const [expandedSubjects, setExpandedSubjects] = useState<Set<string>>(new Set())
+  const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set())
   useEffect(() => {
     setSourceFiles(getSourceFiles())
     setProgress(computeProgress())
@@ -103,6 +122,15 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       const next = new Set(prev)
       if (next.has(s)) next.delete(s)
       else next.add(s)
+      return next
+    })
+  }
+
+  function toggleYearExpand(key: string) {
+    setExpandedYears((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }
@@ -355,7 +383,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
             연결 확인
           </button>
         </div>
-        {apiStatus === 'ok' && <p className="text-xs text-emerald-400">연결 성공</p>}
+        {apiStatus === 'ok' && <p className="text-xs text-emerald-600 dark:text-emerald-400">연결 성공</p>}
         {apiStatus === 'error' && <p className="text-xs text-red-400">연결 실패 — API 키를 확인하세요</p>}
 
         <div>
@@ -440,22 +468,46 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
                   </button>
                   {expanded && (
                     <div className="px-3 pb-3 space-y-1.5">
-                      {rows.map((r, i) => {
-                        const icon = r.solved === 0 ? '⬜' : r.solved === r.total ? '✅' : '🔄'
-                        const label = r.solved === 0 ? '미완료' : r.solved === r.total ? '완료' : '진행중'
+                      {groupRowsByYear(rows).map((yg) => {
+                        const yearKey = `${s}|${yg.year}`
+                        const yearExpanded = expandedYears.has(yearKey)
                         return (
-                          <div
-                            key={i}
-                            className="flex items-center justify-between gap-2 bg-card border border-border rounded-lg px-3 py-2"
-                          >
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium text-foreground truncate">
-                                {r.examType} · {r.year}년 · {r.unit}
-                              </p>
-                            </div>
-                            <span className="text-xs shrink-0">
-                              {icon} {label} ({r.solved}/{r.total})
-                            </span>
+                          <div key={yg.year} className="bg-card border border-border rounded-lg overflow-hidden">
+                            <button
+                              onClick={() => toggleYearExpand(yearKey)}
+                              className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-accent transition-colors"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className={`text-xs transition-transform text-muted-foreground ${yearExpanded ? 'rotate-90' : ''}`}>▶</span>
+                                <span className="text-xs font-medium text-foreground">{yg.year}년</span>
+                              </div>
+                              <span className="text-xs text-muted-foreground shrink-0">
+                                {yg.solved}/{yg.total}문제
+                              </span>
+                            </button>
+                            {yearExpanded && (
+                              <div className="px-3 pb-2 space-y-1.5">
+                                {yg.rows.map((r, i) => {
+                                  const icon = r.solved === 0 ? '⬜' : r.solved === r.total ? '✅' : '🔄'
+                                  const label = r.solved === 0 ? '미완료' : r.solved === r.total ? '완료' : '진행중'
+                                  return (
+                                    <div
+                                      key={i}
+                                      className="flex items-center justify-between gap-2 bg-muted rounded-lg px-3 py-2"
+                                    >
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-medium text-foreground truncate">
+                                          {r.examType} · {r.unit}
+                                        </p>
+                                      </div>
+                                      <span className="text-xs shrink-0">
+                                        {icon} {label} ({r.solved}/{r.total})
+                                      </span>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
                           </div>
                         )
                       })}
@@ -689,8 +741,8 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
         )}
 
         {summary && (
-          <div className="bg-emerald-900/30 border border-emerald-700/40 rounded-lg p-3 text-sm">
-            <p className="text-emerald-300 font-medium">
+          <div className="bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700/40 rounded-lg p-3 text-sm">
+            <p className="text-emerald-700 dark:text-emerald-300 font-medium">
               완료: <span className="font-bold">{summary.added}문제</span> 추가,{' '}
               <span className="font-bold">{summary.merged}문제</span> 병합
             </p>
@@ -706,7 +758,7 @@ function StatusChip({ status, count }: { status: FileState['status']; count?: nu
     pending: { label: '대기', cls: 'text-muted-foreground' },
     uploading: { label: '업로드', cls: 'text-blue-400' },
     analyzing: { label: '분석중', cls: 'text-yellow-400' },
-    done: { label: count !== undefined ? `${count}문제` : '완료', cls: 'text-emerald-400' },
+    done: { label: count !== undefined ? `${count}문제` : '완료', cls: 'text-emerald-600 dark:text-emerald-400' },
     error: { label: '오류', cls: 'text-red-400' },
   }[status]
   return <span className={`font-medium ${map.cls}`}>{map.label}</span>

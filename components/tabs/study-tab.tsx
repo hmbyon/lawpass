@@ -58,6 +58,7 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
     }
 
     setQuizQuestions(toQuiz)
+    setPhase('quiz')
     onSync()
   }
 
