@@ -311,3 +311,24 @@ export function clearSavedSession() {
   if (typeof window === 'undefined') return
   localStorage.removeItem('lawpass_saved_session')
 }
+
+// ── 선학습 임시저장 ──
+export interface SavedStudySession {
+  allQuestions: import('./types').Question[]
+  previewedIndex: number
+  remainingFrom: number
+  savedAt: number
+}
+
+export function getSavedStudySession(): SavedStudySession | null {
+  return safeGet<SavedStudySession | null>('lawpass_saved_study_session', null)
+}
+
+export function saveStudySession(session: SavedStudySession) {
+  safeSet('lawpass_saved_study_session', session)
+}
+
+export function clearSavedStudySession() {
+  if (typeof window === 'undefined') return
+  localStorage.removeItem('lawpass_saved_study_session')
+}
