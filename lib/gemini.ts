@@ -162,3 +162,38 @@ function fallbackAnalysis(): ErrorAnalysis {
     위험도: 3,
   }
 }
+
+// ── PDF 파싱 이어서 처리 (청크 단위 진행상황 임시 저장) ──────────────────────
+const PDF_PROGRESS_PREFIX = 'lawpass_pdf_progress_'
+
+export interface PdfParseProgress {
+  chunkIndex: number // 마지막으로 성공한 청크 인덱스 (0-based). 이어서 처리 시 chunkIndex + 1부터 재시작
+  chunkTotal: number
+  totalAdded: number
+  totalMerged: number
+  fileQuestionCount: number
+}
+
+export function savePdfProgress(sourceFile: string, progress: PdfParseProgress) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(`${PDF_PROGRESS_PREFIX}${sourceFile}`, JSON.stringify(progress))
+  } catch (e) {
+    console.error('[gemini] PDF 진행상황 저장 실패', e)
+  }
+}
+
+export function getPdfProgress(sourceFile: string): PdfParseProgress | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(`${PDF_PROGRESS_PREFIX}${sourceFile}`)
+    return raw ? (JSON.parse(raw) as PdfParseProgress) : null
+  } catch {
+    return null
+  }
+}
+
+export function clearPdfProgress(sourceFile: string) {
+  if (typeof window === 'undefined') return
+  localStorage.removeItem(`${PDF_PROGRESS_PREFIX}${sourceFile}`)
+}

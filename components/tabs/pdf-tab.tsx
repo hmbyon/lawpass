@@ -3,7 +3,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { PDFDocument } from 'pdf-lib'
 import { getApiKey, setApiKey, addQuestions, getSourceFiles, deleteQuestionsBySource, getQuestions, getWrongNotes } from '@/lib/store'
-import { uploadPdfToFileApi, waitForFileActive, extractQuestionsFromPdf, deleteFile } from '@/lib/gemini'
+import {
+  uploadPdfToFileApi, waitForFileActive, extractQuestionsFromPdf, deleteFile,
+  savePdfProgress, getPdfProgress, clearPdfProgress,
+} from '@/lib/gemini'
 import type { Subject, ExamType } from '@/lib/types'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
@@ -20,6 +23,7 @@ interface FileState {
   pageCount?: number
   chunkIndex?: number
   chunkTotal?: number
+  resumable?: boolean
 }
 
 type UploadMode = 'file' | 'uri'
@@ -154,6 +158,93 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     })
   }
 
+  // 파일 하나를 startChunk 청크부터 분석. 반환값은 이번 호출에서 새로 추가/병합된 문제 수(델타)
+  async function processFile(i: number, startChunk: number): Promise<{ added: number; merged: number }> {
+    const entry = files[i]
+    const sourceFile = entry.displayName.trim() || entry.file.name.replace(/\.pdf$/i, '')
+    const savedProgress = startChunk > 0 ? getPdfProgress(sourceFile) : null
+    let fileQuestionCount = savedProgress?.fileQuestionCount ?? 0
+    let deltaAdded = 0
+    let deltaMerged = 0
+
+    try {
+      const sourcePdf = await PDFDocument.load(await entry.file.arrayBuffer())
+      const totalPages = sourcePdf.getPageCount()
+      const chunkTotal = Math.ceil(totalPages / CHUNK_SIZE)
+      updateFile(i, {
+        status: 'uploading',
+        progress: (startChunk / chunkTotal) * 100,
+        pageCount: totalPages,
+        chunkIndex: startChunk,
+        chunkTotal,
+        error: undefined,
+        resumable: false,
+      })
+
+      for (let chunkIndex = startChunk; chunkIndex < chunkTotal; chunkIndex++) {
+        const chunkPdf = await PDFDocument.create()
+        const startPage = chunkIndex * CHUNK_SIZE
+        const endPage = Math.min(startPage + CHUNK_SIZE, totalPages)
+        const pages = await chunkPdf.copyPages(
+          sourcePdf,
+          Array.from({ length: endPage - startPage }, (_, p) => startPage + p)
+        )
+        pages.forEach((page) => chunkPdf.addPage(page))
+        const chunkBytes = await chunkPdf.save()
+        const chunkFile = new File(
+          [chunkBytes.buffer as ArrayBuffer],
+          `${entry.file.name.replace(/\.pdf$/i, '')}-chunk-${chunkIndex + 1}.pdf`,
+          { type: 'application/pdf' }
+        )
+
+        updateFile(i, { status: 'uploading', progress: (chunkIndex / chunkTotal) * 100, chunkIndex: chunkIndex + 1 })
+        let uri = ''
+        try {
+          uri = await uploadPdfToFileApi(apiKey, chunkFile, (pct) => {
+            const overallProgress = ((chunkIndex + pct / 100) / chunkTotal) * 100
+            updateFile(i, { progress: overallProgress })
+          })
+          updateFile(i, {
+            status: 'analyzing',
+            progress: ((chunkIndex + 0.9) / chunkTotal) * 100,
+            chunkIndex: chunkIndex + 1,
+          })
+          await waitForFileActive(apiKey, uri)
+          for (const s of subjects) {
+            for (const et of examTypes) {
+              const questions = await extractQuestionsFromPdf(apiKey, uri, s, et, new Date().getFullYear())
+              const result = addQuestions(questions, sourceFile)
+              deltaAdded += result.added
+              deltaMerged += result.merged
+              fileQuestionCount += questions.length
+            }
+          }
+          updateFile(i, {
+            progress: ((chunkIndex + 1) / chunkTotal) * 100,
+            chunkIndex: chunkIndex + 1,
+            count: fileQuestionCount,
+          })
+          // 청크 하나가 성공적으로 끝날 때마다 진행상황을 임시 저장 (오류 시 이어서 처리하기용)
+          savePdfProgress(sourceFile, {
+            chunkIndex,
+            chunkTotal,
+            totalAdded: (savedProgress?.totalAdded ?? 0) + deltaAdded,
+            totalMerged: (savedProgress?.totalMerged ?? 0) + deltaMerged,
+            fileQuestionCount,
+          })
+        } finally {
+          if (uri) await deleteFile(apiKey, uri).catch(() => {})
+        }
+      }
+      updateFile(i, { status: 'done', progress: 100, chunkIndex: chunkTotal, resumable: false })
+      clearPdfProgress(sourceFile)
+    } catch (err) {
+      updateFile(i, { status: 'error', error: String(err), resumable: true, count: fileQuestionCount })
+    }
+
+    return { added: deltaAdded, merged: deltaMerged }
+  }
+
   async function startAnalysis() {
     if (!apiKey || files.length === 0 || examTypes.length === 0 || subjects.length === 0) return
     setIsRunning(true)
@@ -162,69 +253,31 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     let totalMerged = 0
 
     for (let i = 0; i < files.length; i++) {
-      const entry = files[i]
-      const sourceFile = entry.displayName.trim() || entry.file.name.replace(/\.pdf$/i, '')
-      try {
-        const sourcePdf = await PDFDocument.load(await entry.file.arrayBuffer())
-        const totalPages = sourcePdf.getPageCount()
-        const chunkTotal = Math.ceil(totalPages / CHUNK_SIZE)
-        updateFile(i, { status: 'uploading', progress: 0, pageCount: totalPages, chunkIndex: 0, chunkTotal })
-
-        let fileQuestionCount = 0
-        for (let chunkIndex = 0; chunkIndex < chunkTotal; chunkIndex++) {
-          const chunkPdf = await PDFDocument.create()
-          const startPage = chunkIndex * CHUNK_SIZE
-          const endPage = Math.min(startPage + CHUNK_SIZE, totalPages)
-          const pages = await chunkPdf.copyPages(
-            sourcePdf,
-            Array.from({ length: endPage - startPage }, (_, p) => startPage + p)
-          )
-          pages.forEach((page) => chunkPdf.addPage(page))
-          const chunkBytes = await chunkPdf.save()
-          const chunkFile = new File(
-            [chunkBytes.buffer as ArrayBuffer],
-            `${entry.file.name.replace(/\.pdf$/i, '')}-chunk-${chunkIndex + 1}.pdf`,
-            { type: 'application/pdf' }
-          )
-
-          updateFile(i, { status: 'uploading', progress: 0, chunkIndex: chunkIndex + 1 })
-          let uri = ''
-          try {
-            uri = await uploadPdfToFileApi(apiKey, chunkFile, (pct) => {
-              const overallProgress = ((chunkIndex + pct / 100) / chunkTotal) * 100
-              updateFile(i, { progress: overallProgress })
-            })
-            updateFile(i, {
-              status: 'analyzing',
-              progress: ((chunkIndex + 0.9) / chunkTotal) * 100,
-              chunkIndex: chunkIndex + 1,
-            })
-            await waitForFileActive(apiKey, uri)
-            for (const s of subjects) {
-              for (const et of examTypes) {
-                const questions = await extractQuestionsFromPdf(apiKey, uri, s, et, new Date().getFullYear())
-                const result = addQuestions(questions, sourceFile)
-                totalAdded += result.added
-                totalMerged += result.merged
-                fileQuestionCount += questions.length
-              }
-            }
-            updateFile(i, {
-              progress: ((chunkIndex + 1) / chunkTotal) * 100,
-              chunkIndex: chunkIndex + 1,
-              count: fileQuestionCount,
-            })
-          } finally {
-            if (uri) await deleteFile(apiKey, uri).catch(() => {})
-          }
-        }
-        updateFile(i, { status: 'done', progress: 100, chunkIndex: chunkTotal })
-      } catch (err) {
-        updateFile(i, { status: 'error', error: String(err) })
-      }
+      const result = await processFile(i, 0)
+      totalAdded += result.added
+      totalMerged += result.merged
     }
 
     setSummary({ added: totalAdded, merged: totalMerged })
+    setIsRunning(false)
+    refreshSourceFiles()
+    onQuestionsAdded()
+  }
+
+  // 오류 발생 후 마지막으로 성공한 청크 다음부터 이어서 처리
+  async function handleResume(i: number) {
+    if (!apiKey) return
+    const entry = files[i]
+    const sourceFile = entry.displayName.trim() || entry.file.name.replace(/\.pdf$/i, '')
+    const savedProgress = getPdfProgress(sourceFile)
+    const startChunk = savedProgress ? savedProgress.chunkIndex + 1 : 0
+
+    setIsRunning(true)
+    const result = await processFile(i, startChunk)
+    setSummary((prev) => ({
+      added: (prev?.added ?? 0) + result.added,
+      merged: (prev?.merged ?? 0) + result.merged,
+    }))
     setIsRunning(false)
     refreshSourceFiles()
     onQuestionsAdded()
@@ -552,7 +605,18 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
                       </p>
                     )}
                     {f.status === 'error' && (
-                      <p className="text-xs text-red-400 break-all">{f.error}</p>
+                      <div className="space-y-1.5">
+                        <p className="text-xs text-red-400 break-all">{f.error}</p>
+                        {f.resumable && (
+                          <button
+                            onClick={() => handleResume(i)}
+                            disabled={isRunning}
+                            className="text-xs text-primary border border-primary/30 rounded-lg px-3 py-1 hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            {f.chunkIndex ? `${f.chunkIndex}/${f.chunkTotal} 청크부터 이어서 처리하기` : '이어서 처리하기'}
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 ))}
