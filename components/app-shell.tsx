@@ -6,14 +6,14 @@ import type { Question, WrongNote } from '@/lib/types'
 import { getQuestions, getWrongNotes, clearAll } from '@/lib/store'
 import { logout } from '@/lib/firebaseServices/auth'
 import { pullFromFirebase, pushToFirebase } from '@/lib/firebaseServices/sync'
-import { ThemeToggle } from '@/components/theme-toggle'
 import { PdfTab } from '@/components/tabs/pdf-tab'
 import { CbtTab } from '@/components/tabs/cbt-tab'
 import { StudyTab } from '@/components/tabs/study-tab'
 import { WrongTab } from '@/components/tabs/wrong-tab'
 import { MemoTab } from '@/components/tabs/memo-tab'
+import { SettingsTab } from '@/components/tabs/settings-tab'
 
-type Tab = 'pdf' | 'cbt' | 'study' | 'wrong' | 'memo'
+type Tab = 'pdf' | 'cbt' | 'study' | 'wrong' | 'memo' | 'settings'
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'pdf', label: 'PDF 분석', icon: '📄' },
@@ -80,20 +80,17 @@ export function AppShell({ user }: Props) {
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             {syncing && <span className="text-primary animate-pulse">동기화 중...</span>}
-            <ThemeToggle />
             <span>{questions.length}문제</span>
             <span>오답 {wrongNotes.length}</span>
             <button
-              onClick={handleClearAll}
-              className="text-red-400/70 hover:text-red-400 transition-colors"
+              onClick={() => setTab(tab === 'settings' ? 'pdf' : 'settings')}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg border transition-all text-xs ${
+                tab === 'settings'
+                  ? 'border-primary text-primary bg-primary/10'
+                  : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-accent'
+              }`}
             >
-              초기화
-            </button>
-            <button
-              onClick={() => logout()}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              로그아웃
+              ⚙️ 설정
             </button>
           </div>
         </div>
@@ -136,6 +133,14 @@ export function AppShell({ user }: Props) {
         {tab === 'study' && <StudyTab questions={questions} onDone={refreshAndSync} />}
         {tab === 'wrong' && <WrongTab notes={wrongNotes} onNotesChanged={refreshAndSync} />}
         {tab === 'memo' && <MemoTab notes={wrongNotes} onNotesChanged={refreshAndSync} />}
+        {tab === 'settings' && (
+          <SettingsTab
+            questionCount={questions.length}
+            wrongNoteCount={wrongNotes.length}
+            onClearAll={handleClearAll}
+            onLogout={logout}
+          />
+        )}
       </main>
     </div>
   )

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { onAuthChange, loginWithGoogle, logout } from '@/lib/firebaseServices/auth'
+import { onAuthChange, loginWithGoogle, handleRedirectResult } from '@/lib/firebaseServices/auth'
 import type { User } from 'firebase/auth'
 
 interface Props {
@@ -13,6 +13,9 @@ export function AuthGate({ children }: Props) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // 리디렉션 결과 처리
+    handleRedirectResult().catch(console.error)
+
     const unsub = onAuthChange((u) => {
       setUser(u)
       setLoading(false)
@@ -51,9 +54,5 @@ export function AuthGate({ children }: Props) {
     )
   }
 
-  return (
-    <>
-      {children(user)}
-    </>
-  )
+  return <>{children(user)}</>
 }
