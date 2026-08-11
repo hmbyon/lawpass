@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { PDFDocument } from 'pdf-lib'
-import { getApiKey, setApiKey, addQuestions, getSourceFiles, deleteQuestionsBySource } from '@/lib/store'
+import { getApiKey, setApiKey, addQuestions, getSourceFiles, deleteQuestionsBySource, getQuestions, getWrongNotes } from '@/lib/store'
 import { uploadPdfToFileApi, waitForFileActive, extractQuestionsFromPdf, deleteFile } from '@/lib/gemini'
 import type { Subject, ExamType } from '@/lib/types'
 
@@ -23,6 +23,49 @@ interface FileState {
 
 type UploadMode = 'file' | 'uri'
 
+interface ProgressRow {
+  examType: ExamType
+  year: number
+  unit: string
+  total: number
+  solved: number
+}
+
+// 과목별 진도표 계산: 최소 한 번 풀어본(정답/오답 기록이 있는) 문제 id 기준
+function computeProgress(): Record<string, ProgressRow[]> {
+  const questions = getQuestions()
+  const wrongNotes = getWrongNotes()
+  const solvedIds = new Set(
+    wrongNotes.filter((n) => (n.totalCount ?? 0) > 0).map((n) => n.questionId)
+  )
+
+  const rowMap = new Map<string, ProgressRow & { subject: Subject }>()
+  for (const q of questions) {
+    const unit = q.unit?.trim() || '(단원 미지정)'
+    const key = `${q.subject}|${q.examType}|${q.year}|${unit}`
+    const row = rowMap.get(key) ?? { subject: q.subject, examType: q.examType, year: q.year, unit, total: 0, solved: 0 }
+    row.total += 1
+    if (solvedIds.has(q.id)) row.solved += 1
+    rowMap.set(key, row)
+  }
+
+  const bySubject: Record<string, ProgressRow[]> = {}
+  for (const { subject, ...row } of rowMap.values()) {
+    if (!bySubject[subject]) bySubject[subject] = []
+    bySubject[subject].push(row)
+  }
+  for (const subject in bySubject) {
+    bySubject[subject].sort((a, b) =>
+      a.examType !== b.examType
+        ? a.examType.localeCompare(b.examType)
+        : b.year !== a.year
+          ? b.year - a.year
+          : a.unit.localeCompare(b.unit)
+    )
+  }
+  return bySubject
+}
+
 export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   const [apiKey, setApiKeyLocal] = useState(() => getApiKey())
   const [apiStatus, setApiStatus] = useState<'untested' | 'ok' | 'error'>('untested')
@@ -37,13 +80,26 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   const [uriStatus, setUriStatus] = useState<'idle' | 'analyzing' | 'done' | 'error'>('idle')
   const [uriError, setUriError] = useState('')
   const [sourceFiles, setSourceFiles] = useState<{ name: string; count: number }[]>([])
+  const [progress, setProgress] = useState<Record<string, ProgressRow[]>>({})
+  const [expandedSubjects, setExpandedSubjects] = useState<Set<string>>(new Set())
   useEffect(() => {
     setSourceFiles(getSourceFiles())
+    setProgress(computeProgress())
   }, [])
   const fileRef = useRef<HTMLInputElement>(null)
 
   function refreshSourceFiles() {
     setSourceFiles(getSourceFiles())
+    setProgress(computeProgress())
+  }
+
+  function toggleSubjectExpand(s: string) {
+    setExpandedSubjects((prev) => {
+      const next = new Set(prev)
+      if (next.has(s)) next.delete(s)
+      else next.add(s)
+      return next
+    })
   }
 
   function saveKey(k: string) {
@@ -285,6 +341,60 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
                 </button>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* 진도표 */}
+      {Object.keys(progress).length > 0 && (
+        <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+          <h2 className="font-semibold text-sm text-foreground">진도표</h2>
+          <div className="space-y-2">
+            {SUBJECTS.filter((s) => progress[s]?.length).map((s) => {
+              const rows = progress[s]
+              const total = rows.reduce((sum, r) => sum + r.total, 0)
+              const solved = rows.reduce((sum, r) => sum + r.solved, 0)
+              const expanded = expandedSubjects.has(s)
+              return (
+                <div key={s} className="bg-muted rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => toggleSubjectExpand(s)}
+                    className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/70 transition-colors"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`transition-transform text-muted-foreground ${expanded ? 'rotate-90' : ''}`}>▶</span>
+                      <span className="text-sm font-medium text-foreground">{s}</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      {solved}/{total}문제
+                    </span>
+                  </button>
+                  {expanded && (
+                    <div className="px-3 pb-3 space-y-1.5">
+                      {rows.map((r, i) => {
+                        const icon = r.solved === 0 ? '⬜' : r.solved === r.total ? '✅' : '🔄'
+                        const label = r.solved === 0 ? '미완료' : r.solved === r.total ? '완료' : '진행중'
+                        return (
+                          <div
+                            key={i}
+                            className="flex items-center justify-between gap-2 bg-card border border-border rounded-lg px-3 py-2"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium text-foreground truncate">
+                                {r.examType} · {r.year}년 · {r.unit}
+                              </p>
+                            </div>
+                            <span className="text-xs shrink-0">
+                              {icon} {label} ({r.solved}/{r.total})
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
