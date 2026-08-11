@@ -11,7 +11,7 @@ import type { SavedStudySession } from '@/lib/store'
 
 type StudyPhase = 'filter' | 'preview' | 'quiz'
 
-export function StudyTab({ questions, onDone }: { questions: Question[]; onDone: () => void }) {
+export function StudyTab({ questions, onDone, onSync }: { questions: Question[]; onDone: () => void; onSync: () => void }) {
   const [phase, setPhase] = useState<StudyPhase>('filter')
   const [allQuestions, setAllQuestions] = useState<Question[]>([])
   const [previewFrom, setPreviewFrom] = useState(0)
@@ -32,6 +32,7 @@ export function StudyTab({ questions, onDone }: { questions: Question[]; onDone:
     setPreviewFrom(0)
     setSavedQuiz(null)
     setActiveSession(null)
+    onSync()
     setPhase('preview')
   }
 
@@ -71,6 +72,7 @@ export function StudyTab({ questions, onDone }: { questions: Question[]; onDone:
     setSavedSessions(getSavedStudySessions())
     setPhase('filter')
     setActiveSession(null)
+    onSync()
   }
 
   function handleQuizFinish() {
