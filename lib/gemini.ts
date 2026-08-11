@@ -2,6 +2,22 @@
 
 import type { Question, Subject, ExamType, ErrorAnalysis, QuestionStatus } from './types'
 
+const RETRY_DELAY_MS = 3000
+const MAX_RETRIES = 3
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// 503(모델 과부하) 발생 시 3초 대기 후 최대 3회 재시도
+async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, init)
+    if (res.status !== 503 || attempt >= MAX_RETRIES) return res
+    await sleep(RETRY_DELAY_MS)
+  }
+}
+
 // ── Upload PDF via server proxy ──────────────────────────────────────────────
 export async function uploadPdfToFileApi(
   apiKey: string,
@@ -14,7 +30,7 @@ export async function uploadPdfToFileApi(
   form.append('file', file)
   form.append('apiKey', apiKey)
 
-  const res = await fetch('/api/upload', { method: 'POST', body: form })
+  const res = await fetchWithRetry('/api/upload', { method: 'POST', body: form })
 
   if (!res.ok) {
     const data = await res.json().catch(() => ({ error: res.statusText }))
@@ -45,7 +61,7 @@ export async function extractQuestionsFromPdf(
   examType: ExamType,
   year: number
 ): Promise<Question[]> {
-  const res = await fetch('/api/analyze', {
+  const res = await fetchWithRetry('/api/analyze', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ apiKey, mode: 'extract', fileUri, subject, examType, year }),
@@ -100,7 +116,7 @@ export async function analyzeWrongAnswer(
   questionStatus: QuestionStatus,
   isStudyMode: boolean
 ): Promise<ErrorAnalysis> {
-  const res = await fetch('/api/analyze', {
+  const res = await fetchWithRetry('/api/analyze', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
