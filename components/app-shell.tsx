@@ -39,21 +39,27 @@ export function AppShell({ user }: Props) {
     setWrongNotes(getWrongNotes())
   }, [])
 
-  useEffect(() => {
-    async function loadFromFirebase() {
-      setSyncing(true)
-      try {
-        await pullFromFirebase(user.uid)
-      } catch (e) {
-        console.error('Firebase 불러오기 실패 (오프라인?)', e)
-      } finally {
-        refresh()
-        setSyncing(false)
-        setSyncedAt(Date.now())
-      }
+  const loadFromFirebase = useCallback(async () => {
+    setSyncing(true)
+    try {
+      await pullFromFirebase(user.uid)
+    } catch (e) {
+      console.error('Firebase 불러오기 실패 (오프라인?)', e)
+    } finally {
+      refresh()
+      setSyncing(false)
+      setSyncedAt(Date.now())
     }
-    loadFromFirebase()
   }, [user.uid, refresh])
+
+  useEffect(() => {
+    loadFromFirebase()
+  }, [loadFromFirebase])
+
+  function handleLogoClick() {
+    setTab('pdf')
+    loadFromFirebase()
+  }
 
   const refreshAndSync = useCallback(async () => {
     refresh()
@@ -74,12 +80,20 @@ export function AppShell({ user }: Props) {
       <header className="sticky top-0 z-40 bg-background/90 backdrop-blur-sm border-b border-border">
         <div className="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-primary text-lg font-bold tracking-tight">LawPass AI</span>
+            <button
+              onClick={handleLogoClick}
+              className="text-primary text-lg font-bold tracking-tight hover:opacity-80 transition-opacity"
+            >
+              LawPass AI
+            </button>
             <span className="hidden sm:inline text-xs text-muted-foreground border border-border rounded-full px-2 py-0.5">
               변호사시험
             </span>
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="hidden sm:inline truncate max-w-[160px]">
+              {user.displayName ?? user.email}
+            </span>
             {syncing && <span className="text-primary animate-pulse">동기화 중...</span>}
             <span>{questions.length}문제</span>
             <span>오답 {wrongNotes.length}</span>
