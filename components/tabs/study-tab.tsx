@@ -58,7 +58,7 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
     }
 
     setQuizQuestions(toQuiz)
-    setPhase('quiz')
+    onSync()
   }
 
   function handleSaveAndExit(upToIndex: number) {
@@ -95,6 +95,7 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
     setQuizQuestions(savedQuiz.questions)
     setSavedQuiz(null)
     setPhase('quiz')
+    onSync()
   }
 
   function handleDeleteSession(savedAt: number) {
