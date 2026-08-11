@@ -165,11 +165,11 @@ export function StudyTab({ questions, onDone }: { questions: Question[]; onDone:
             <div key={session.savedAt} className="bg-purple-900/20 border border-purple-700/30 rounded-xl p-4 space-y-2">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-sm font-medium text-purple-300">
+                  <p className="text-sm font-medium text-purple-700 dark:text-purple-300">
                     {session.allQuestions[0]?.subject} 외 · 전체 {session.allQuestions.length}문제
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {session.remainingFrom}번부터 이어서 ·{' '}
+                    {session.remainingFrom + 1}번부터 이어서 ·{' '}
                     {new Date(session.savedAt).toLocaleDateString('ko-KR')} 저장
                   </p>
                 </div>
@@ -184,7 +184,7 @@ export function StudyTab({ questions, onDone }: { questions: Question[]; onDone:
                 onClick={() => handleResumePreview(session)}
                 className="w-full py-2 bg-purple-700 text-white rounded-lg text-sm font-medium hover:opacity-90"
               >
-                {session.remainingFrom}번부터 이어서 학습
+                {session.remainingFrom + 1}번부터 이어서 학습
               </button>
             </div>
           ))}
