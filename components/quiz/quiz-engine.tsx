@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { Question, QuestionStatus, WrongNote, CauseType } from '@/lib/types'
 import { analyzeWrongAnswer } from '@/lib/gemini'
-import { addWrongNote, addCorrectNote } from '@/lib/store'
+import { addWrongNote, addCorrectNote, saveSession, clearSavedSession } from '@/lib/store'
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
 
@@ -18,6 +18,10 @@ interface QuizEngineProps {
   mode: 'cbt' | 'study'
   timeLimitSeconds: number | null
   onFinish: () => void
+  initialIndex?: number
+  initialAnswers?: Record<string, string | null>
+  initialElapsed?: number
+  sessionId?: string
 }
 
 function getDominantCause(analysis: WrongNote['analysis'], isStudyMode: boolean): CauseType | null {
@@ -32,17 +36,61 @@ function getDominantCause(analysis: WrongNote['analysis'], isStudyMode: boolean)
   return best
 }
 
-export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: QuizEngineProps) {
+export function QuizEngine({
+  questions,
+  mode,
+  timeLimitSeconds,
+  onFinish,
+  initialIndex = 0,
+  initialAnswers = {},
+  initialElapsed = 0,
+  sessionId,
+}: QuizEngineProps) {
   const [items, setItems] = useState<QuizItem[]>(() =>
-    questions.map((q) => ({ question: q, userAnswer: null, status: null }))
+    questions.map((q) => ({
+      question: q,
+      userAnswer: initialAnswers[q.id] ?? null,
+      status: null,
+    }))
   )
-  const [current, setCurrent] = useState(0)
+  const [current, setCurrent] = useState(initialIndex)
   const [submitted, setSubmitted] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [results, setResults] = useState<{ correct: number; wrong: WrongNote[] } | null>(null)
-  const [timeLeft, setTimeLeft] = useState(timeLimitSeconds)
+  const [timeLeft, setTimeLeft] = useState(
+    timeLimitSeconds !== null ? timeLimitSeconds - initialElapsed : null
+  )
+  const [elapsed, setElapsed] = useState(initialElapsed)
   const [analyzeProgress, setAnalyzeProgress] = useState(0)
   const [unansweredWarning, setUnansweredWarning] = useState(false)
+  const sid = sessionId ?? `session_${Date.now()}`
+
+  // 자동 임시저장 (10초마다)
+  useEffect(() => {
+    if (submitted) return
+    const interval = setInterval(() => {
+      const answers: Record<string, string | null> = {}
+      items.forEach((it) => { answers[it.question.id] = it.userAnswer })
+      saveSession({
+        id: sid,
+        mode,
+        questions,
+        answers,
+        currentIndex: current,
+        timeLimitSeconds,
+        elapsedSeconds: elapsed,
+        savedAt: Date.now(),
+      })
+    }, 10000)
+    return () => clearInterval(interval)
+  }, [items, current, elapsed, submitted, sid, mode, questions, timeLimitSeconds])
+
+  // 경과 시간 추적
+  useEffect(() => {
+    if (submitted) return
+    const interval = setInterval(() => setElapsed((e) => e + 1), 1000)
+    return () => clearInterval(interval)
+  }, [submitted])
 
   const handleSubmit = useCallback(async () => {
     if (submitted) return
@@ -55,6 +103,7 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
 
     setSubmitted(true)
     setUnansweredWarning(false)
+    clearSavedSession()
 
     const apiKey = typeof window !== 'undefined'
       ? localStorage.getItem('lawpass_api_key') ?? ''
@@ -137,7 +186,6 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
 
   useEffect(() => {
     if (timeLimitSeconds === null || submitted) return
-    setTimeLeft(timeLimitSeconds)
     const interval = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev === null || prev <= 1) {
@@ -174,6 +222,24 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
       }
       return next
     })
+  }
+
+  // 나가기 (임시저장)
+  function handleExit() {
+    if (!confirm('지금까지 푼 내용을 임시저장하고 나갈까요?')) return
+    const answers: Record<string, string | null> = {}
+    items.forEach((it) => { answers[it.question.id] = it.userAnswer })
+    saveSession({
+      id: sid,
+      mode,
+      questions,
+      answers,
+      currentIndex: current,
+      timeLimitSeconds,
+      elapsedSeconds: elapsed,
+      savedAt: Date.now(),
+    })
+    onFinish()
   }
 
   const item = items[current]
@@ -219,7 +285,15 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
             {fmt(timeLeft)}
           </span>
         )}
-        <span className="text-xs text-muted-foreground">{q.subject} · {q.year}년</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">{q.subject} · {q.year}년</span>
+          <button
+            onClick={handleExit}
+            className="text-xs text-muted-foreground hover:text-foreground border border-border rounded px-2 py-0.5 transition-colors"
+          >
+            임시저장 후 나가기
+          </button>
+        </div>
       </div>
 
       <div className="bg-card border border-border rounded-xl p-5 space-y-4">
@@ -267,7 +341,7 @@ export function QuizEngine({ questions, mode, timeLimitSeconds, onFinish }: Quiz
 
       {unansweredWarning && (
         <div className="bg-red-900/30 border border-red-700/40 rounded-lg px-4 py-3 text-sm text-red-300">
-          ⚠ 아직 {unansweredCount}개 문제에 답을 선택하지 않았습니다. 미답변 문제를 확인해주세요.
+          ⚠ 아직 {unansweredCount}개 문제에 답을 선택하지 않았습니다.
         </div>
       )}
 

@@ -287,3 +287,27 @@ export function clearAll() {
   if (typeof window === 'undefined') return
   Object.values(KEYS).forEach((k) => localStorage.removeItem(k))
 }
+// ── 임시저장 (세션 중단/이어서 풀기) ──
+export interface SavedSession {
+  id: string
+  mode: 'cbt' | 'study'
+  questions: import('./types').Question[]
+  answers: Record<string, string | null>
+  currentIndex: number
+  timeLimitSeconds: number | null
+  elapsedSeconds: number
+  savedAt: number
+}
+
+export function getSavedSession(): SavedSession | null {
+  return safeGet<SavedSession | null>('lawpass_saved_session', null)
+}
+
+export function saveSession(session: SavedSession) {
+  safeSet('lawpass_saved_session', session)
+}
+
+export function clearSavedSession() {
+  if (typeof window === 'undefined') return
+  localStorage.removeItem('lawpass_saved_session')
+}
