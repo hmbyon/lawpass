@@ -1,6 +1,6 @@
 import { db } from '@/lib/firebase'
 import { doc, setDoc, getDoc } from 'firebase/firestore'
-import { getQuestions, saveQuestions, getWrongNotes, saveWrongNotes } from '@/lib/store'
+import { getQuestions, saveQuestions, getWrongNotes, saveWrongNotes, getApiKey, setApiKey } from '@/lib/store'
 import type { Question, WrongNote } from '@/lib/types'
 
 // Firebase에 전체 데이터 업로드
@@ -20,8 +20,11 @@ export async function pullFromFirebase(userId: string): Promise<{ questions: Que
   const questions: Question[] = qSnap.exists() ? qSnap.data().list : []
   const wrongNotes: WrongNote[] = wSnap.exists() ? wSnap.data().list : []
 
+  // API 키는 건드리지 않고 문제/오답노트만 덮어쓰기
+  const existingApiKey = getApiKey()
   saveQuestions(questions)
   saveWrongNotes(wrongNotes)
+  if (existingApiKey) setApiKey(existingApiKey)
 
   return { questions, wrongNotes }
 }
