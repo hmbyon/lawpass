@@ -44,6 +44,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
   const [units, setUnits] = useState<string[]>([])
   const [count, setCount] = useState<number>(20)
   const [useTimer, setUseTimer] = useState(mode === 'cbt')
+  const [allQuestions, setAllQuestions] = useState(false)
 
   const availableYears = useMemo(() => {
     return Array.from(new Set(questions.map((q) => String(q.year))))
@@ -112,10 +113,15 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
 
   function handleStart() {
     if (filtered.length === 0) return
-    const shuffled = [...filtered].sort(() => Math.random() - 0.5)
-    const selected = shuffled.slice(0, count)
-    const minutes = DEFAULT_TIME[count] ?? 60
-    onStart(selected, useTimer ? minutes * 60 : null)
+    if (allQuestions) {
+      const minutes = Math.ceil(filtered.length * 1.7)
+      onStart(filtered, useTimer ? minutes * 60 : null)
+    } else {
+      const shuffled = [...filtered].sort(() => Math.random() - 0.5)
+      const selected = shuffled.slice(0, count)
+      const minutes = DEFAULT_TIME[count] ?? 60
+      onStart(selected, useTimer ? minutes * 60 : null)
+    }
   }
 
   return (
@@ -184,7 +190,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
         </div>
       )}
 
-      {/* 범위 - 과목 선택 후 단원이 선택됐을 때만 표시 */}
+      {/* 범위 */}
       {units.length > 0 && availableUnits.length > 0 && (
         <div className="bg-card border border-border rounded-xl p-4 space-y-3">
           <div className="flex items-center justify-between">
@@ -203,11 +209,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
               return (
                 <div key={s} className="space-y-1">
                   <p className="text-[10px] text-muted-foreground font-medium">{s}</p>
-                  <FilterChips
-                    options={subjectUnits}
-                    selected={units}
-                    onChange={setUnits}
-                  />
+                  <FilterChips options={subjectUnits} selected={units} onChange={setUnits} />
                 </div>
               )
             })}
@@ -217,23 +219,41 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
 
       {/* 문항 수 */}
       <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-        <label className="text-xs font-medium text-muted-foreground">문항 수</label>
-        <div className="grid grid-cols-4 gap-2">
-          {COUNT_OPTIONS.map((n) => (
-            <button
-              key={n}
-              onClick={() => setCount(n)}
-              className={`py-2 rounded-lg text-sm font-medium border transition-all ${
-                count === n
-                  ? 'bg-primary text-primary-foreground border-primary'
-                  : 'bg-muted text-muted-foreground border-border hover:border-primary/40'
-              }`}
-            >
-              {n}문항
-              <div className="text-xs opacity-70 font-normal">{DEFAULT_TIME[n]}분</div>
-            </button>
-          ))}
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-medium text-muted-foreground">문항 수</label>
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={allQuestions}
+              onChange={(e) => setAllQuestions(e.target.checked)}
+              className="accent-[oklch(0.65_0.2_290)] w-3.5 h-3.5"
+            />
+            <span className="text-xs text-foreground">전문제 풀기</span>
+          </label>
         </div>
+        {!allQuestions && (
+          <div className="grid grid-cols-4 gap-2">
+            {COUNT_OPTIONS.map((n) => (
+              <button
+                key={n}
+                onClick={() => setCount(n)}
+                className={`py-2 rounded-lg text-sm font-medium border transition-all ${
+                  count === n
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-muted text-muted-foreground border-border hover:border-primary/40'
+                }`}
+              >
+                {n}문항
+                <div className="text-xs opacity-70 font-normal">{DEFAULT_TIME[n]}분</div>
+              </button>
+            ))}
+          </div>
+        )}
+        {allQuestions && filtered.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            필터된 전체 <span className="text-foreground font-medium">{filtered.length}문제</span>를 순서대로 풀기
+          </p>
+        )}
       </div>
 
       {/* 타이머 */}
@@ -246,7 +266,9 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
               onChange={(e) => setUseTimer(e.target.checked)}
               className="accent-[oklch(0.65_0.2_290)] w-4 h-4"
             />
-            <span className="text-sm text-foreground">타이머 사용 ({DEFAULT_TIME[count]}분)</span>
+            <span className="text-sm text-foreground">
+              타이머 사용 ({allQuestions ? Math.ceil(filtered.length * 1.7) : DEFAULT_TIME[count]}분)
+            </span>
           </label>
         </div>
       )}
@@ -256,7 +278,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
         <span className="text-muted-foreground">
           필터 결과: <span className="text-foreground font-medium">{filtered.length}문제</span>
         </span>
-        {filtered.length < count && filtered.length > 0 && (
+        {!allQuestions && filtered.length < count && filtered.length > 0 && (
           <span className="text-yellow-400 text-xs">전체 {filtered.length}문제만 출제</span>
         )}
       </div>
@@ -270,7 +292,9 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
           ? subjects.length === 0
             ? '과목을 선택해주세요'
             : '문제은행에 문제가 없습니다'
-          : `${mode === 'cbt' ? 'CBT 시작' : '선학습 시작'} — ${Math.min(count, filtered.length)}문항`}
+          : allQuestions
+            ? `${mode === 'cbt' ? 'CBT 시작' : '선학습 시작'} — 전체 ${filtered.length}문항`
+            : `${mode === 'cbt' ? 'CBT 시작' : '선학습 시작'} — ${Math.min(count, filtered.length)}문항`}
       </button>
     </div>
   )
