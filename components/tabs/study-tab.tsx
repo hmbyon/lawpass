@@ -1,12 +1,10 @@
-'use client'
-
 import { useState, useEffect } from 'react'
 import type { Question } from '@/lib/types'
 import { QuizFilter } from '@/components/quiz/quiz-filter'
 import { QuizEngine } from '@/components/quiz/quiz-engine'
 import {
   addBookmark, removeBookmark, getWrongNotes, updateChoiceMemo,
-  saveStudySession, getSavedStudySession, clearSavedStudySession,
+  addSavedStudySession, getSavedStudySessions, removeSavedStudySession,
   clearSavedSession, getSavedSession
 } from '@/lib/store'
 import type { SavedStudySession } from '@/lib/store'
@@ -18,23 +16,22 @@ export function StudyTab({ questions, onDone }: { questions: Question[]; onDone:
   const [allQuestions, setAllQuestions] = useState<Question[]>([])
   const [previewFrom, setPreviewFrom] = useState(0)
   const [quizQuestions, setQuizQuestions] = useState<Question[]>([])
-  const [savedStudy, setSavedStudy] = useState<SavedStudySession | null>(null)
+  const [savedSessions, setSavedSessions] = useState<SavedStudySession[]>([])
   const [savedQuiz, setSavedQuiz] = useState(getSavedSession())
+  const [activeSession, setActiveSession] = useState<SavedStudySession | null>(null)
 
   useEffect(() => {
-    const s = getSavedStudySession()
-    if (s) setSavedStudy(s)
+    setSavedSessions(getSavedStudySessions())
     const q = getSavedSession()
     if (q && q.mode === 'study') setSavedQuiz(q)
   }, [])
 
   function handleNewStart(qs: Question[]) {
-    clearSavedStudySession()
     clearSavedSession()
     setAllQuestions(qs)
     setPreviewFrom(0)
-    setSavedStudy(null)
     setSavedQuiz(null)
+    setActiveSession(null)
     setPhase('preview')
   }
 
@@ -43,42 +40,51 @@ export function StudyTab({ questions, onDone }: { questions: Question[]; onDone:
     const remaining = upToIndex + 1
 
     if (remaining < allQuestions.length) {
-      saveStudySession({
+      const session: SavedStudySession = {
         allQuestions,
         previewedIndex: upToIndex,
         remainingFrom: remaining,
-        savedAt: Date.now(),
-      })
+        savedAt: activeSession?.savedAt ?? Date.now(),
+      }
+      addSavedStudySession(session)
+      setSavedSessions(getSavedStudySessions())
     } else {
-      clearSavedStudySession()
+      // 다 봤으면 해당 세션 삭제
+      if (activeSession) {
+        removeSavedStudySession(activeSession.savedAt)
+        setSavedSessions(getSavedStudySessions())
+      }
     }
 
     setQuizQuestions(toQuiz)
     setPhase('quiz')
   }
 
-  function handleQuizFinish() {
-    const saved = getSavedStudySession()
-    clearSavedSession()
-    if (saved && saved.remainingFrom < saved.allQuestions.length) {
-      setAllQuestions(saved.allQuestions)
-      setPreviewFrom(saved.remainingFrom)
-      setSavedStudy(null)
-      setPhase('preview')
-    } else {
-      clearSavedStudySession()
-      setSavedStudy(null)
-      setSavedQuiz(null)
-      setPhase('filter')
+  function handleSaveAndExit(upToIndex: number) {
+    const session: SavedStudySession = {
+      allQuestions,
+      previewedIndex: upToIndex,
+      remainingFrom: upToIndex,
+      savedAt: activeSession?.savedAt ?? Date.now(),
     }
+    addSavedStudySession(session)
+    setSavedSessions(getSavedStudySessions())
+    setPhase('filter')
+    setActiveSession(null)
+  }
+
+  function handleQuizFinish() {
+    clearSavedSession()
+    setSavedSessions(getSavedStudySessions())
+    setSavedQuiz(null)
+    setPhase('filter')
     onDone()
   }
 
-  function handleResumePreview() {
-    if (!savedStudy) return
-    setAllQuestions(savedStudy.allQuestions)
-    setPreviewFrom(savedStudy.remainingFrom)
-    setSavedStudy(null)
+  function handleResumePreview(session: SavedStudySession) {
+    setAllQuestions(session.allQuestions)
+    setPreviewFrom(session.remainingFrom)
+    setActiveSession(session)
     setPhase('preview')
   }
 
@@ -89,26 +95,19 @@ export function StudyTab({ questions, onDone }: { questions: Question[]; onDone:
     setPhase('quiz')
   }
 
+  function handleDeleteSession(savedAt: number) {
+    removeSavedStudySession(savedAt)
+    setSavedSessions(getSavedStudySessions())
+  }
+
   if (phase === 'preview') {
     return (
       <StudyBulkPreview
         questions={allQuestions}
         startFrom={previewFrom}
         onPartialQuiz={handlePartialQuiz}
-        onSaveAndExit={(upToIndex) => {
-          saveStudySession({
-            allQuestions,
-            previewedIndex: upToIndex,
-            remainingFrom: upToIndex,
-            savedAt: Date.now(),
-          })
-          setPhase('filter')
-          setSavedStudy(getSavedStudySession())
-        }}
-        onBack={() => {
-          clearSavedStudySession()
-          setPhase('filter')
-        }}
+        onSaveAndExit={handleSaveAndExit}
+        onBack={() => setPhase('filter')}
         onDone={onDone}
       />
     )
@@ -138,6 +137,7 @@ export function StudyTab({ questions, onDone }: { questions: Question[]; onDone:
         </p>
       </div>
 
+      {/* 이어서 하기 - 퀴즈 */}
       {savedQuiz && savedQuiz.mode === 'study' && (
         <div className="max-w-2xl mx-auto bg-primary/10 border border-primary/30 rounded-xl p-4 space-y-3">
           <p className="text-sm font-semibold text-primary">📌 풀던 퀴즈 이어서 하기</p>
@@ -151,28 +151,43 @@ export function StudyTab({ questions, onDone }: { questions: Question[]; onDone:
               이어서 풀기
             </button>
             <button onClick={() => { clearSavedSession(); setSavedQuiz(null) }} className="flex-1 py-2 bg-muted text-muted-foreground rounded-lg text-sm hover:bg-muted/70">
-              새로 시작
+              삭제
             </button>
           </div>
         </div>
       )}
 
-      {savedStudy && (
-        <div className="max-w-2xl mx-auto bg-purple-900/20 border border-purple-700/30 rounded-xl p-4 space-y-3">
-          <p className="text-sm font-semibold text-purple-300">📖 선학습 이어서 하기</p>
-          <p className="text-xs text-muted-foreground">
-            전체 {savedStudy.allQuestions.length}문제 중{' '}
-            {savedStudy.remainingFrom}번부터 이어서 학습 ·{' '}
-            {new Date(savedStudy.savedAt).toLocaleDateString('ko-KR')} 저장
-          </p>
-          <div className="flex gap-2">
-            <button onClick={handleResumePreview} className="flex-1 py-2 bg-purple-700 text-white rounded-lg text-sm font-medium hover:opacity-90">
-              이어서 학습
-            </button>
-            <button onClick={() => { clearSavedStudySession(); setSavedStudy(null) }} className="flex-1 py-2 bg-muted text-muted-foreground rounded-lg text-sm hover:bg-muted/70">
-              새로 시작
-            </button>
-          </div>
+      {/* 이어서 하기 - 미리보기 목록 */}
+      {savedSessions.length > 0 && (
+        <div className="max-w-2xl mx-auto space-y-2">
+          <p className="text-xs font-medium text-muted-foreground px-1">📖 이어서 학습하기</p>
+          {savedSessions.map((session) => (
+            <div key={session.savedAt} className="bg-purple-900/20 border border-purple-700/30 rounded-xl p-4 space-y-2">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-sm font-medium text-purple-300">
+                    {session.allQuestions[0]?.subject} 외 · 전체 {session.allQuestions.length}문제
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {session.remainingFrom}번부터 이어서 ·{' '}
+                    {new Date(session.savedAt).toLocaleDateString('ko-KR')} 저장
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleDeleteSession(session.savedAt)}
+                  className="text-xs text-muted-foreground hover:text-red-400 transition-colors"
+                >
+                  삭제
+                </button>
+              </div>
+              <button
+                onClick={() => handleResumePreview(session)}
+                className="w-full py-2 bg-purple-700 text-white rounded-lg text-sm font-medium hover:opacity-90"
+              >
+                {session.remainingFrom}번부터 이어서 학습
+              </button>
+            </div>
+          ))}
         </div>
       )}
 
@@ -355,10 +370,10 @@ function StudyBulkPreview({
       {/* 네비게이션 */}
       <div className="flex gap-2">
         <button
-          onClick={() => current === 0 ? onBack() : setCurrent(c => c - 1)}
+          onClick={() => current === startFrom ? onBack() : setCurrent(c => c - 1)}
           className="flex-1 py-2 bg-muted rounded-lg text-sm font-medium hover:bg-muted/70 transition-colors"
         >
-          {current === startFrom ? '← 필터로' : '이전'}
+          {current === startFrom ? '← 목록으로' : '이전'}
         </button>
         {isLast ? (
           <button
@@ -377,7 +392,7 @@ function StudyBulkPreview({
         )}
       </div>
 
-      {/* 여기까지만 풀기 / 임시저장 버튼 */}
+      {/* 여기까지만 풀기 / 임시저장 */}
       <div className="flex gap-2">
         <button
           onClick={() => {
@@ -428,3 +443,4 @@ function StudyBulkPreview({
     </div>
   )
 }
+EOF

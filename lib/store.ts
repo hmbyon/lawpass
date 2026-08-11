@@ -332,3 +332,30 @@ export function clearSavedStudySession() {
   if (typeof window === 'undefined') return
   localStorage.removeItem('lawpass_saved_study_session')
 }
+
+// ── 선학습 임시저장 목록 (여러 개) ──
+export function getSavedStudySessions(): SavedStudySession[] {
+  return safeGet<SavedStudySession[]>('lawpass_saved_study_sessions', [])
+}
+
+export function addSavedStudySession(session: SavedStudySession) {
+  const sessions = getSavedStudySessions()
+  // 같은 id 있으면 덮어쓰기
+  const idx = sessions.findIndex((s) => s.allQuestions[0]?.id === session.allQuestions[0]?.id)
+  if (idx >= 0) {
+    sessions[idx] = session
+  } else {
+    sessions.push(session)
+  }
+  safeSet('lawpass_saved_study_sessions', sessions)
+}
+
+export function removeSavedStudySession(savedAt: number) {
+  const sessions = getSavedStudySessions().filter((s) => s.savedAt !== savedAt)
+  safeSet('lawpass_saved_study_sessions', sessions)
+}
+
+export function clearAllSavedStudySessions() {
+  if (typeof window === 'undefined') return
+  localStorage.removeItem('lawpass_saved_study_sessions')
+}
