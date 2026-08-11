@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { onAuthChange, loginWithGoogle, handleRedirectResult } from '@/lib/firebaseServices/auth'
+import { onAuthChange, loginWithGoogle } from '@/lib/firebaseServices/auth'
 import type { User } from 'firebase/auth'
 
 interface Props {
@@ -11,17 +11,23 @@ interface Props {
 export function AuthGate({ children }: Props) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    // 리디렉션 결과 처리
-    handleRedirectResult().catch(console.error)
-
     const unsub = onAuthChange((u) => {
       setUser(u)
       setLoading(false)
     })
     return () => unsub()
   }, [])
+
+  function handleLogin() {
+    setError(null)
+    loginWithGoogle().catch((e) => {
+      console.error(e)
+      setError('로그인에 실패했습니다. 팝업이 차단됐을 수 있어요.')
+    })
+  }
 
   if (loading) {
     return (
@@ -39,7 +45,7 @@ export function AuthGate({ children }: Props) {
           <p className="text-muted-foreground text-sm mt-1">변호사시험 객관식 학습</p>
         </div>
         <button
-          onClick={() => loginWithGoogle()}
+          onClick={handleLogin}
           className="flex items-center gap-2 px-6 py-3 bg-white text-gray-700 border border-gray-300 rounded-lg shadow-sm hover:shadow-md transition-all text-sm font-medium"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24">
@@ -50,6 +56,8 @@ export function AuthGate({ children }: Props) {
           </svg>
           Google로 로그인
         </button>
+        {error && <p className="text-xs text-red-400">{error}</p>}
+        <p className="text-xs text-muted-foreground">팝업이 차단되면 브라우저 설정에서 팝업을 허용해주세요</p>
       </div>
     )
   }

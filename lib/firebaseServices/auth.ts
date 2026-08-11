@@ -5,8 +5,7 @@ import {
   signOut,
   onAuthStateChanged,
   GoogleAuthProvider,
-  signInWithRedirect,
-  getRedirectResult,
+  signInWithPopup,
   User,
 } from 'firebase/auth';
 
@@ -18,14 +17,9 @@ export const login = async (email: string, password: string) => {
   return signInWithEmailAndPassword(auth, email, password);
 };
 
-// 모든 환경에서 리디렉션 방식 사용
-export const loginWithGoogle = async () => {
+export const loginWithGoogle = () => {
   const provider = new GoogleAuthProvider();
-  return signInWithRedirect(auth, provider);
-};
-
-export const handleRedirectResult = async () => {
-  return getRedirectResult(auth);
+  return signInWithPopup(auth, provider);
 };
 
 export const logout = async () => {
