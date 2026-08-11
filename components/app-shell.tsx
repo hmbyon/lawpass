@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import type { User } from 'firebase/auth'
 import type { Question, WrongNote } from '@/lib/types'
 import { getQuestions, getWrongNotes, clearAll } from '@/lib/store'
@@ -33,6 +33,19 @@ export function AppShell({ user }: Props) {
   const [wrongNotes, setWrongNotes] = useState<WrongNote[]>([])
   const [syncing, setSyncing] = useState(false)
   const [syncedAt, setSyncedAt] = useState(0)
+  const [showUserMenu, setShowUserMenu] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!showUserMenu) return
+    function handleClickOutside(e: MouseEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setShowUserMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showUserMenu])
 
   const refresh = useCallback(() => {
     setQuestions(getQuestions())
@@ -91,9 +104,6 @@ export function AppShell({ user }: Props) {
             </span>
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <span className="hidden sm:inline truncate max-w-[160px]">
-              {user.displayName ?? user.email}
-            </span>
             {syncing && <span className="text-primary animate-pulse">동기화 중...</span>}
             <span>{questions.length}문제</span>
             <span>오답 {wrongNotes.length}</span>
@@ -107,6 +117,53 @@ export function AppShell({ user }: Props) {
             >
               ⚙️ 설정
             </button>
+            <div className="relative" ref={userMenuRef}>
+              <button
+                onClick={() => setShowUserMenu((v) => !v)}
+                className="w-7 h-7 rounded-full overflow-hidden border border-border flex items-center justify-center bg-primary/20 text-primary text-xs font-semibold hover:opacity-80 transition-opacity shrink-0"
+              >
+                {user.photoURL ? (
+                  <img
+                    src={user.photoURL}
+                    alt={user.displayName ?? user.email ?? '프로필'}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span>{(user.displayName ?? user.email ?? '?').charAt(0).toUpperCase()}</span>
+                )}
+              </button>
+              {showUserMenu && (
+                <div className="absolute right-0 top-9 w-56 bg-card border border-border rounded-xl shadow-lg py-2 z-50">
+                  <div className="flex items-center gap-3 px-3 py-2">
+                    <div className="w-9 h-9 rounded-full overflow-hidden border border-border flex items-center justify-center bg-primary/20 text-primary text-sm font-semibold shrink-0">
+                      {user.photoURL ? (
+                        <img
+                          src={user.photoURL}
+                          alt={user.displayName ?? user.email ?? '프로필'}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span>{(user.displayName ?? user.email ?? '?').charAt(0).toUpperCase()}</span>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">{user.displayName ?? '이름 없음'}</p>
+                      <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                    </div>
+                  </div>
+                  <div className="border-t border-border my-1" />
+                  <button
+                    onClick={() => {
+                      setShowUserMenu(false)
+                      logout()
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-red-400/10 transition-colors"
+                  >
+                    로그아웃
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -154,7 +211,6 @@ export function AppShell({ user }: Props) {
             wrongNoteCount={wrongNotes.length}
             userId={user.uid}
             onClearAll={handleClearAll}
-            onLogout={logout}
           />
         )}
       </main>

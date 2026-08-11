@@ -9,10 +9,9 @@ interface Props {
   wrongNoteCount: number
   userId: string
   onClearAll: () => void
-  onLogout: () => void
 }
 
-export function SettingsTab({ questionCount, wrongNoteCount, userId, onClearAll, onLogout }: Props) {
+export function SettingsTab({ questionCount, wrongNoteCount, userId, onClearAll }: Props) {
   const [clearing, setClearing] = useState(false)
 
   async function handleClearAllClick() {
@@ -43,17 +42,6 @@ export function SettingsTab({ questionCount, wrongNoteCount, userId, onClearAll,
           <span>문제 {questionCount}개</span>
           <span>오답 {wrongNoteCount}개</span>
         </div>
-      </div>
-
-      {/* 계정 */}
-      <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-3">
-        <h2 className="text-sm font-semibold">계정</h2>
-        <button
-          onClick={onLogout}
-          className="text-sm text-muted-foreground hover:text-foreground transition-colors text-left"
-        >
-          로그아웃
-        </button>
       </div>
 
       {/* 데이터 초기화 */}
