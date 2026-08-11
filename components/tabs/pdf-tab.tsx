@@ -26,10 +26,11 @@ type UploadMode = 'file' | 'uri'
 export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   const [apiKey, setApiKeyLocal] = useState(() => getApiKey())
   const [apiStatus, setApiStatus] = useState<'untested' | 'ok' | 'error'>('untested')
+  const [showApiKeyInfo, setShowApiKeyInfo] = useState(false)
   const [uploadMode, setUploadMode] = useState<UploadMode>('file')
   const [files, setFiles] = useState<FileState[]>([])
   const [fileUri, setFileUri] = useState('')
-  const [subject, setSubject] = useState<Subject>('민법')
+  const [subjects, setSubjects] = useState<Subject[]>(['민법'])
   const [examTypes, setExamTypes] = useState<ExamType[]>(['변호사시험'])
   const [isRunning, setIsRunning] = useState(false)
   const [summary, setSummary] = useState<{ added: number; merged: number } | null>(null)
@@ -49,6 +50,12 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     setApiKeyLocal(k)
     setApiStatus('untested')
     setApiKey(k)
+  }
+
+  function toggleSubject(s: Subject) {
+    setSubjects((prev) =>
+      prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]
+    )
   }
 
   function toggleExamType(t: ExamType) {
@@ -76,7 +83,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   }
 
   async function startAnalysis() {
-    if (!apiKey || files.length === 0 || examTypes.length === 0) return
+    if (!apiKey || files.length === 0 || examTypes.length === 0 || subjects.length === 0) return
     setIsRunning(true)
     setSummary(null)
     let totalAdded = 0
@@ -121,12 +128,14 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
               chunkIndex: chunkIndex + 1,
             })
             await waitForFileActive(apiKey, uri)
-            for (const et of examTypes) {
-              const questions = await extractQuestionsFromPdf(apiKey, uri, subject, et, new Date().getFullYear())
-              const result = addQuestions(questions, sourceFile)
-              totalAdded += result.added
-              totalMerged += result.merged
-              fileQuestionCount += questions.length
+            for (const s of subjects) {
+              for (const et of examTypes) {
+                const questions = await extractQuestionsFromPdf(apiKey, uri, s, et, new Date().getFullYear())
+                const result = addQuestions(questions, sourceFile)
+                totalAdded += result.added
+                totalMerged += result.merged
+                fileQuestionCount += questions.length
+              }
             }
             updateFile(i, {
               progress: ((chunkIndex + 1) / chunkTotal) * 100,
@@ -150,7 +159,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   }
 
   async function startUriAnalysis() {
-    if (!apiKey || !fileUri.trim() || examTypes.length === 0) return
+    if (!apiKey || !fileUri.trim() || examTypes.length === 0 || subjects.length === 0) return
     setUriStatus('analyzing')
     setUriError('')
     setSummary(null)
@@ -159,11 +168,13 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       let totalAdded = 0
       let totalMerged = 0
       const sourceFile = fileUri.trim().split('/').pop() ?? 'URI 업로드'
-      for (const et of examTypes) {
-        const questions = await extractQuestionsFromPdf(apiKey, fileUri.trim(), subject, et, new Date().getFullYear())
-        const result = addQuestions(questions, sourceFile)
-        totalAdded += result.added
-        totalMerged += result.merged
+      for (const s of subjects) {
+        for (const et of examTypes) {
+          const questions = await extractQuestionsFromPdf(apiKey, fileUri.trim(), s, et, new Date().getFullYear())
+          const result = addQuestions(questions, sourceFile)
+          totalAdded += result.added
+          totalMerged += result.merged
+        }
       }
       setSummary({ added: totalAdded, merged: totalMerged })
       setUriStatus('done')
@@ -221,6 +232,38 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
         </div>
         {apiStatus === 'ok' && <p className="text-xs text-emerald-400">연결 성공</p>}
         {apiStatus === 'error' && <p className="text-xs text-red-400">연결 실패 — API 키를 확인하세요</p>}
+
+        <div>
+          <button
+            onClick={() => setShowApiKeyInfo((v) => !v)}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <span className={`transition-transform ${showApiKeyInfo ? 'rotate-90' : ''}`}>▶</span>
+            API 키가 왜 필요한가요?
+          </button>
+          {showApiKeyInfo && (
+            <div className="mt-2 bg-muted rounded-lg p-3 space-y-1 text-xs text-muted-foreground">
+              <p>PDF 문제집에서 문제를 자동으로 추출·분석하기 위해 Google Gemini API를 사용합니다. 이 작업에는 개인 API 키가 필요합니다.</p>
+              <p className="font-medium text-foreground pt-1">발급 방법 (무료)</p>
+              <p>
+                1.{' '}
+                <a
+                  href="https://aistudio.google.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 hover:underline"
+                >
+                  aistudio.google.com
+                </a>
+                {' '}접속 후 구글 계정으로 로그인
+              </p>
+              <p>2. 좌측 메뉴에서 "Get API key" 클릭</p>
+              <p>3. "Create API key"로 새 키 발급</p>
+              <p>4. 생성된 키를 복사해서 위 입력란에 붙여넣기</p>
+              <p className="pt-1">무료 요금제로도 충분히 사용 가능합니다.</p>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 업로드된 파일 목록 */}
@@ -251,14 +294,25 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
         <h2 className="font-semibold text-sm text-foreground">문제집 정보</h2>
         <div className="space-y-3">
           <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">과목</label>
-            <select
-              value={subject}
-              onChange={(e) => setSubject(e.target.value as Subject)}
-              className="w-full bg-input border border-border rounded-lg px-2 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            <label className="text-xs text-muted-foreground">과목 (복수 선택 가능)</label>
+            <div className="flex flex-wrap gap-2">
+              {SUBJECTS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => toggleSubject(s)}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all border ${
+                    subjects.includes(s)
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-muted text-muted-foreground border-border hover:text-foreground'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+            {subjects.length === 0 && (
+              <p className="text-xs text-red-400">과목을 하나 이상 선택하세요</p>
+            )}
           </div>
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground">시험 유형 (복수 선택 가능)</label>
@@ -370,7 +424,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
 
             <button
               onClick={startAnalysis}
-              disabled={isRunning || !apiKey || files.length === 0 || examTypes.length === 0}
+              disabled={isRunning || !apiKey || files.length === 0 || examTypes.length === 0 || subjects.length === 0}
               className="w-full py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
             >
               {isRunning ? '분석 중...' : '분석 시작'}
@@ -425,7 +479,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
 
             <button
               onClick={startUriAnalysis}
-              disabled={uriStatus === 'analyzing' || !apiKey || !fileUri.trim() || examTypes.length === 0}
+              disabled={uriStatus === 'analyzing' || !apiKey || !fileUri.trim() || examTypes.length === 0 || subjects.length === 0}
               className="w-full py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
             >
               {uriStatus === 'analyzing' ? 'Gemini 분석 중...' : '분석 시작'}
