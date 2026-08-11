@@ -15,9 +15,12 @@ export async function pushToFirebase(userId: string) {
   const studySessions = getSavedStudySessions()
   const quizSession = getSavedSession()
 
+  console.log('[pushToFirebase] studySessions count:', studySessions.length)
+
   await setDoc(doc(db, 'users', userId, 'data', 'questions'), { list: questions })
   await setDoc(doc(db, 'users', userId, 'data', 'wrongNotes'), { list: wrongNotes })
   await setDoc(doc(db, 'users', userId, 'data', 'studySessions'), { list: studySessions })
+  console.log('[pushToFirebase] studySessions uploaded to Firebase')
   if (quizSession) {
     await setDoc(doc(db, 'users', userId, 'data', 'quizSession'), quizSession)
   }
