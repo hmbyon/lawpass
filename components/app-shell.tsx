@@ -119,7 +119,7 @@ export function AppShell({ user }: Props) {
             >
               {appTitle}
             </button>
-            <span className="hidden sm:inline text-xs text-muted-foreground border border-border rounded-full px-2 py-0.5">
+            <span className="hidden sm:inline text-xs text-muted-foreground">
               {appBadge}
             </span>
             <button
