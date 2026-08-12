@@ -8,14 +8,14 @@ import { logout } from '@/lib/firebaseServices/auth'
 import { pullFromFirebase, pushToFirebase } from '@/lib/firebaseServices/sync'
 import { getAppMode, setAppMode, type AppMode } from '@/lib/appMode'
 import { FeedbackModal } from '@/components/feedback-modal'
+import { SettingsModal } from '@/components/settings-modal'
 import { PdfTab } from '@/components/tabs/pdf-tab'
 import { CbtTab } from '@/components/tabs/cbt-tab'
 import { StudyTab } from '@/components/tabs/study-tab'
 import { WrongTab } from '@/components/tabs/wrong-tab'
 import { MemoTab } from '@/components/tabs/memo-tab'
-import { SettingsTab } from '@/components/tabs/settings-tab'
 
-type Tab = 'pdf' | 'cbt' | 'study' | 'wrong' | 'memo' | 'settings'
+type Tab = 'pdf' | 'cbt' | 'study' | 'wrong' | 'memo'
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'pdf', label: 'PDF 분석', icon: '📄' },
@@ -39,6 +39,7 @@ export function AppShell({ user }: Props) {
   const [avatarError, setAvatarError] = useState(false)
   const [mode, setMode] = useState<AppMode>(() => getAppMode())
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
 
   function handleModeChange(next: AppMode) {
@@ -133,9 +134,9 @@ export function AppShell({ user }: Props) {
             <span>{questions.length}문제</span>
             <span>오답 {wrongNotes.length}</span>
             <button
-              onClick={() => setTab(tab === 'settings' ? 'pdf' : 'settings')}
+              onClick={() => setShowSettingsModal(true)}
               className={`flex items-center gap-1 px-2 py-1 rounded-lg border transition-all text-xs ${
-                tab === 'settings'
+                showSettingsModal
                   ? 'border-primary text-primary bg-primary/10'
                   : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-accent'
               }`}
@@ -234,17 +235,6 @@ export function AppShell({ user }: Props) {
         {tab === 'study' && <StudyTab key={syncedAt} questions={questions} onDone={refreshAndSync} onSync={refreshAndSync} />}
         {tab === 'wrong' && <WrongTab notes={wrongNotes} onNotesChanged={refreshAndSync} />}
         {tab === 'memo' && <MemoTab notes={wrongNotes} onNotesChanged={refreshAndSync} />}
-        {tab === 'settings' && (
-          <SettingsTab
-            questionCount={questions.length}
-            wrongNoteCount={wrongNotes.length}
-            userId={user.uid}
-            userEmail={user.email}
-            onClearAll={handleClearAll}
-            mode={mode}
-            onModeChange={handleModeChange}
-          />
-        )}
       </main>
 
       {showFeedbackModal && (
@@ -253,6 +243,19 @@ export function AppShell({ user }: Props) {
           userEmail={user.email}
           mode={mode}
           onClose={() => setShowFeedbackModal(false)}
+        />
+      )}
+
+      {showSettingsModal && (
+        <SettingsModal
+          questionCount={questions.length}
+          wrongNoteCount={wrongNotes.length}
+          userId={user.uid}
+          userEmail={user.email}
+          onClearAll={handleClearAll}
+          mode={mode}
+          onModeChange={handleModeChange}
+          onClose={() => setShowSettingsModal(false)}
         />
       )}
     </div>
