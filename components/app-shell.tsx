@@ -47,6 +47,7 @@ export function AppShell({ user }: Props) {
     setMode(next)
     // 전환된 모드의 로컬 데이터를 즉시 반영한 뒤, Firebase에서 최신 데이터를 새로 불러옴
     refresh()
+    setSyncedAt(Date.now()) // syncedAt을 key로 쓰는 탭(StudyTab 등)을 즉시 재마운트
     loadFromFirebase()
   }
 
