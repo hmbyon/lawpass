@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { clearFirebaseSessions } from '@/lib/firebaseServices/sync'
 import { getAllFeedback, setFeedbackRead } from '@/lib/firebaseServices/feedback'
@@ -30,6 +30,7 @@ export function SettingsTab({ questionCount, wrongNoteCount, userId, userEmail, 
   const isAdmin = userEmail === ADMIN_EMAIL
   const [feedbackList, setFeedbackList] = useState<Feedback[]>([])
   const [loadingAdmin, setLoadingAdmin] = useState(false)
+  const [hasLoadedFeedback, setHasLoadedFeedback] = useState(false)
   const [adminError, setAdminError] = useState('')
   const [modeFilter, setModeFilter] = useState<'all' | AppMode>('all')
 
@@ -52,6 +53,7 @@ export function SettingsTab({ questionCount, wrongNoteCount, userId, userEmail, 
     try {
       const list = await getAllFeedback()
       setFeedbackList(list)
+      setHasLoadedFeedback(true)
     } catch (e) {
       console.error('[settings-tab] 피드백 목록 조회 실패', e)
       setAdminError('피드백 목록을 불러오지 못했습니다.')
@@ -59,11 +61,6 @@ export function SettingsTab({ questionCount, wrongNoteCount, userId, userEmail, 
       setLoadingAdmin(false)
     }
   }
-
-  useEffect(() => {
-    if (isAdmin) loadFeedback()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdmin])
 
   async function handleToggleRead(f: Feedback) {
     const nextRead = !f.isRead
@@ -169,7 +166,10 @@ export function SettingsTab({ questionCount, wrongNoteCount, userId, userEmail, 
           </div>
 
           {adminError && <p className="text-xs text-red-400">{adminError}</p>}
-          {!loadingAdmin && filteredFeedback.length === 0 && !adminError && (
+          {!loadingAdmin && !hasLoadedFeedback && !adminError && (
+            <p className="text-xs text-muted-foreground">"새로고침"을 눌러 피드백 목록을 불러오세요.</p>
+          )}
+          {!loadingAdmin && hasLoadedFeedback && filteredFeedback.length === 0 && !adminError && (
             <p className="text-xs text-muted-foreground">
               {feedbackList.length === 0 ? '접수된 피드백이 없습니다.' : '해당 모드의 피드백이 없습니다.'}
             </p>
