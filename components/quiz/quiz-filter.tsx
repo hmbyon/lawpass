@@ -43,8 +43,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
   const isGeneral = appMode === 'general'
 
   const [subjects, setSubjects] = useState<Subject[]>([])
-  const [customSubjects, setCustomSubjects] = useState<string[]>([])
-  const [customSubjectInput, setCustomSubjectInput] = useState('')
+  const [generalSubjects, setGeneralSubjects] = useState<string[]>([])
   const [examTypes, setExamTypes] = useState<ExamType[]>([])
   const [years, setYears] = useState<string[]>([])
   const [units, setUnits] = useState<string[]>([])
@@ -52,7 +51,11 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
   const [useTimer, setUseTimer] = useState(mode === 'cbt')
   const [allQuestions, setAllQuestions] = useState(false)
 
-  const activeSubjects: string[] = isGeneral ? customSubjects : subjects
+  const activeSubjects: string[] = isGeneral ? generalSubjects : subjects
+
+  const generalSubjectOptions = useMemo(() => {
+    return Array.from(new Set(questions.map((q) => q.subject as string))).sort((a, b) => a.localeCompare(b))
+  }, [questions])
 
   const availableYears = useMemo(() => {
     return Array.from(new Set(questions.map((q) => String(q.year))))
@@ -74,17 +77,6 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
       return true
     })
   }, [questions, activeSubjects, examTypes, years, units, isGeneral])
-
-  function addCustomSubject() {
-    const v = customSubjectInput.trim()
-    if (!v || customSubjects.includes(v)) return
-    setCustomSubjects((prev) => [...prev, v])
-    setCustomSubjectInput('')
-  }
-
-  function removeCustomSubject(s: string) {
-    setCustomSubjects((prev) => prev.filter((x) => x !== s))
-  }
 
   function toggleGroup(groupSubjects: Subject[]) {
     const allSelected = groupSubjects.every((s) => subjects.includes(s))
@@ -149,43 +141,11 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
       <div className="bg-card border border-border rounded-xl p-4 space-y-3">
         <label className="text-xs font-medium text-muted-foreground">과목</label>
         {isGeneral ? (
-          <div className="space-y-2">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={customSubjectInput}
-                onChange={(e) => setCustomSubjectInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    addCustomSubject()
-                  }
-                }}
-                placeholder="예: 국어, 행정법, 한국사"
-                className="flex-1 bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-              <button
-                onClick={addCustomSubject}
-                disabled={!customSubjectInput.trim()}
-                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
-              >
-                추가
-              </button>
-            </div>
-            {customSubjects.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {customSubjects.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => removeCustomSubject(s)}
-                    className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-primary text-primary-foreground border border-primary"
-                  >
-                    {s} <span className="opacity-70">×</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          generalSubjectOptions.length > 0 ? (
+            <FilterChips options={generalSubjectOptions} selected={generalSubjects} onChange={setGeneralSubjects} />
+          ) : (
+            <p className="text-xs text-muted-foreground">PDF 탭에서 문제를 먼저 업로드해주세요.</p>
+          )
         ) : (
           <>
             <div className="flex gap-2">
@@ -215,10 +175,12 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
       </div>
 
       {/* 시험 유형 */}
-      <div className="bg-card border border-border rounded-xl p-4 space-y-2">
-        <label className="text-xs font-medium text-muted-foreground">시험 유형 (복수 선택)</label>
-        <FilterChips options={EXAM_TYPES} selected={examTypes} onChange={setExamTypes} />
-      </div>
+      {!isGeneral && (
+        <div className="bg-card border border-border rounded-xl p-4 space-y-2">
+          <label className="text-xs font-medium text-muted-foreground">시험 유형 (복수 선택)</label>
+          <FilterChips options={EXAM_TYPES} selected={examTypes} onChange={setExamTypes} />
+        </div>
+      )}
 
       {/* 연도 */}
       {availableYears.length > 0 && (

@@ -6,6 +6,7 @@ import { saveWrongNotes, updateWrongNoteMemo, updateWrongNoteAnalysis, updateWro
 import { StarRating } from '@/components/star-rating'
 import { CauseBadge } from '@/components/cause-badge'
 import { FilterChips } from '@/components/filter-chips'
+import { getAppMode } from '@/lib/appMode'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const RISKS = ['★1', '★2', '★3', '★4', '★5']
@@ -17,18 +18,28 @@ export function MemoTab({
   notes: WrongNote[]
   onNotesChanged: () => void
 }) {
+  const [appMode] = useState(() => getAppMode())
+  const isGeneral = appMode === 'general'
+
   const [selectMode, setSelectMode] = useState(false)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
   const [filterSubjects, setFilterSubjects] = useState<Subject[]>([])
+  const [filterGeneralSubjects, setFilterGeneralSubjects] = useState<string[]>([])
   const [filterRisks, setFilterRisks] = useState<string[]>([])
 
   const highNotes = useMemo(() => {
     return notes.filter((n) => (n.analysis?.위험도 ?? 0) >= 3)
   }, [notes])
 
+  const activeFilterSubjects: string[] = isGeneral ? filterGeneralSubjects : filterSubjects
+
+  const availableSubjects = useMemo(() => {
+    return Array.from(new Set(highNotes.map((n) => n.question.subject as string))).sort((a, b) => a.localeCompare(b))
+  }, [highNotes])
+
   const filtered = useMemo(() => {
     return highNotes.filter((n) => {
-      if (filterSubjects.length && !filterSubjects.includes(n.question.subject)) return false
+      if (activeFilterSubjects.length && !activeFilterSubjects.includes(n.question.subject)) return false
       if (filterRisks.length) {
         const levels = filterRisks.map((r) => Number(r.replace('★', '')))
         const risk = n.analysis?.위험도
@@ -36,16 +47,17 @@ export function MemoTab({
       }
       return true
     })
-  }, [highNotes, filterSubjects, filterRisks])
+  }, [highNotes, activeFilterSubjects, filterRisks])
 
   const grouped = useMemo(() => {
-    const map = new Map<Subject, WrongNote[]>()
-    for (const s of SUBJECTS) {
+    const map = new Map<string, WrongNote[]>()
+    const subjectKeys = isGeneral ? availableSubjects : SUBJECTS
+    for (const s of subjectKeys) {
       const items = filtered.filter((n) => n.question.subject === s)
       if (items.length > 0) map.set(s, items)
     }
     return map
-  }, [filtered])
+  }, [filtered, isGeneral, availableSubjects])
 
   function handlePrint() {
     window.print()
@@ -121,7 +133,13 @@ export function MemoTab({
 
       {/* 필터 + 삭제 컨트롤 */}
       <div className="bg-card border border-border rounded-xl p-4 space-y-3 no-print">
-        <FilterChips options={SUBJECTS} selected={filterSubjects} onChange={setFilterSubjects} />
+        {isGeneral ? (
+          availableSubjects.length > 0 && (
+            <FilterChips options={availableSubjects} selected={filterGeneralSubjects} onChange={setFilterGeneralSubjects} />
+          )
+        ) : (
+          <FilterChips options={SUBJECTS} selected={filterSubjects} onChange={setFilterSubjects} />
+        )}
         <FilterChips options={RISKS} selected={filterRisks} onChange={setFilterRisks} />
         <div className="flex items-center justify-end gap-3 pt-1 border-t border-border">
           <button
@@ -198,7 +216,7 @@ export function MemoTab({
                     <span className="text-xs text-muted-foreground">선택</span>
                   </div>
                 )}
-                <MemoCard note={note} onMemoSaved={onNotesChanged} />
+                <MemoCard note={note} onMemoSaved={onNotesChanged} isGeneral={isGeneral} />
               </div>
             ))}
           </div>
@@ -282,7 +300,7 @@ function EditableField({
   )
 }
 
-function MemoCard({ note, onMemoSaved }: { note: WrongNote; onMemoSaved: () => void }) {
+function MemoCard({ note, onMemoSaved, isGeneral }: { note: WrongNote; onMemoSaved: () => void; isGeneral: boolean }) {
   const a = note.analysis
   const [memo, setMemo] = useState(note.memo ?? '')
   const [memoSaved, setMemoSaved] = useState(false)
@@ -329,7 +347,7 @@ function MemoCard({ note, onMemoSaved }: { note: WrongNote; onMemoSaved: () => v
           {note.isBookmarked && note.wrongCount === 0 && (
             <span className="text-xs text-yellow-400">📌 북마크</span>
           )}
-          {note.dominantCause && <CauseBadge cause={note.dominantCause} />}
+          {!isGeneral && note.dominantCause && <CauseBadge cause={note.dominantCause} />}
           {note.wrongCount > 0 && <StarRating value={a.위험도} />}
         </div>
         <span className="text-xs text-muted-foreground">{note.question.year}년 {note.question.examType}</span>

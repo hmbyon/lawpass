@@ -7,6 +7,7 @@ import {
   uploadPdfToFileApi, waitForFileActive, extractQuestionsFromPdf, deleteFile,
   savePdfProgress, getPdfProgress, clearPdfProgress,
 } from '@/lib/gemini'
+import { getAppMode } from '@/lib/appMode'
 import type { Subject, ExamType } from '@/lib/types'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
@@ -120,6 +121,9 @@ const PROGRESS_VIEW_OPTIONS: { id: ProgressViewMode; label: string }[] = [
 ]
 
 export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
+  const [appMode] = useState(() => getAppMode())
+  const isGeneral = appMode === 'general'
+
   const [apiKey, setApiKeyLocal] = useState(() => getApiKey())
   const [apiStatus, setApiStatus] = useState<'untested' | 'ok' | 'error'>('untested')
   const [showApiKeyInfo, setShowApiKeyInfo] = useState(false)
@@ -127,7 +131,8 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   const [files, setFiles] = useState<FileState[]>([])
   const [fileUri, setFileUri] = useState('')
   const [subjects, setSubjects] = useState<Subject[]>(['민법'])
-  const [examTypes, setExamTypes] = useState<ExamType[]>(['변호사시험'])
+  const [generalSubjectText, setGeneralSubjectText] = useState('')
+  const [examTypes, setExamTypes] = useState<ExamType[]>(isGeneral ? ['모의고사'] : ['변호사시험'])
   const [isRunning, setIsRunning] = useState(false)
   const [summary, setSummary] = useState<{ added: number; merged: number } | null>(null)
   const [uriStatus, setUriStatus] = useState<'idle' | 'analyzing' | 'done' | 'error'>('idle')
@@ -142,6 +147,10 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     setProgress(computeProgress())
   }, [])
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const activeSubjects: Subject[] = isGeneral
+    ? (generalSubjectText.trim() ? [generalSubjectText.trim() as Subject] : [])
+    : subjects
 
   function refreshSourceFiles() {
     setSourceFiles(getSourceFiles())
@@ -269,7 +278,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
             chunkIndex: chunkIndex + 1,
           })
           await waitForFileActive(apiKey, uri)
-          for (const s of subjects) {
+          for (const s of activeSubjects) {
             for (const et of examTypes) {
               const questions = await extractQuestionsFromPdf(apiKey, uri, s, et, new Date().getFullYear())
               const result = addQuestions(questions, sourceFile)
@@ -305,7 +314,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   }
 
   async function startAnalysis() {
-    if (!apiKey || files.length === 0 || examTypes.length === 0 || subjects.length === 0) return
+    if (!apiKey || files.length === 0 || examTypes.length === 0 || activeSubjects.length === 0) return
     setIsRunning(true)
     setSummary(null)
     let totalAdded = 0
@@ -343,7 +352,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   }
 
   async function startUriAnalysis() {
-    if (!apiKey || !fileUri.trim() || examTypes.length === 0 || subjects.length === 0) return
+    if (!apiKey || !fileUri.trim() || examTypes.length === 0 || activeSubjects.length === 0) return
     setUriStatus('analyzing')
     setUriError('')
     setSummary(null)
@@ -352,7 +361,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       let totalAdded = 0
       let totalMerged = 0
       const sourceFile = fileUri.trim().split('/').pop() ?? 'URI 업로드'
-      for (const s of subjects) {
+      for (const s of activeSubjects) {
         for (const et of examTypes) {
           const questions = await extractQuestionsFromPdf(apiKey, fileUri.trim(), s, et, new Date().getFullYear())
           const result = addQuestions(questions, sourceFile)
@@ -608,47 +617,63 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
         <h2 className="font-semibold text-sm text-foreground">문제집 정보</h2>
         <div className="space-y-3">
           <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">과목 (복수 선택 가능)</label>
-            <div className="flex flex-wrap gap-2">
-              {SUBJECTS.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => toggleSubject(s)}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all border ${
-                    subjects.includes(s)
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-muted text-muted-foreground border-border hover:text-foreground'
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-            {subjects.length === 0 && (
-              <p className="text-xs text-red-400">과목을 하나 이상 선택하세요</p>
+            <label className="text-xs text-muted-foreground">
+              {isGeneral ? '과목' : '과목 (복수 선택 가능)'}
+            </label>
+            {isGeneral ? (
+              <input
+                type="text"
+                value={generalSubjectText}
+                onChange={(e) => setGeneralSubjectText(e.target.value)}
+                placeholder="예: 국어, 행정법, 한국사"
+                className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {SUBJECTS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => toggleSubject(s)}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all border ${
+                      subjects.includes(s)
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-muted text-muted-foreground border-border hover:text-foreground'
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+            {activeSubjects.length === 0 && (
+              <p className="text-xs text-red-400">
+                과목을 {isGeneral ? '입력하세요' : '하나 이상 선택하세요'}
+              </p>
             )}
           </div>
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">시험 유형 (복수 선택 가능)</label>
-            <div className="flex gap-2">
-              {EXAM_TYPES.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => toggleExamType(t)}
-                  className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all border ${
-                    examTypes.includes(t)
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-muted text-muted-foreground border-border hover:text-foreground'
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
+          {!isGeneral && (
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">시험 유형 (복수 선택 가능)</label>
+              <div className="flex gap-2">
+                {EXAM_TYPES.map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => toggleExamType(t)}
+                    className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all border ${
+                      examTypes.includes(t)
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-muted text-muted-foreground border-border hover:text-foreground'
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+              {examTypes.length === 0 && (
+                <p className="text-xs text-red-400">시험 유형을 하나 이상 선택하세요</p>
+              )}
             </div>
-            {examTypes.length === 0 && (
-              <p className="text-xs text-red-400">시험 유형을 하나 이상 선택하세요</p>
-            )}
-          </div>
+          )}
         </div>
       </div>
 

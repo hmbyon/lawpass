@@ -6,6 +6,7 @@ import { deleteWrongNote, saveWrongNotes, updateWrongNoteMemo } from '@/lib/stor
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
 import { FilterChips } from '@/components/filter-chips'
+import { getAppMode } from '@/lib/appMode'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const RISKS = ['★1', '★2', '★3', '★4', '★5']
@@ -15,9 +16,10 @@ interface DetailModalProps {
   note: WrongNote
   onClose: () => void
   onMemoSaved: () => void
+  isGeneral: boolean
 }
 
-function DetailModal({ note, onClose, onMemoSaved }: DetailModalProps) {
+function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps) {
   const a = note.analysis
   const [memo, setMemo] = useState(note.memo ?? '')
   const [memoSaved, setMemoSaved] = useState(false)
@@ -41,7 +43,7 @@ function DetailModal({ note, onClose, onMemoSaved }: DetailModalProps) {
         <div className="p-4 border-b border-border flex items-center justify-between">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-sm text-foreground">{note.question.subject}</span>
-            {note.dominantCause && <CauseBadge cause={note.dominantCause} />}
+            {!isGeneral && note.dominantCause && <CauseBadge cause={note.dominantCause} />}
             {note.isBookmarked && note.wrongCount === 0 && (
               <span className="text-xs text-yellow-400">📌 북마크</span>
             )}
@@ -193,7 +195,11 @@ export function WrongTab({
   notes: WrongNote[]
   onNotesChanged: () => void
 }) {
+  const [appMode] = useState(() => getAppMode())
+  const isGeneral = appMode === 'general'
+
   const [subjects, setSubjects] = useState<Subject[]>([])
+  const [generalSubjects, setGeneralSubjects] = useState<string[]>([])
   const [risks, setRisks] = useState<string[]>([])
   const [sort, setSort] = useState<'날짜순' | '위험도순'>('날짜순')
   const [selected, setSelected] = useState<WrongNote | null>(null)
@@ -202,9 +208,15 @@ export function WrongTab({
   const [selectMode, setSelectMode] = useState(false)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
 
+  const activeSubjects: string[] = isGeneral ? generalSubjects : subjects
+
+  const availableSubjects = useMemo(() => {
+    return Array.from(new Set(notes.map((n) => n.question.subject as string))).sort((a, b) => a.localeCompare(b))
+  }, [notes])
+
   const filtered = useMemo(() => {
     let list = [...notes]
-    if (subjects.length) list = list.filter((n) => subjects.includes(n.question.subject))
+    if (activeSubjects.length) list = list.filter((n) => activeSubjects.includes(n.question.subject))
     if (risks.length) {
       const levels = risks.map((r) => Number(r.replace('★', '')))
       list = list.filter((n) => {
@@ -215,7 +227,7 @@ export function WrongTab({
     if (sort === '날짜순') list.sort((a, b) => b.createdAt - a.createdAt)
     else list.sort((a, b) => (b.analysis?.위험도 ?? 0) - (a.analysis?.위험도 ?? 0))
     return list
-  }, [notes, subjects, risks, sort])
+  }, [notes, activeSubjects, risks, sort])
 
   function del(id: string) {
     deleteWrongNote(id)
@@ -263,7 +275,13 @@ export function WrongTab({
     <div className="space-y-4 max-w-2xl mx-auto">
       {/* Filters */}
       <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-        <FilterChips options={SUBJECTS} selected={subjects} onChange={setSubjects} />
+        {isGeneral ? (
+          availableSubjects.length > 0 && (
+            <FilterChips options={availableSubjects} selected={generalSubjects} onChange={setGeneralSubjects} />
+          )
+        ) : (
+          <FilterChips options={SUBJECTS} selected={subjects} onChange={setSubjects} />
+        )}
         <FilterChips options={RISKS} selected={risks} onChange={setRisks} />
         <div className="flex items-center justify-between">
           <FilterChips options={[...SORTS]} selected={[sort]} onChange={(v) => setSort((v[0] as typeof sort) ?? sort)} single />
@@ -308,7 +326,7 @@ export function WrongTab({
       </p>
 
       {/* List */}
-      {filtered.length === 0 && risks.length === 0 && subjects.length === 0 ? (
+      {filtered.length === 0 && risks.length === 0 && activeSubjects.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground text-sm">
           오답노트가 없습니다. CBT나 선학습 모드에서 문제를 풀어보세요.
         </div>
@@ -350,7 +368,7 @@ export function WrongTab({
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs font-medium text-foreground">{note.question.subject}</span>
                     <span className="text-xs text-muted-foreground">{note.question.year}년</span>
-                    {note.dominantCause && <CauseBadge cause={note.dominantCause} />}
+                    {!isGeneral && note.dominantCause && <CauseBadge cause={note.dominantCause} />}
                     {note.isBookmarked && note.wrongCount === 0 && (
                       <span className="text-xs text-yellow-400">📌 북마크</span>
                     )}
@@ -387,6 +405,7 @@ export function WrongTab({
           note={selected}
           onClose={() => setSelected(null)}
           onMemoSaved={onNotesChanged}
+          isGeneral={isGeneral}
         />
       )}
     </div>
