@@ -234,11 +234,11 @@ export function AppShell({ user }: Props) {
       </nav>
 
       <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-5">
-        {tab === 'pdf' && <PdfTab onQuestionsAdded={refreshAndSync} />}
-        {tab === 'cbt' && <CbtTab questions={questions} onDone={refreshAndSync} />}
+        {tab === 'pdf' && <PdfTab key={syncedAt} onQuestionsAdded={refreshAndSync} />}
+        {tab === 'cbt' && <CbtTab key={syncedAt} questions={questions} onDone={refreshAndSync} />}
         {tab === 'study' && <StudyTab key={syncedAt} questions={questions} onDone={refreshAndSync} onSync={refreshAndSync} />}
-        {tab === 'wrong' && <WrongTab notes={wrongNotes} onNotesChanged={refreshAndSync} />}
-        {tab === 'memo' && <MemoTab notes={wrongNotes} onNotesChanged={refreshAndSync} />}
+        {tab === 'wrong' && <WrongTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
+        {tab === 'memo' && <MemoTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
       </main>
 
       {showFeedbackModal && (
