@@ -4,12 +4,16 @@ import {
   getQuestions, saveQuestions,
   getWrongNotes, saveWrongNotes,
   getApiKey, setApiKey,
-  getSavedStudySessions, getSavedSession,
+  getSavedStudySessions, saveSavedStudySessions, clearAllSavedStudySessions,
+  getSavedSession, saveSession, clearSavedSession,
+  type SavedSession,
 } from '@/lib/store'
+import { getAppMode } from '@/lib/appMode'
 import type { Question, WrongNote } from '@/lib/types'
 
-// Firebase에 전체 데이터 업로드
+// Firebase에 전체 데이터 업로드 (모드별 경로: users/{userId}/{law|general}/*)
 export async function pushToFirebase(userId: string) {
+  const mode = getAppMode()
   const questions = getQuestions()
   const wrongNotes = getWrongNotes()
   const studySessions = getSavedStudySessions()
@@ -17,27 +21,29 @@ export async function pushToFirebase(userId: string) {
 
   console.log('[pushToFirebase] studySessions count:', studySessions.length)
 
-  await setDoc(doc(db, 'users', userId, 'data', 'questions'), { list: questions })
-  await setDoc(doc(db, 'users', userId, 'data', 'wrongNotes'), { list: wrongNotes })
-  await setDoc(doc(db, 'users', userId, 'data', 'studySessions'), { list: studySessions })
+  await setDoc(doc(db, 'users', userId, mode, 'questions'), { list: questions })
+  await setDoc(doc(db, 'users', userId, mode, 'wrongNotes'), { list: wrongNotes })
+  await setDoc(doc(db, 'users', userId, mode, 'studySessions'), { list: studySessions })
   console.log('[pushToFirebase] studySessions uploaded to Firebase')
   if (quizSession) {
-    await setDoc(doc(db, 'users', userId, 'data', 'quizSession'), quizSession)
+    await setDoc(doc(db, 'users', userId, mode, 'quizSession'), quizSession)
   }
 }
 
 // Firebase의 임시저장(studySessions) / 진행중인 퀴즈(quizSession) 문서 삭제
 export async function clearFirebaseSessions(userId: string) {
-  await deleteDoc(doc(db, 'users', userId, 'data', 'studySessions'))
-  await deleteDoc(doc(db, 'users', userId, 'data', 'quizSession'))
+  const mode = getAppMode()
+  await deleteDoc(doc(db, 'users', userId, mode, 'studySessions'))
+  await deleteDoc(doc(db, 'users', userId, mode, 'quizSession'))
 }
 
-// Firebase에서 전체 데이터 불러와서 로컬에 저장
+// Firebase에서 전체 데이터 불러와서 로컬에 저장 (현재 모드 기준)
 export async function pullFromFirebase(userId: string): Promise<{ questions: Question[], wrongNotes: WrongNote[] }> {
-  const qSnap = await getDoc(doc(db, 'users', userId, 'data', 'questions'))
-  const wSnap = await getDoc(doc(db, 'users', userId, 'data', 'wrongNotes'))
-  const ssSnap = await getDoc(doc(db, 'users', userId, 'data', 'studySessions'))
-  const qsSnap = await getDoc(doc(db, 'users', userId, 'data', 'quizSession'))
+  const mode = getAppMode()
+  const qSnap = await getDoc(doc(db, 'users', userId, mode, 'questions'))
+  const wSnap = await getDoc(doc(db, 'users', userId, mode, 'wrongNotes'))
+  const ssSnap = await getDoc(doc(db, 'users', userId, mode, 'studySessions'))
+  const qsSnap = await getDoc(doc(db, 'users', userId, mode, 'quizSession'))
 
   const questions: Question[] = qSnap.exists() ? qSnap.data().list : []
   const wrongNotes: WrongNote[] = wSnap.exists() ? wSnap.data().list : []
@@ -48,19 +54,19 @@ export async function pullFromFirebase(userId: string): Promise<{ questions: Que
   saveWrongNotes(wrongNotes)
   if (existingApiKey) setApiKey(existingApiKey)
 
-  // 임시저장 데이터 복원 (없으면 이전 계정의 잔여 데이터가 보이지 않도록 로컬도 비움)
+  // 임시저장 데이터 복원 (없으면 이전 계정/모드의 잔여 데이터가 보이지 않도록 로컬도 비움)
   const studySessions = ssSnap.exists() ? ssSnap.data().list : null
   if (studySessions?.length > 0) {
-    localStorage.setItem('lawpass_saved_study_sessions', JSON.stringify(studySessions))
+    saveSavedStudySessions(studySessions)
   } else {
-    localStorage.removeItem('lawpass_saved_study_sessions')
+    clearAllSavedStudySessions()
   }
 
-  const quizSession = qsSnap.exists() ? qsSnap.data() : null
+  const quizSession = qsSnap.exists() ? (qsSnap.data() as SavedSession) : null
   if (quizSession?.id) {
-    localStorage.setItem('lawpass_saved_session', JSON.stringify(quizSession))
+    saveSession(quizSession)
   } else {
-    localStorage.removeItem('lawpass_saved_session')
+    clearSavedSession()
   }
 
   return { questions, wrongNotes }

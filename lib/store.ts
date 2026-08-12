@@ -1,12 +1,45 @@
 'use client'
 
 import type { Question, WrongNote } from './types'
+import { getAppMode } from './appMode'
 
-const KEYS = {
+// apiKey는 개인 인증정보라 모드 공통으로 유지, 나머지는 모드별 접미사(_law/_general)로 분리
+const BASE_KEYS = {
   apiKey: 'lawpass_api_key',
   questions: 'lawpass_questions',
   wrongNotes: 'lawpass_wrong_notes',
+  savedSession: 'lawpass_saved_session',
+  savedStudySession: 'lawpass_saved_study_session',
+  savedStudySessions: 'lawpass_saved_study_sessions',
 } as const
+
+const MODE_SCOPED_BASE_KEYS: string[] = [
+  BASE_KEYS.questions,
+  BASE_KEYS.wrongNotes,
+  BASE_KEYS.savedSession,
+  BASE_KEYS.savedStudySession,
+  BASE_KEYS.savedStudySessions,
+]
+
+function modeKey(base: string): string {
+  return `${base}_${getAppMode()}`
+}
+
+// 모드 분리 이전에 저장된 데이터(접미사 없는 키)를 law 모드 키로 1회 이관
+function migrateLegacyKeys() {
+  if (typeof window === 'undefined') return
+  for (const base of MODE_SCOPED_BASE_KEYS) {
+    const legacyValue = localStorage.getItem(base)
+    if (legacyValue === null) continue
+    const lawKey = `${base}_law`
+    if (localStorage.getItem(lawKey) === null) {
+      localStorage.setItem(lawKey, legacyValue)
+    }
+    localStorage.removeItem(base)
+  }
+}
+
+migrateLegacyKeys()
 
 function safeGet<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback
@@ -29,20 +62,20 @@ function safeSet(key: string, value: unknown) {
 
 export function getApiKey(): string {
   if (typeof window === 'undefined') return ''
-  return localStorage.getItem(KEYS.apiKey) ?? ''
+  return localStorage.getItem(BASE_KEYS.apiKey) ?? ''
 }
 
 export function setApiKey(key: string) {
   if (typeof window === 'undefined') return
-  localStorage.setItem(KEYS.apiKey, key)
+  localStorage.setItem(BASE_KEYS.apiKey, key)
 }
 
 export function getQuestions(): Question[] {
-  return safeGet<Question[]>(KEYS.questions, [])
+  return safeGet<Question[]>(modeKey(BASE_KEYS.questions), [])
 }
 
 export function saveQuestions(questions: Question[]) {
-  safeSet(KEYS.questions, questions)
+  safeSet(modeKey(BASE_KEYS.questions), questions)
 }
 
 export function addQuestions(incoming: Question[], sourceFile?: string): { added: number; merged: number } {
@@ -92,11 +125,11 @@ export function getSourceFiles(): { name: string; count: number }[] {
 }
 
 export function getWrongNotes(): WrongNote[] {
-  return safeGet<WrongNote[]>(KEYS.wrongNotes, [])
+  return safeGet<WrongNote[]>(modeKey(BASE_KEYS.wrongNotes), [])
 }
 
 export function saveWrongNotes(notes: WrongNote[]) {
-  safeSet(KEYS.wrongNotes, notes)
+  safeSet(modeKey(BASE_KEYS.wrongNotes), notes)
 }
 
 export function addWrongNote(note: WrongNote) {
@@ -285,7 +318,9 @@ export function updateChoiceMemo(id: string, choiceLabel: string, memo: string) 
 
 export function clearAll() {
   if (typeof window === 'undefined') return
-  Object.values(KEYS).forEach((k) => localStorage.removeItem(k))
+  localStorage.removeItem(BASE_KEYS.apiKey)
+  localStorage.removeItem(modeKey(BASE_KEYS.questions))
+  localStorage.removeItem(modeKey(BASE_KEYS.wrongNotes))
 }
 // ── 임시저장 (세션 중단/이어서 풀기) ──
 export interface SavedSession {
@@ -300,16 +335,16 @@ export interface SavedSession {
 }
 
 export function getSavedSession(): SavedSession | null {
-  return safeGet<SavedSession | null>('lawpass_saved_session', null)
+  return safeGet<SavedSession | null>(modeKey(BASE_KEYS.savedSession), null)
 }
 
 export function saveSession(session: SavedSession) {
-  safeSet('lawpass_saved_session', session)
+  safeSet(modeKey(BASE_KEYS.savedSession), session)
 }
 
 export function clearSavedSession() {
   if (typeof window === 'undefined') return
-  localStorage.removeItem('lawpass_saved_session')
+  localStorage.removeItem(modeKey(BASE_KEYS.savedSession))
 }
 
 // ── 선학습 임시저장 ──
@@ -321,21 +356,25 @@ export interface SavedStudySession {
 }
 
 export function getSavedStudySession(): SavedStudySession | null {
-  return safeGet<SavedStudySession | null>('lawpass_saved_study_session', null)
+  return safeGet<SavedStudySession | null>(modeKey(BASE_KEYS.savedStudySession), null)
 }
 
 export function saveStudySession(session: SavedStudySession) {
-  safeSet('lawpass_saved_study_session', session)
+  safeSet(modeKey(BASE_KEYS.savedStudySession), session)
 }
 
 export function clearSavedStudySession() {
   if (typeof window === 'undefined') return
-  localStorage.removeItem('lawpass_saved_study_session')
+  localStorage.removeItem(modeKey(BASE_KEYS.savedStudySession))
 }
 
 // ── 선학습 임시저장 목록 (여러 개) ──
 export function getSavedStudySessions(): SavedStudySession[] {
-  return safeGet<SavedStudySession[]>('lawpass_saved_study_sessions', [])
+  return safeGet<SavedStudySession[]>(modeKey(BASE_KEYS.savedStudySessions), [])
+}
+
+export function saveSavedStudySessions(sessions: SavedStudySession[]) {
+  safeSet(modeKey(BASE_KEYS.savedStudySessions), sessions)
 }
 
 export function addSavedStudySession(session: SavedStudySession) {
@@ -347,15 +386,15 @@ export function addSavedStudySession(session: SavedStudySession) {
   } else {
     sessions.push(session)
   }
-  safeSet('lawpass_saved_study_sessions', sessions)
+  saveSavedStudySessions(sessions)
 }
 
 export function removeSavedStudySession(savedAt: number) {
   const sessions = getSavedStudySessions().filter((s) => s.savedAt !== savedAt)
-  safeSet('lawpass_saved_study_sessions', sessions)
+  saveSavedStudySessions(sessions)
 }
 
 export function clearAllSavedStudySessions() {
   if (typeof window === 'undefined') return
-  localStorage.removeItem('lawpass_saved_study_sessions')
+  localStorage.removeItem(modeKey(BASE_KEYS.savedStudySessions))
 }
