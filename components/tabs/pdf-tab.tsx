@@ -89,6 +89,36 @@ function groupRowsByYear(rows: ProgressRow[]) {
     .sort((a, b) => b.year - a.year)
 }
 
+// 과목 내 rows를 단원별로 묶고 단원명 오름차순 정렬
+function groupRowsByUnit(rows: ProgressRow[]) {
+  const map = new Map<string, ProgressRow[]>()
+  for (const r of rows) {
+    const arr = map.get(r.unit) ?? []
+    arr.push(r)
+    map.set(r.unit, arr)
+  }
+  return Array.from(map.entries())
+    .map(([unit, unitRows]) => ({
+      unit,
+      total: unitRows.reduce((sum, r) => sum + r.total, 0),
+      solved: unitRows.reduce((sum, r) => sum + r.solved, 0),
+    }))
+    .sort((a, b) => a.unit.localeCompare(b.unit))
+}
+
+function progressStatus(solved: number, total: number) {
+  const icon = solved === 0 ? '⬜' : solved === total ? '✅' : '🔄'
+  const label = solved === 0 ? '미완료' : solved === total ? '완료' : '진행중'
+  return { icon, label }
+}
+
+type ProgressViewMode = 'year' | 'unit' | 'all'
+const PROGRESS_VIEW_OPTIONS: { id: ProgressViewMode; label: string }[] = [
+  { id: 'year', label: '연도별' },
+  { id: 'unit', label: '단원별' },
+  { id: 'all', label: '전체목록' },
+]
+
 export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   const [apiKey, setApiKeyLocal] = useState(() => getApiKey())
   const [apiStatus, setApiStatus] = useState<'untested' | 'ok' | 'error'>('untested')
@@ -106,6 +136,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   const [progress, setProgress] = useState<Record<string, ProgressRow[]>>({})
   const [expandedSubjects, setExpandedSubjects] = useState<Set<string>>(new Set())
   const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set())
+  const [progressView, setProgressView] = useState<ProgressViewMode>('all')
   useEffect(() => {
     setSourceFiles(getSourceFiles())
     setProgress(computeProgress())
@@ -445,9 +476,29 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       {/* 진도표 */}
       {Object.keys(progress).length > 0 && (
         <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-          <h2 className="font-semibold text-sm text-foreground">진도표</h2>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <h2 className="font-semibold text-sm text-foreground">진도표</h2>
+            <div className="flex gap-1.5">
+              {PROGRESS_VIEW_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  onClick={() => setProgressView(opt.id)}
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+                    progressView === opt.id
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-muted text-muted-foreground border-border hover:text-foreground'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="space-y-2">
-            {SUBJECTS.filter((s) => progress[s]?.length).map((s) => {
+            {[
+              ...SUBJECTS.filter((s) => progress[s]?.length),
+              ...Object.keys(progress).filter((s) => !SUBJECTS.includes(s as Subject) && progress[s]?.length),
+            ].map((s) => {
               const rows = progress[s]
               const total = rows.reduce((sum, r) => sum + r.total, 0)
               const solved = rows.reduce((sum, r) => sum + r.solved, 0)
@@ -468,49 +519,81 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
                   </button>
                   {expanded && (
                     <div className="px-3 pb-3 space-y-1.5">
-                      {groupRowsByYear(rows).map((yg) => {
-                        const yearKey = `${s}|${yg.year}`
-                        const yearExpanded = expandedYears.has(yearKey)
-                        return (
-                          <div key={yg.year} className="bg-card border border-border rounded-lg overflow-hidden">
-                            <button
-                              onClick={() => toggleYearExpand(yearKey)}
-                              className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-accent transition-colors"
-                            >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className={`text-xs transition-transform text-muted-foreground ${yearExpanded ? 'rotate-90' : ''}`}>▶</span>
-                                <span className="text-xs font-medium text-foreground">{yg.year}년</span>
-                              </div>
-                              <span className="text-xs text-muted-foreground shrink-0">
-                                {yg.solved}/{yg.total}문제
-                              </span>
-                            </button>
-                            {yearExpanded && (
-                              <div className="px-3 pb-2 space-y-1.5">
-                                {yg.rows.map((r, i) => {
-                                  const icon = r.solved === 0 ? '⬜' : r.solved === r.total ? '✅' : '🔄'
-                                  const label = r.solved === 0 ? '미완료' : r.solved === r.total ? '완료' : '진행중'
-                                  return (
-                                    <div
-                                      key={i}
-                                      className="flex items-center justify-between gap-2 bg-muted rounded-lg px-3 py-2"
-                                    >
-                                      <div className="flex-1 min-w-0">
-                                        <p className="text-xs font-medium text-foreground truncate">
-                                          {r.examType} · {r.unit}
-                                        </p>
+                      {progressView === 'all' &&
+                        groupRowsByYear(rows).map((yg) => {
+                          const yearKey = `${s}|${yg.year}`
+                          const yearExpanded = expandedYears.has(yearKey)
+                          return (
+                            <div key={yg.year} className="bg-card border border-border rounded-lg overflow-hidden">
+                              <button
+                                onClick={() => toggleYearExpand(yearKey)}
+                                className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-accent transition-colors"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className={`text-xs transition-transform text-muted-foreground ${yearExpanded ? 'rotate-90' : ''}`}>▶</span>
+                                  <span className="text-xs font-medium text-foreground">{yg.year}년</span>
+                                </div>
+                                <span className="text-xs text-muted-foreground shrink-0">
+                                  {yg.solved}/{yg.total}문제
+                                </span>
+                              </button>
+                              {yearExpanded && (
+                                <div className="px-3 pb-2 space-y-1.5">
+                                  {yg.rows.map((r, i) => {
+                                    const { icon, label } = progressStatus(r.solved, r.total)
+                                    return (
+                                      <div
+                                        key={i}
+                                        className="flex items-center justify-between gap-2 bg-muted rounded-lg px-3 py-2"
+                                      >
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium text-foreground truncate">
+                                            {r.examType} · {r.unit}
+                                          </p>
+                                        </div>
+                                        <span className="text-xs shrink-0">
+                                          {icon} {label} ({r.solved}/{r.total})
+                                        </span>
                                       </div>
-                                      <span className="text-xs shrink-0">
-                                        {icon} {label} ({r.solved}/{r.total})
-                                      </span>
-                                    </div>
-                                  )
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+
+                      {progressView === 'year' &&
+                        groupRowsByYear(rows).map((yg) => {
+                          const { icon, label } = progressStatus(yg.solved, yg.total)
+                          return (
+                            <div
+                              key={yg.year}
+                              className="flex items-center justify-between gap-2 bg-card border border-border rounded-lg px-3 py-2"
+                            >
+                              <span className="text-xs font-medium text-foreground">{yg.year}년</span>
+                              <span className="text-xs shrink-0">
+                                {icon} {label} ({yg.solved}/{yg.total})
+                              </span>
+                            </div>
+                          )
+                        })}
+
+                      {progressView === 'unit' &&
+                        groupRowsByUnit(rows).map((ug) => {
+                          const { icon, label } = progressStatus(ug.solved, ug.total)
+                          return (
+                            <div
+                              key={ug.unit}
+                              className="flex items-center justify-between gap-2 bg-card border border-border rounded-lg px-3 py-2"
+                            >
+                              <span className="text-xs font-medium text-foreground truncate">{ug.unit}</span>
+                              <span className="text-xs shrink-0">
+                                {icon} {label} ({ug.solved}/{ug.total})
+                              </span>
+                            </div>
+                          )
+                        })}
                     </div>
                   )}
                 </div>
