@@ -23,6 +23,12 @@ export function AuthGate({ children }: Props) {
     return () => unsub()
   }, [])
 
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.remove('mode-law', 'mode-general')
+    root.classList.add(mode === 'general' ? 'mode-general' : 'mode-law')
+  }, [mode])
+
   function handleLogin() {
     setError(null)
     loginWithGoogle().catch((e) => {
