@@ -45,7 +45,8 @@ export function AppShell({ user }: Props) {
   function handleModeChange(next: AppMode) {
     setAppMode(next)
     setMode(next)
-    // 전환된 모드의 데이터를 Firebase에서 새로 불러옴 (현재 모드 데이터는 그대로 로컬에 유지됨)
+    // 전환된 모드의 로컬 데이터를 즉시 반영한 뒤, Firebase에서 최신 데이터를 새로 불러옴
+    refresh()
     loadFromFirebase()
   }
 
