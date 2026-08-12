@@ -1,12 +1,14 @@
 import { db } from '@/lib/firebase'
 import { collection, addDoc, getDocs, doc, updateDoc, query, orderBy } from 'firebase/firestore'
 import type { Feedback, FeedbackType } from '@/lib/types'
+import type { AppMode } from '@/lib/appMode'
 
 export async function submitFeedback(
   userId: string,
   userEmail: string | null,
   type: FeedbackType,
-  content: string
+  content: string,
+  mode: AppMode
 ) {
   await addDoc(collection(db, 'feedback'), {
     userId,
@@ -15,6 +17,7 @@ export async function submitFeedback(
     content,
     createdAt: Date.now(),
     isRead: false,
+    mode,
   })
 }
 

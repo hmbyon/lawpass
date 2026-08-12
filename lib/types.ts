@@ -100,4 +100,5 @@ export interface Feedback {
   content: string
   createdAt: number
   isRead: boolean
+  mode?: import('./appMode').AppMode
 }

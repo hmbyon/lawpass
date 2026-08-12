@@ -7,6 +7,7 @@ import { getQuestions, getWrongNotes, clearAll } from '@/lib/store'
 import { logout } from '@/lib/firebaseServices/auth'
 import { pullFromFirebase, pushToFirebase } from '@/lib/firebaseServices/sync'
 import { getAppMode, setAppMode, type AppMode } from '@/lib/appMode'
+import { FeedbackModal } from '@/components/feedback-modal'
 import { PdfTab } from '@/components/tabs/pdf-tab'
 import { CbtTab } from '@/components/tabs/cbt-tab'
 import { StudyTab } from '@/components/tabs/study-tab'
@@ -37,6 +38,7 @@ export function AppShell({ user }: Props) {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [avatarError, setAvatarError] = useState(false)
   const [mode, setMode] = useState<AppMode>(() => getAppMode())
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
 
   function handleModeChange(next: AppMode) {
@@ -119,6 +121,12 @@ export function AppShell({ user }: Props) {
             <span className="hidden sm:inline text-xs text-muted-foreground border border-border rounded-full px-2 py-0.5">
               {appBadge}
             </span>
+            <button
+              onClick={() => setShowFeedbackModal(true)}
+              className="text-xs text-muted-foreground border border-border rounded-full px-2 py-0.5 hover:text-foreground hover:border-foreground/30 transition-colors"
+            >
+              💬 피드백
+            </button>
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             {syncing && <span className="text-primary animate-pulse">동기화 중...</span>}
@@ -238,6 +246,15 @@ export function AppShell({ user }: Props) {
           />
         )}
       </main>
+
+      {showFeedbackModal && (
+        <FeedbackModal
+          userId={user.uid}
+          userEmail={user.email}
+          mode={mode}
+          onClose={() => setShowFeedbackModal(false)}
+        />
+      )}
     </div>
   )
 }
