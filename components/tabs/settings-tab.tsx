@@ -5,6 +5,7 @@ import { ThemeToggle } from '@/components/theme-toggle'
 import { clearFirebaseSessions } from '@/lib/firebaseServices/sync'
 import { submitFeedback, getAllFeedback, setFeedbackRead } from '@/lib/firebaseServices/feedback'
 import type { Feedback, FeedbackType } from '@/lib/types'
+import type { AppMode } from '@/lib/appMode'
 
 const ADMIN_EMAIL = 'hmbyon97@gmail.com'
 const FEEDBACK_TYPES: FeedbackType[] = ['버그 신고', '기능 건의', '기타']
@@ -15,9 +16,11 @@ interface Props {
   userId: string
   userEmail: string | null
   onClearAll: () => void
+  mode: AppMode
+  onModeChange: (mode: AppMode) => void
 }
 
-export function SettingsTab({ questionCount, wrongNoteCount, userId, userEmail, onClearAll }: Props) {
+export function SettingsTab({ questionCount, wrongNoteCount, userId, userEmail, onClearAll, mode, onModeChange }: Props) {
   const [clearing, setClearing] = useState(false)
 
   const [feedbackType, setFeedbackType] = useState<FeedbackType>('버그 신고')
@@ -96,6 +99,34 @@ export function SettingsTab({ questionCount, wrongNoteCount, userId, userEmail, 
       <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-3">
         <h2 className="text-sm font-semibold">화면 모드</h2>
         <ThemeToggle />
+      </div>
+
+      {/* 앱 모드 */}
+      <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">앱 모드</h2>
+        <p className="text-xs text-muted-foreground">LawPass ↔ ExamPass 전환</p>
+        <div className="flex gap-2">
+          <button
+            onClick={() => onModeChange('law')}
+            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all border ${
+              mode === 'law'
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'bg-muted text-muted-foreground border-border hover:text-foreground'
+            }`}
+          >
+            ⚖️ LawPass (변호사시험)
+          </button>
+          <button
+            onClick={() => onModeChange('general')}
+            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all border ${
+              mode === 'general'
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'bg-muted text-muted-foreground border-border hover:text-foreground'
+            }`}
+          >
+            📚 ExamPass (일반수험)
+          </button>
+        </div>
       </div>
 
       {/* 통계 */}

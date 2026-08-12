@@ -6,6 +6,7 @@ import type { Question, WrongNote } from '@/lib/types'
 import { getQuestions, getWrongNotes, clearAll } from '@/lib/store'
 import { logout } from '@/lib/firebaseServices/auth'
 import { pullFromFirebase, pushToFirebase } from '@/lib/firebaseServices/sync'
+import { getAppMode, setAppMode, type AppMode } from '@/lib/appMode'
 import { PdfTab } from '@/components/tabs/pdf-tab'
 import { CbtTab } from '@/components/tabs/cbt-tab'
 import { StudyTab } from '@/components/tabs/study-tab'
@@ -35,7 +36,16 @@ export function AppShell({ user }: Props) {
   const [syncedAt, setSyncedAt] = useState(0)
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [avatarError, setAvatarError] = useState(false)
+  const [mode, setMode] = useState<AppMode>(() => getAppMode())
   const userMenuRef = useRef<HTMLDivElement>(null)
+
+  function handleModeChange(next: AppMode) {
+    setAppMode(next)
+    setMode(next)
+  }
+
+  const appTitle = mode === 'general' ? 'ExamPass AI' : 'LawPass AI'
+  const appBadge = mode === 'general' ? '일반수험' : '변호사시험'
 
   useEffect(() => {
     if (!showUserMenu) return
@@ -98,10 +108,10 @@ export function AppShell({ user }: Props) {
               onClick={handleLogoClick}
               className="text-primary text-lg font-bold tracking-tight hover:opacity-80 transition-opacity"
             >
-              LawPass AI
+              {appTitle}
             </button>
             <span className="hidden sm:inline text-xs text-muted-foreground border border-border rounded-full px-2 py-0.5">
-              변호사시험
+              {appBadge}
             </span>
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
@@ -217,6 +227,8 @@ export function AppShell({ user }: Props) {
             userId={user.uid}
             userEmail={user.email}
             onClearAll={handleClearAll}
+            mode={mode}
+            onModeChange={handleModeChange}
           />
         )}
       </main>

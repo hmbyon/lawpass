@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { onAuthChange, loginWithGoogle } from '@/lib/firebaseServices/auth'
+import { getAppMode, setAppMode, type AppMode } from '@/lib/appMode'
 import type { User } from 'firebase/auth'
 
 interface Props {
@@ -12,6 +13,7 @@ export function AuthGate({ children }: Props) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [mode, setMode] = useState<AppMode>(() => getAppMode())
 
   useEffect(() => {
     const unsub = onAuthChange((u) => {
@@ -29,6 +31,11 @@ export function AuthGate({ children }: Props) {
     })
   }
 
+  function handleSelectMode(next: AppMode) {
+    setAppMode(next)
+    setMode(next)
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -39,11 +46,39 @@ export function AuthGate({ children }: Props) {
 
   if (!user) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-6">
+      <div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-primary">LawPass AI</h1>
-          <p className="text-muted-foreground text-sm mt-1">변호사시험 객관식 학습</p>
+          <h1 className="text-2xl font-bold text-primary">ExamPass AI</h1>
+          <p className="text-muted-foreground text-sm mt-1">시험 대비 AI 오답노트 &amp; 학습 코치</p>
         </div>
+
+        <div className="grid grid-cols-2 gap-3 w-full max-w-sm">
+          <button
+            onClick={() => handleSelectMode('law')}
+            className={`flex flex-col items-center gap-1.5 px-4 py-4 rounded-xl border text-center transition-all ${
+              mode === 'law'
+                ? 'border-primary bg-primary/10'
+                : 'border-border bg-card hover:border-primary/40'
+            }`}
+          >
+            <span className="text-2xl">⚖️</span>
+            <span className="text-sm font-semibold text-foreground">LawPass</span>
+            <span className="text-xs text-muted-foreground">변호사시험</span>
+          </button>
+          <button
+            onClick={() => handleSelectMode('general')}
+            className={`flex flex-col items-center gap-1.5 px-4 py-4 rounded-xl border text-center transition-all ${
+              mode === 'general'
+                ? 'border-primary bg-primary/10'
+                : 'border-border bg-card hover:border-primary/40'
+            }`}
+          >
+            <span className="text-2xl">📚</span>
+            <span className="text-sm font-semibold text-foreground">ExamPass</span>
+            <span className="text-xs text-muted-foreground">공무원 · CPA · 한국사 · 감정평가사</span>
+          </button>
+        </div>
+
         <button
           onClick={handleLogin}
           className="flex items-center gap-2 px-6 py-3 bg-white text-gray-700 border border-gray-300 rounded-lg shadow-sm hover:shadow-md transition-all text-sm font-medium"

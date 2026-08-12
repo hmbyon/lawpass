@@ -1,6 +1,6 @@
 {
-  "name": "LawPass AI",
-  "short_name": "LawPass",
+  "name": "ExamPass AI",
+  "short_name": "ExamPass AI",
   "description": "변호사시험 객관식 학습",
   "start_url": "/",
   "display": "standalone",
