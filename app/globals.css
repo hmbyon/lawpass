@@ -161,6 +161,10 @@ html.eye {
   --sidebar-ring: oklch(0.5 0.12 60);
 }
 
+html.mode-general {
+  --primary: oklch(0.55 0.12 150);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

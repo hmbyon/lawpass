@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { FilterChips } from '@/components/filter-chips'
+import { getAppMode } from '@/lib/appMode'
 import type { Question, Subject, ExamType } from '@/lib/types'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
@@ -38,13 +39,20 @@ interface QuizFilterProps {
 }
 
 export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
+  const [appMode] = useState(() => getAppMode())
+  const isGeneral = appMode === 'general'
+
   const [subjects, setSubjects] = useState<Subject[]>([])
+  const [customSubjects, setCustomSubjects] = useState<string[]>([])
+  const [customSubjectInput, setCustomSubjectInput] = useState('')
   const [examTypes, setExamTypes] = useState<ExamType[]>([])
   const [years, setYears] = useState<string[]>([])
   const [units, setUnits] = useState<string[]>([])
   const [count, setCount] = useState<number>(20)
   const [useTimer, setUseTimer] = useState(mode === 'cbt')
   const [allQuestions, setAllQuestions] = useState(false)
+
+  const activeSubjects: string[] = isGeneral ? customSubjects : subjects
 
   const availableYears = useMemo(() => {
     return Array.from(new Set(questions.map((q) => String(q.year))))
@@ -59,13 +67,24 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
 
   const filtered = useMemo(() => {
     return questions.filter((q) => {
-      if (subjects.length && !subjects.includes(q.subject)) return false
+      if (activeSubjects.length && !activeSubjects.includes(q.subject)) return false
       if (examTypes.length && !examTypes.includes(q.examType)) return false
       if (years.length > 0 && !years.includes(String(q.year))) return false
-      if (units.length && q.unit && !units.includes(q.unit)) return false
+      if (!isGeneral && units.length && q.unit && !units.includes(q.unit)) return false
       return true
     })
-  }, [questions, subjects, examTypes, years, units])
+  }, [questions, activeSubjects, examTypes, years, units, isGeneral])
+
+  function addCustomSubject() {
+    const v = customSubjectInput.trim()
+    if (!v || customSubjects.includes(v)) return
+    setCustomSubjects((prev) => [...prev, v])
+    setCustomSubjectInput('')
+  }
+
+  function removeCustomSubject(s: string) {
+    setCustomSubjects((prev) => prev.filter((x) => x !== s))
+  }
 
   function toggleGroup(groupSubjects: Subject[]) {
     const allSelected = groupSubjects.every((s) => subjects.includes(s))
@@ -129,28 +148,70 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
       {/* 과목 */}
       <div className="bg-card border border-border rounded-xl p-4 space-y-3">
         <label className="text-xs font-medium text-muted-foreground">과목</label>
-        <div className="flex gap-2">
-          {SUBJECT_GROUPS.map((g) => {
-            const allSelected = g.subjects.every((s) => subjects.includes(s))
-            const someSelected = g.subjects.some((s) => subjects.includes(s))
-            return (
+        {isGeneral ? (
+          <div className="space-y-2">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={customSubjectInput}
+                onChange={(e) => setCustomSubjectInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    addCustomSubject()
+                  }
+                }}
+                placeholder="예: 국어, 행정법, 한국사"
+                className="flex-1 bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
               <button
-                key={g.label}
-                onClick={() => toggleGroup(g.subjects)}
-                className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                  allSelected
-                    ? 'bg-primary text-primary-foreground border-primary'
-                    : someSelected
-                      ? 'bg-primary/20 text-primary border-primary/50'
-                      : 'bg-muted text-muted-foreground border-border hover:border-primary/40'
-                }`}
+                onClick={addCustomSubject}
+                disabled={!customSubjectInput.trim()}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
               >
-                {g.label}
+                추가
               </button>
-            )
-          })}
-        </div>
-        <FilterChips options={SUBJECTS} selected={subjects} onChange={handleSubjectsChange} />
+            </div>
+            {customSubjects.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {customSubjects.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => removeCustomSubject(s)}
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-primary text-primary-foreground border border-primary"
+                  >
+                    {s} <span className="opacity-70">×</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="flex gap-2">
+              {SUBJECT_GROUPS.map((g) => {
+                const allSelected = g.subjects.every((s) => subjects.includes(s))
+                const someSelected = g.subjects.some((s) => subjects.includes(s))
+                return (
+                  <button
+                    key={g.label}
+                    onClick={() => toggleGroup(g.subjects)}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                      allSelected
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : someSelected
+                          ? 'bg-primary/20 text-primary border-primary/50'
+                          : 'bg-muted text-muted-foreground border-border hover:border-primary/40'
+                    }`}
+                  >
+                    {g.label}
+                  </button>
+                )
+              })}
+            </div>
+            <FilterChips options={SUBJECTS} selected={subjects} onChange={handleSubjectsChange} />
+          </>
+        )}
       </div>
 
       {/* 시험 유형 */}
@@ -191,7 +252,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
       )}
 
       {/* 범위 */}
-      {units.length > 0 && availableUnits.length > 0 && (
+      {!isGeneral && units.length > 0 && availableUnits.length > 0 && (
         <div className="bg-card border border-border rounded-xl p-4 space-y-3">
           <div className="flex items-center justify-between">
             <label className="text-xs font-medium text-muted-foreground">범위 (복수 선택)</label>
@@ -285,11 +346,11 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
 
       <button
         onClick={handleStart}
-        disabled={filtered.length === 0 || subjects.length === 0}
+        disabled={filtered.length === 0 || activeSubjects.length === 0}
         className="w-full py-3 bg-primary text-primary-foreground rounded-xl font-semibold text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
       >
         {filtered.length === 0
-          ? subjects.length === 0
+          ? activeSubjects.length === 0
             ? '과목을 선택해주세요'
             : '문제은행에 문제가 없습니다'
           : allQuestions

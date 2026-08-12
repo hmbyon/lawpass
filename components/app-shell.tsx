@@ -48,6 +48,12 @@ export function AppShell({ user }: Props) {
   const appBadge = mode === 'general' ? '일반수험' : '변호사시험'
 
   useEffect(() => {
+    const root = document.documentElement
+    root.classList.remove('mode-law', 'mode-general')
+    root.classList.add(mode === 'general' ? 'mode-general' : 'mode-law')
+  }, [mode])
+
+  useEffect(() => {
     if (!showUserMenu) return
     function handleClickOutside(e: MouseEvent) {
       if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
