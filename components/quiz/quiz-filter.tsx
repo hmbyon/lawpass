@@ -57,12 +57,29 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
     return Array.from(new Set(questions.map((q) => q.subject as string))).sort((a, b) => a.localeCompare(b))
   }, [questions])
 
+  // general 모드: 선택된 과목 기준으로 연도/범위 후보를 좁힘 (과목 미선택 시 전체 문제 기준)
+  const generalScopedQuestions = useMemo(() => {
+    return generalSubjects.length > 0 ? questions.filter((q) => generalSubjects.includes(q.subject)) : questions
+  }, [questions, generalSubjects])
+
+  const generalAvailableYears = useMemo(() => {
+    return Array.from(new Set(generalScopedQuestions.map((q) => String(q.year))))
+      .sort((a, b) => Number(b) - Number(a))
+  }, [generalScopedQuestions])
+
+  const generalAvailableUnits = useMemo(() => {
+    return Array.from(
+      new Set(generalScopedQuestions.map((q) => q.unit?.trim()).filter((u): u is string => !!u))
+    ).sort((a, b) => a.localeCompare(b))
+  }, [generalScopedQuestions])
+
   const availableYears = useMemo(() => {
     return Array.from(new Set(questions.map((q) => String(q.year))))
       .sort((a, b) => Number(b) - Number(a))
   }, [questions])
 
-  const allYearsSelected = availableYears.length > 0 && availableYears.every((y) => years.includes(y))
+  const yearOptions = isGeneral ? generalAvailableYears : availableYears
+  const allYearsSelected = yearOptions.length > 0 && yearOptions.every((y) => years.includes(y))
 
   const availableUnits = useMemo(() => {
     return subjects.flatMap((s) => UNITS[s] ?? [])
@@ -73,10 +90,10 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
       if (activeSubjects.length && !activeSubjects.includes(q.subject)) return false
       if (examTypes.length && !examTypes.includes(q.examType)) return false
       if (years.length > 0 && !years.includes(String(q.year))) return false
-      if (!isGeneral && units.length && q.unit && !units.includes(q.unit)) return false
+      if (units.length && q.unit && !units.includes(q.unit)) return false
       return true
     })
-  }, [questions, activeSubjects, examTypes, years, units, isGeneral])
+  }, [questions, activeSubjects, examTypes, years, units])
 
   function toggleGroup(groupSubjects: Subject[]) {
     const allSelected = groupSubjects.every((s) => subjects.includes(s))
@@ -119,7 +136,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
   }
 
   function selectRecentYears(n: number) {
-    setYears(availableYears.slice(0, n))
+    setYears(yearOptions.slice(0, n))
   }
 
   function handleStart() {
@@ -183,7 +200,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
       )}
 
       {/* 연도 */}
-      {availableYears.length > 0 && (
+      {yearOptions.length > 0 && (
         <div className="bg-card border border-border rounded-xl p-4 space-y-3">
           <div className="flex items-center justify-between">
             <label className="text-xs font-medium text-muted-foreground">연도 (복수 선택)</label>
@@ -198,7 +215,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
                 </button>
               ))}
               <button
-                onClick={() => setYears(allYearsSelected ? [] : availableYears)}
+                onClick={() => setYears(allYearsSelected ? [] : yearOptions)}
                 className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
                   allYearsSelected
                     ? 'border-primary text-primary'
@@ -209,35 +226,53 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
               </button>
             </div>
           </div>
-          <FilterChips options={availableYears} selected={years} onChange={setYears} />
+          <FilterChips options={yearOptions} selected={years} onChange={setYears} />
         </div>
       )}
 
       {/* 범위 */}
-      {!isGeneral && units.length > 0 && availableUnits.length > 0 && (
-        <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-medium text-muted-foreground">범위 (복수 선택)</label>
-            <button
-              onClick={() => setUnits(availableUnits)}
-              className="text-[10px] px-2 py-0.5 rounded-full border border-border text-muted-foreground hover:text-foreground transition-colors"
-            >
-              전체
-            </button>
+      {isGeneral ? (
+        generalAvailableUnits.length > 0 && (
+          <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-muted-foreground">범위 (복수 선택)</label>
+              <button
+                onClick={() => setUnits(generalAvailableUnits)}
+                className="text-[10px] px-2 py-0.5 rounded-full border border-border text-muted-foreground hover:text-foreground transition-colors"
+              >
+                전체
+              </button>
+            </div>
+            <FilterChips options={generalAvailableUnits} selected={units} onChange={setUnits} />
           </div>
-          <div className="space-y-2">
-            {subjects.map((s) => {
-              const subjectUnits = UNITS[s]
-              if (!subjectUnits) return null
-              return (
-                <div key={s} className="space-y-1">
-                  <p className="text-[10px] text-muted-foreground font-medium">{s}</p>
-                  <FilterChips options={subjectUnits} selected={units} onChange={setUnits} />
-                </div>
-              )
-            })}
+        )
+      ) : (
+        units.length > 0 &&
+        availableUnits.length > 0 && (
+          <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-muted-foreground">범위 (복수 선택)</label>
+              <button
+                onClick={() => setUnits(availableUnits)}
+                className="text-[10px] px-2 py-0.5 rounded-full border border-border text-muted-foreground hover:text-foreground transition-colors"
+              >
+                전체
+              </button>
+            </div>
+            <div className="space-y-2">
+              {subjects.map((s) => {
+                const subjectUnits = UNITS[s]
+                if (!subjectUnits) return null
+                return (
+                  <div key={s} className="space-y-1">
+                    <p className="text-[10px] text-muted-foreground font-medium">{s}</p>
+                    <FilterChips options={subjectUnits} selected={units} onChange={setUnits} />
+                  </div>
+                )
+              })}
+            </div>
           </div>
-        </div>
+        )
       )}
 
       {/* 문항 수 */}
