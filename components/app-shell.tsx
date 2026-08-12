@@ -215,6 +215,7 @@ export function AppShell({ user }: Props) {
             questionCount={questions.length}
             wrongNoteCount={wrongNotes.length}
             userId={user.uid}
+            userEmail={user.email}
             onClearAll={handleClearAll}
           />
         )}

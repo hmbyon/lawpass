@@ -89,3 +89,15 @@ export interface AppState {
   questions: Question[]
   wrongNotes: WrongNote[]
 }
+
+export type FeedbackType = '버그 신고' | '기능 건의' | '기타'
+
+export interface Feedback {
+  id: string
+  userId: string
+  userEmail: string | null
+  type: FeedbackType
+  content: string
+  createdAt: number
+  isRead: boolean
+}
