@@ -48,18 +48,19 @@ export async function pullFromFirebase(userId: string): Promise<{ questions: Que
   saveWrongNotes(wrongNotes)
   if (existingApiKey) setApiKey(existingApiKey)
 
-  // 임시저장 데이터 복원
-  if (ssSnap.exists()) {
-    const studySessions = ssSnap.data().list
-    if (studySessions?.length > 0) {
-      localStorage.setItem('lawpass_saved_study_sessions', JSON.stringify(studySessions))
-    }
+  // 임시저장 데이터 복원 (없으면 이전 계정의 잔여 데이터가 보이지 않도록 로컬도 비움)
+  const studySessions = ssSnap.exists() ? ssSnap.data().list : null
+  if (studySessions?.length > 0) {
+    localStorage.setItem('lawpass_saved_study_sessions', JSON.stringify(studySessions))
+  } else {
+    localStorage.removeItem('lawpass_saved_study_sessions')
   }
-  if (qsSnap.exists()) {
-    const quizSession = qsSnap.data()
-    if (quizSession?.id) {
-      localStorage.setItem('lawpass_saved_session', JSON.stringify(quizSession))
-    }
+
+  const quizSession = qsSnap.exists() ? qsSnap.data() : null
+  if (quizSession?.id) {
+    localStorage.setItem('lawpass_saved_session', JSON.stringify(quizSession))
+  } else {
+    localStorage.removeItem('lawpass_saved_session')
   }
 
   return { questions, wrongNotes }
