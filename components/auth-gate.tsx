@@ -55,7 +55,7 @@ export function AuthGate({ children }: Props) {
       <div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4">
         <div className="text-center">
           <h1 className="text-2xl font-bold text-primary">ExamPass AI</h1>
-          <p className="text-muted-foreground text-sm mt-1">시험 대비 AI 오답노트 &amp; 학습 코치</p>
+          <p className="text-muted-foreground text-sm mt-1">객관식 시험 대비 AI 오답노트 &amp; 학습 코치</p>
         </div>
 
         <div className="grid grid-cols-2 gap-3 w-full max-w-sm">
@@ -81,7 +81,7 @@ export function AuthGate({ children }: Props) {
           >
             <span className="text-2xl">📚</span>
             <span className="text-sm font-semibold text-foreground">ExamPass</span>
-            <span className="text-xs text-muted-foreground">공무원 · CPA · 한국사 · 감정평가사</span>
+            <span className="text-xs text-muted-foreground">공무원 · CPA · 한국사 등</span>
           </button>
         </div>
 
