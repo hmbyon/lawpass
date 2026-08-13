@@ -1,4 +1,0 @@
-allowBuilds:
-  '@firebase/util': true
-  msw: true
-  protobufjs: true
