@@ -574,6 +574,11 @@ function StudyBulkPreview({
               return (
                 <div key={item.label}>
                   <div className="flex gap-2 items-start text-sm">
+                    {subAnswer !== undefined && (
+                      <span className={`shrink-0 font-bold ${subAnswer ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {subAnswer ? '✓' : '✗'}
+                      </span>
+                    )}
                     <span className="font-semibold text-primary shrink-0">{item.label}.</span>
                     <span
                       ref={(el) => { fieldRefs.current[fieldKey] = el }}
@@ -581,11 +586,6 @@ function StudyBulkPreview({
                     >
                       {renderHighlighted(item.text, fieldKey, highlights, removeHighlight)}
                     </span>
-                    {subAnswer !== undefined && (
-                      <span className={`shrink-0 text-xs font-bold ${subAnswer ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {subAnswer ? 'O' : 'X'}
-                      </span>
-                    )}
                     <ChoiceMemoButton memoKey={memoKey} label={item.label} existingMemo={existingMemo} />
                   </div>
                   <ChoiceMemoPanel memoKey={memoKey} label={item.label} existingMemo={existingMemo} />
