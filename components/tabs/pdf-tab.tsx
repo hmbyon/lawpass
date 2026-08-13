@@ -408,17 +408,17 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
           <span className={`w-2.5 h-2.5 rounded-full ${statusDot}`} />
           <h2 className="font-semibold text-sm text-foreground">Gemini API 키</h2>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col sm:flex-row gap-2">
           <input
             type="password"
             value={apiKey}
             onChange={(e) => saveKey(e.target.value)}
             placeholder="AIza..."
-            className="flex-1 bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className="w-full sm:flex-1 bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           />
           <button
             onClick={testApiKey}
-            className="shrink-0 break-keep px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+            className="w-full sm:w-auto shrink-0 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
           >
             연결 확인
           </button>

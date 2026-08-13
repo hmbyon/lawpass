@@ -134,9 +134,15 @@ export function AppShell({ user }: Props) {
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             {syncing && <span className="text-primary animate-pulse">동기화 중...</span>}
-            <div className="flex flex-col items-end sm:flex-row sm:items-center gap-0 sm:gap-3 leading-tight">
-              <span>문제 {questions.length}개</span>
-              <span>오답 {wrongNotes.length}개</span>
+            <div className="flex flex-col items-end sm:flex-row sm:items-center gap-0.5 sm:gap-3 leading-tight">
+              <div className="flex justify-between w-20">
+                <span>문제</span>
+                <span className="tabular-nums">{questions.length}개</span>
+              </div>
+              <div className="flex justify-between w-20">
+                <span>오답</span>
+                <span className="tabular-nums">{wrongNotes.length}개</span>
+              </div>
             </div>
             <button
               onClick={() => setShowSettingsModal(true)}

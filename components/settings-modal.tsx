@@ -146,9 +146,15 @@ export function SettingsModal({
         {/* 학습 현황 */}
         <div className="bg-muted rounded-xl p-4 flex flex-col gap-3">
           <h3 className="text-sm font-semibold">학습 현황</h3>
-          <div className="flex gap-4 text-sm text-muted-foreground">
-            <span>문제 {questionCount}개</span>
-            <span>오답 {wrongNoteCount}개</span>
+          <div className="flex flex-col gap-0.5 text-sm text-muted-foreground w-24">
+            <div className="flex justify-between">
+              <span>문제</span>
+              <span className="tabular-nums">{questionCount}개</span>
+            </div>
+            <div className="flex justify-between">
+              <span>오답</span>
+              <span className="tabular-nums">{wrongNoteCount}개</span>
+            </div>
           </div>
         </div>
 
