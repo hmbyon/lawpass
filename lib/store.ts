@@ -124,6 +124,33 @@ export function getSourceFiles(): { name: string; count: number }[] {
   return Array.from(map.entries()).map(([name, count]) => ({ name, count }))
 }
 
+// 여러 출처 파일의 문제를 하나로 합침. 지문 앞 100자 기준으로 중복 제거(해설은 병합해서 보존)하고,
+// 합쳐진 문제는 모두 newName을 sourceFile로 갖게 되어 기존 출처 파일명은 목록에서 사라짐
+export function mergeSourceFiles(sourceFileNames: string[], newName: string) {
+  const questions = getQuestions()
+  const selected = new Set(sourceFileNames)
+  const toMerge = questions.filter((q) => selected.has(q.sourceFile ?? '(출처 없음)'))
+  const others = questions.filter((q) => !selected.has(q.sourceFile ?? '(출처 없음)'))
+
+  const byPassage = new Map<string, Question>()
+  for (const q of toMerge) {
+    const key = q.passage.slice(0, 100)
+    const found = byPassage.get(key)
+    if (found) {
+      const expl = new Set([
+        ...(found.explanations ?? (found.explanation ? [found.explanation] : [])),
+        ...(q.explanations ?? (q.explanation ? [q.explanation] : [])),
+      ])
+      found.explanations = Array.from(expl)
+      found.explanation = Array.from(expl)[0] ?? null
+    } else {
+      byPassage.set(key, { ...q, sourceFile: newName })
+    }
+  }
+
+  saveQuestions([...others, ...Array.from(byPassage.values())])
+}
+
 export function getWrongNotes(): WrongNote[] {
   return safeGet<WrongNote[]>(modeKey(BASE_KEYS.wrongNotes), [])
 }

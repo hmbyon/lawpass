@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { PDFDocument } from 'pdf-lib'
-import { getApiKey, setApiKey, addQuestions, getSourceFiles, deleteQuestionsBySource, getQuestions, getWrongNotes } from '@/lib/store'
+import { getApiKey, setApiKey, addQuestions, getSourceFiles, deleteQuestionsBySource, mergeSourceFiles, getQuestions, getWrongNotes } from '@/lib/store'
 import {
   uploadPdfToFileApi, waitForFileActive, extractQuestionsFromPdf, deleteFile,
   savePdfProgress, getPdfProgress, clearPdfProgress,
@@ -142,6 +142,8 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   const [expandedSubjects, setExpandedSubjects] = useState<Set<string>>(new Set())
   const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set())
   const [progressView, setProgressView] = useState<ProgressViewMode>('all')
+  const [mergeMode, setMergeMode] = useState(false)
+  const [mergeSelected, setMergeSelected] = useState<Set<string>>(new Set())
   useEffect(() => {
     setSourceFiles(getSourceFiles())
     setProgress(computeProgress())
@@ -386,6 +388,33 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     onQuestionsAdded()
   }
 
+  function toggleMergeMode() {
+    setMergeMode((v) => !v)
+    setMergeSelected(new Set())
+  }
+
+  function toggleMergeSelect(name: string) {
+    setMergeSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
+
+  function handleMergeComplete() {
+    if (mergeSelected.size < 2) return
+    const selectedNames = Array.from(mergeSelected)
+    const defaultName = selectedNames.join(' + ')
+    const newName = window.prompt('합친 문제집의 이름을 입력하세요', defaultName)
+    if (!newName || !newName.trim()) return
+    mergeSourceFiles(selectedNames, newName.trim())
+    setMergeMode(false)
+    setMergeSelected(new Set())
+    refreshSourceFiles()
+    onQuestionsAdded()
+  }
+
   function updateFile(i: number, patch: Partial<FileState>) {
     setFiles((prev) => {
       const next = [...prev]
@@ -462,20 +491,60 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       {/* 업로드된 파일 목록 */}
       {sourceFiles.length > 0 && (
         <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-          <h2 className="font-semibold text-sm text-foreground">업로드된 문제집</h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="font-semibold text-sm text-foreground">업로드된 문제집</h2>
+            <div className="flex items-center gap-3">
+              {mergeMode && (
+                <button
+                  onClick={handleMergeComplete}
+                  disabled={mergeSelected.size < 2}
+                  className="text-xs text-primary border border-primary/30 rounded-lg px-2.5 py-1 hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  합치기 완료 ({mergeSelected.size})
+                </button>
+              )}
+              <button
+                onClick={toggleMergeMode}
+                className={`text-xs transition-colors ${mergeMode ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                {mergeMode ? '취소' : '합치기'}
+              </button>
+            </div>
+          </div>
           <div className="space-y-2">
             {sourceFiles.map(({ name, count }) => (
-              <div key={name} className="flex items-center justify-between gap-2 bg-muted rounded-lg px-3 py-2">
+              <div
+                key={name}
+                onClick={mergeMode ? () => toggleMergeSelect(name) : undefined}
+                className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
+                  mergeMode
+                    ? `cursor-pointer border ${mergeSelected.has(name) ? 'bg-primary/10 border-primary/50' : 'bg-muted border-transparent hover:border-primary/30'}`
+                    : 'bg-muted'
+                }`}
+              >
+                {mergeMode && (
+                  <div className={`w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center transition-colors ${
+                    mergeSelected.has(name) ? 'bg-primary border-primary' : 'border-muted-foreground'
+                  }`}>
+                    {mergeSelected.has(name) && (
+                      <svg className="w-2.5 h-2.5 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </div>
+                )}
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium text-foreground truncate">{name}</p>
                   <p className="text-xs text-muted-foreground">{count}문제</p>
                 </div>
-                <button
-                  onClick={() => handleDeleteSource(name)}
-                  className="text-xs text-red-400 hover:text-red-300 shrink-0 transition-colors"
-                >
-                  삭제
-                </button>
+                {!mergeMode && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDeleteSource(name) }}
+                    className="text-xs text-red-400 hover:text-red-300 shrink-0 transition-colors"
+                  >
+                    삭제
+                  </button>
+                )}
               </div>
             ))}
           </div>
