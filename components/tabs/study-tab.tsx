@@ -329,6 +329,33 @@ function parseSubChoices(passage: string): SubChoice | null {
   return items.length >= 2 ? { stem, items } : null
 }
 
+// 전체 해설 텍스트에서 "ㄱ.(O)", "나.(X)" 등 항목별 표시를 찾아 각 항목의 해설을 분리
+// (해설 원문이 ㄱㄴㄷㄹ 또는 가나다 중 어느 표기를 쓰든 인식하도록 둘 다 매칭)
+const SUB_EXPLANATION_LABEL_MAP: Record<string, string> = {
+  '가': 'ㄱ', '나': 'ㄴ', '다': 'ㄷ', '라': 'ㄹ',
+  'ㄱ': 'ㄱ', 'ㄴ': 'ㄴ', 'ㄷ': 'ㄷ', 'ㄹ': 'ㄹ',
+}
+
+function parseSubExplanations(explanation: string | null): Record<string, string> {
+  if (!explanation) return {}
+  const regex = /([가나다라ㄱㄴㄷㄹ])\s*\.\s*\([OoXx]\)/g
+  const markers: { label: string; start: number; end: number }[] = []
+  let match: RegExpExecArray | null
+  while ((match = regex.exec(explanation))) {
+    const label = SUB_EXPLANATION_LABEL_MAP[match[1]]
+    if (label) markers.push({ label, start: match.index, end: match.index + match[0].length })
+  }
+
+  const result: Record<string, string> = {}
+  for (let i = 0; i < markers.length; i++) {
+    const textStart = markers[i].end
+    const textEnd = i + 1 < markers.length ? markers[i + 1].start : explanation.length
+    const text = explanation.slice(textStart, textEnd).trim()
+    if (text) result[markers[i].label] = text
+  }
+  return result
+}
+
 function StudyBulkPreview({
   questions,
   startFrom,
@@ -369,6 +396,7 @@ function StudyBulkPreview({
   const isLast = current === questions.length - 1
   const isBookmarked = bookmarked.has(q.id)
   const subChoices = parseSubChoices(q.passage)
+  const subExplanations = subChoices ? parseSubExplanations(q.explanation) : {}
 
   // 형광펜 상태 (문제 전환 시 다시 로드)
   const [highlights, setHighlights] = useState<Highlight[]>(() => loadHighlights(q.id))
@@ -570,13 +598,14 @@ function StudyBulkPreview({
               const memoKey = `${q.id}_${item.label}`
               const existingMemo = choiceMemos[q.id]?.[item.label]
               const subAnswer = q.subChoiceAnswers?.[item.label]
+              const subExplanation = subExplanations[item.label]
               const fieldKey = `sub_${item.label}`
               return (
                 <div key={item.label}>
                   <div className="flex gap-2 items-start text-sm">
                     {subAnswer !== undefined && (
                       <span className={`shrink-0 font-bold ${subAnswer ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {subAnswer ? '✓' : '✗'}
+                        {subAnswer ? '✓ O' : '✗ X'}
                       </span>
                     )}
                     <span className="font-semibold text-primary shrink-0">{item.label}.</span>
@@ -589,6 +618,11 @@ function StudyBulkPreview({
                     <ChoiceMemoButton memoKey={memoKey} label={item.label} existingMemo={existingMemo} />
                   </div>
                   <ChoiceMemoPanel memoKey={memoKey} label={item.label} existingMemo={existingMemo} />
+                  {subExplanation && (
+                    <div className="ml-5 mt-1 bg-muted rounded-lg p-2.5">
+                      <p className="text-xs text-foreground leading-relaxed">{subExplanation}</p>
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -622,25 +656,18 @@ function StudyBulkPreview({
                   {isCorrect && (
                     <span className="shrink-0 text-emerald-400 text-xs font-medium">✓ 정답</span>
                   )}
-                  {!subChoices && (
-                    <ChoiceMemoButton memoKey={memoKey} label={c.label} existingMemo={existingMemo} />
-                  )}
+                  <ChoiceMemoButton memoKey={memoKey} label={c.label} existingMemo={existingMemo} />
                 </div>
-                {explanation && (
-                  <p className="ml-3 mt-1 text-xs text-muted-foreground leading-relaxed">{explanation}</p>
+                <ChoiceMemoPanel memoKey={memoKey} label={c.label} existingMemo={existingMemo} />
+                {!subChoices && explanation && (
+                  <div className="ml-3 mt-1 bg-muted rounded-lg p-2.5">
+                    <p className="text-xs text-foreground leading-relaxed">{explanation}</p>
+                  </div>
                 )}
-                {!subChoices && <ChoiceMemoPanel memoKey={memoKey} label={c.label} existingMemo={existingMemo} />}
               </div>
             )
           })}
         </div>
-
-        {q.explanation && (
-          <div className="bg-muted rounded-lg p-3">
-            <p className="text-xs text-muted-foreground mb-1 font-medium">해설</p>
-            <p className="text-sm text-foreground leading-relaxed">{q.explanation}</p>
-          </div>
-        )}
       </div>
 
       {/* 형광펜 색상 팝업 */}
