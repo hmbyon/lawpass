@@ -36,6 +36,7 @@ export function AppShell({ user }: Props) {
   const [syncing, setSyncing] = useState(false)
   const [syncedAt, setSyncedAt] = useState(0)
   const [showUserMenu, setShowUserMenu] = useState(false)
+  const [avatarError, setAvatarError] = useState(false)
   const [mode, setMode] = useState<AppMode>(() => getAppMode())
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
@@ -159,13 +160,33 @@ export function AppShell({ user }: Props) {
                 onClick={() => setShowUserMenu((v) => !v)}
                 className="w-7 h-7 rounded-full overflow-hidden border border-border flex items-center justify-center bg-primary/20 text-primary text-xs font-semibold hover:opacity-80 transition-opacity shrink-0"
               >
-                <span>{(user.displayName ?? user.email ?? '?').charAt(0).toUpperCase()}</span>
+                {user.photoURL && !avatarError ? (
+                  <img
+                    src={user.photoURL}
+                    alt={user.displayName ?? user.email ?? '프로필'}
+                    crossOrigin="anonymous"
+                    onError={() => setAvatarError(true)}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span>{(user.displayName ?? user.email ?? '?').charAt(0).toUpperCase()}</span>
+                )}
               </button>
               {showUserMenu && (
                 <div className="absolute right-0 top-9 w-56 bg-card border border-border rounded-xl shadow-lg py-2 z-50">
                   <div className="flex items-center gap-3 px-3 py-2">
                     <div className="w-9 h-9 rounded-full overflow-hidden border border-border flex items-center justify-center bg-primary/20 text-primary text-sm font-semibold shrink-0">
-                      <span>{(user.displayName ?? user.email ?? '?').charAt(0).toUpperCase()}</span>
+                      {user.photoURL && !avatarError ? (
+                        <img
+                          src={user.photoURL}
+                          alt={user.displayName ?? user.email ?? '프로필'}
+                          crossOrigin="anonymous"
+                          onError={() => setAvatarError(true)}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span>{(user.displayName ?? user.email ?? '?').charAt(0).toUpperCase()}</span>
+                      )}
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-foreground truncate">{user.displayName ?? '이름 없음'}</p>
