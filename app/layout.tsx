@@ -41,7 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Script id="theme-init" strategy="beforeInteractive">
           {`
             try {
-              var theme = localStorage.getItem('lawpass_theme') || 'dark';
+              var theme = localStorage.getItem('lawpass_theme') || 'light';
               document.documentElement.classList.add(theme);
             } catch(e) {}
           `}
