@@ -82,6 +82,8 @@ export async function extractQuestionsFromPdf(
     선지: Record<string, string>
     정답: string
     해설: string | null
+    보기정답?: Record<string, boolean> | null
+    선지별설명?: Record<string, string> | null
   }[]
 
   try {
@@ -105,6 +107,8 @@ export async function extractQuestionsFromPdf(
     answer: item.정답,
     explanation: item.해설,
     addedAt: Date.now(),
+    subChoiceAnswers: item.보기정답 ?? undefined,
+    choiceExplanations: item.선지별설명 ?? undefined,
   }))
 }
 

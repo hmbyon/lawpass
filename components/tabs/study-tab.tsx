@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { Question } from '@/lib/types'
 import { QuizFilter } from '@/components/quiz/quiz-filter'
 import { QuizEngine } from '@/components/quiz/quiz-engine'
@@ -204,6 +204,131 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
   )
 }
 
+// ── 형광펜 ──────────────────────────────────────────────────────────────────
+type HighlightColor = 'yellow' | 'green' | 'pink'
+
+interface Highlight {
+  id: string
+  field: string
+  start: number
+  end: number
+  color: HighlightColor
+}
+
+const HIGHLIGHT_CLASSES: Record<HighlightColor, string> = {
+  yellow: 'bg-yellow-300/70 dark:bg-yellow-500/40',
+  green: 'bg-emerald-300/70 dark:bg-emerald-500/40',
+  pink: 'bg-pink-300/70 dark:bg-pink-500/40',
+}
+
+const HIGHLIGHT_SWATCH_CLASSES: Record<HighlightColor, string> = {
+  yellow: 'bg-yellow-400',
+  green: 'bg-emerald-400',
+  pink: 'bg-pink-400',
+}
+
+function highlightsKey(questionId: string) {
+  return `lawpass_highlights_${questionId}`
+}
+
+function loadHighlights(questionId: string): Highlight[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem(highlightsKey(questionId))
+    return raw ? (JSON.parse(raw) as Highlight[]) : []
+  } catch {
+    return []
+  }
+}
+
+function saveHighlights(questionId: string, highlights: Highlight[]) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(highlightsKey(questionId), JSON.stringify(highlights))
+  } catch (e) {
+    console.error('[study-tab] 형광펜 저장 실패', e)
+  }
+}
+
+// 지정한 field 안에서 새 하이라이트와 겹치는 기존 하이라이트 제거
+function withoutOverlaps(highlights: Highlight[], field: string, start: number, end: number) {
+  return highlights.filter((h) => h.field !== field || h.end <= start || h.start >= end)
+}
+
+// container 안에서 node/offset 위치까지의 순수 텍스트 길이(문자 오프셋) 계산
+function getTextOffset(container: Node, node: Node, offset: number): number {
+  const range = document.createRange()
+  range.selectNodeContents(container)
+  try {
+    range.setEnd(node, offset)
+  } catch {
+    return 0
+  }
+  return range.toString().length
+}
+
+// 텍스트를 하이라이트 구간에 따라 <mark>로 분할 렌더링
+function renderHighlighted(
+  text: string,
+  field: string,
+  highlights: Highlight[],
+  onRemove: (id: string) => void
+) {
+  const fieldHighlights = highlights
+    .filter((h) => h.field === field && h.start < h.end && h.end <= text.length)
+    .sort((a, b) => a.start - b.start)
+
+  if (fieldHighlights.length === 0) return text
+
+  const nodes: React.ReactNode[] = []
+  let cursor = 0
+  for (const h of fieldHighlights) {
+    if (h.start > cursor) nodes.push(text.slice(cursor, h.start))
+    nodes.push(
+      <mark
+        key={h.id}
+        onClick={(e) => {
+          e.stopPropagation()
+          onRemove(h.id)
+        }}
+        title="클릭하면 형광펜이 지워집니다"
+        className={`${HIGHLIGHT_CLASSES[h.color]} rounded-sm cursor-pointer`}
+      >
+        {text.slice(h.start, h.end)}
+      </mark>
+    )
+    cursor = Math.max(cursor, h.end)
+  }
+  if (cursor < text.length) nodes.push(text.slice(cursor))
+  return nodes
+}
+
+// ── ㄱㄴㄷㄹ 보기 항목 파싱 ────────────────────────────────────────────────
+interface SubChoice {
+  stem: string
+  items: { label: string; text: string }[]
+}
+
+function parseSubChoices(passage: string): SubChoice | null {
+  const labels = ['ㄱ', 'ㄴ', 'ㄷ', 'ㄹ']
+  const firstMatch = passage.match(/ㄱ\s*\./)
+  if (!firstMatch || firstMatch.index === undefined) return null
+
+  const stem = passage.slice(0, firstMatch.index).trim()
+  const rest = passage.slice(firstMatch.index)
+  const parts = rest.split(/\s*([ㄱㄴㄷㄹ])\s*\.\s*/)
+
+  const items: { label: string; text: string }[] = []
+  for (let i = 1; i < parts.length - 1; i += 2) {
+    const label = parts[i]
+    const text = parts[i + 1]?.trim()
+    if (labels.includes(label) && text) {
+      items.push({ label, text })
+    }
+  }
+  return items.length >= 2 ? { stem, items } : null
+}
+
 function StudyBulkPreview({
   questions,
   startFrom,
@@ -243,6 +368,82 @@ function StudyBulkPreview({
   const q = questions[current]
   const isLast = current === questions.length - 1
   const isBookmarked = bookmarked.has(q.id)
+  const subChoices = parseSubChoices(q.passage)
+
+  // 형광펜 상태 (문제 전환 시 다시 로드)
+  const [highlights, setHighlights] = useState<Highlight[]>(() => loadHighlights(q.id))
+  const [highlightPopup, setHighlightPopup] = useState<{ field: string; start: number; end: number; x: number; y: number } | null>(null)
+  const fieldRefs = useRef<Record<string, HTMLElement | null>>({})
+  const popupRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    setHighlights(loadHighlights(q.id))
+    setHighlightPopup(null)
+    fieldRefs.current = {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q.id])
+
+  useEffect(() => {
+    if (!highlightPopup) return
+    function handleClickOutside(e: MouseEvent) {
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
+        setHighlightPopup(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [highlightPopup])
+
+  function ensureBookmarked() {
+    if (!bookmarked.has(q.id)) {
+      addBookmark(q)
+      setBookmarked((prev) => new Set([...prev, q.id]))
+    }
+    onDone()
+  }
+
+  function handleTextMouseUp() {
+    const sel = window.getSelection()
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return
+    if (!sel.toString().trim()) return
+
+    const range = sel.getRangeAt(0)
+    let matchedField: string | null = null
+    let container: HTMLElement | null = null
+    for (const [field, el] of Object.entries(fieldRefs.current)) {
+      if (el && el.contains(range.commonAncestorContainer)) {
+        matchedField = field
+        container = el
+        break
+      }
+    }
+    if (!matchedField || !container) return
+
+    const start = getTextOffset(container, range.startContainer, range.startOffset)
+    const end = getTextOffset(container, range.endContainer, range.endOffset)
+    if (end <= start) return
+
+    const rect = range.getBoundingClientRect()
+    setHighlightPopup({ field: matchedField, start, end, x: rect.left + rect.width / 2, y: rect.top })
+  }
+
+  function applyHighlight(color: HighlightColor) {
+    if (!highlightPopup) return
+    const { field, start, end } = highlightPopup
+    const cleaned = withoutOverlaps(highlights, field, start, end)
+    const next = [...cleaned, { id: `h_${Date.now()}`, field, start, end, color }]
+    setHighlights(next)
+    saveHighlights(q.id, next)
+    setHighlightPopup(null)
+    window.getSelection()?.removeAllRanges()
+    ensureBookmarked()
+  }
+
+  function removeHighlight(id: string) {
+    const next = highlights.filter((h) => h.id !== id)
+    setHighlights(next)
+    saveHighlights(q.id, next)
+  }
 
   function toggleBookmark() {
     if (isBookmarked) {
@@ -279,6 +480,53 @@ function StudyBulkPreview({
     onDone()
   }
 
+  function ChoiceMemoButton({ memoKey, label, existingMemo }: { memoKey: string; label: string; existingMemo?: string }) {
+    return (
+      <button
+        onClick={() => {
+          if (choiceMemoOpen === memoKey) { setChoiceMemoOpen(null); setChoiceMemoText('') }
+          else { setChoiceMemoOpen(memoKey); setChoiceMemoText(existingMemo ?? '') }
+        }}
+        className={`shrink-0 text-xs px-1.5 py-0.5 rounded transition-colors ${
+          existingMemo ? 'text-yellow-400 hover:text-yellow-300' : 'text-muted-foreground hover:text-foreground'
+        }`}
+      >
+        {existingMemo ? '📌' : '🖊️'}
+      </button>
+    )
+  }
+
+  function ChoiceMemoPanel({ memoKey, label, existingMemo }: { memoKey: string; label: string; existingMemo?: string }) {
+    const isOpen = choiceMemoOpen === memoKey
+    if (existingMemo && !isOpen) {
+      return (
+        <div className="ml-3 mt-1 px-2 py-1 bg-yellow-900/20 border-l-2 border-yellow-500/50 rounded-r text-xs text-yellow-300">
+          {existingMemo}
+        </div>
+      )
+    }
+    if (!isOpen) return null
+    return (
+      <div className="ml-3 mt-1 space-y-1.5">
+        <textarea
+          value={choiceMemoText}
+          onChange={(e) => setChoiceMemoText(e.target.value)}
+          placeholder="이 항목에서 유의할 점을 메모하세요..."
+          rows={2}
+          autoFocus
+          className="w-full bg-input border border-border rounded-lg px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+        />
+        <div className="flex gap-2 justify-end">
+          <button onClick={() => { setChoiceMemoOpen(null); setChoiceMemoText('') }} className="text-xs text-muted-foreground hover:text-foreground">취소</button>
+          {existingMemo && (
+            <button onClick={() => saveChoiceMemo(label, '')} className="text-xs text-red-400 hover:text-red-300">삭제</button>
+          )}
+          <button onClick={() => saveChoiceMemo(label, choiceMemoText)} className="text-xs text-primary font-medium hover:opacity-80">저장</button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       <div className="flex items-center justify-between bg-card border border-border rounded-xl px-4 py-2.5 text-sm">
@@ -289,7 +537,7 @@ function StudyBulkPreview({
         <span className="text-xs text-muted-foreground">{q.subject} · {q.year}년</span>
       </div>
 
-      <div className="bg-card border border-border rounded-xl p-5 space-y-4">
+      <div className="bg-card border border-border rounded-xl p-5 space-y-4" onMouseUp={handleTextMouseUp}>
         <div className="flex justify-end">
           <button
             onClick={toggleBookmark}
@@ -299,65 +547,89 @@ function StudyBulkPreview({
                 : 'bg-muted text-muted-foreground border-border hover:border-yellow-500/40 hover:text-yellow-400'
             }`}
           >
-            {isBookmarked ? '⭐ 암기장에 추가됨' : '☆ 암기장에 추가'}
+            {isBookmarked ? '⭐ 오답노트에 추가됨' : '☆ 오답노트에 추가'}
           </button>
         </div>
 
-        <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">{q.passage}</p>
+        <p
+          ref={(el) => { fieldRefs.current[subChoices ? 'passage_stem' : 'passage'] = el }}
+          className="text-sm leading-relaxed text-foreground whitespace-pre-wrap select-text"
+        >
+          {renderHighlighted(
+            subChoices ? subChoices.stem : q.passage,
+            subChoices ? 'passage_stem' : 'passage',
+            highlights,
+            removeHighlight
+          )}
+        </p>
+
+        {/* ㄱㄴㄷㄹ 보기 항목 */}
+        {subChoices && (
+          <div className="space-y-2 pl-3 border-l-2 border-border">
+            {subChoices.items.map((item) => {
+              const memoKey = `${q.id}_${item.label}`
+              const existingMemo = choiceMemos[q.id]?.[item.label]
+              const subAnswer = q.subChoiceAnswers?.[item.label]
+              const fieldKey = `sub_${item.label}`
+              return (
+                <div key={item.label}>
+                  <div className="flex gap-2 items-start text-sm">
+                    <span className="font-semibold text-primary shrink-0">{item.label}.</span>
+                    <span
+                      ref={(el) => { fieldRefs.current[fieldKey] = el }}
+                      className="text-foreground flex-1 select-text"
+                    >
+                      {renderHighlighted(item.text, fieldKey, highlights, removeHighlight)}
+                    </span>
+                    {subAnswer !== undefined && (
+                      <span className={`shrink-0 text-xs font-bold ${subAnswer ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {subAnswer ? 'O' : 'X'}
+                      </span>
+                    )}
+                    <ChoiceMemoButton memoKey={memoKey} label={item.label} existingMemo={existingMemo} />
+                  </div>
+                  <ChoiceMemoPanel memoKey={memoKey} label={item.label} existingMemo={existingMemo} />
+                </div>
+              )
+            })}
+          </div>
+        )}
 
         <div className="space-y-2">
           {q.choices.map((c) => {
             const memoKey = `${q.id}_${c.label}`
             const existingMemo = choiceMemos[q.id]?.[c.label]
-            const isOpen = choiceMemoOpen === memoKey
+            const isCorrect = c.label === q.answer
+            const explanation = q.choiceExplanations?.[c.label]
+            const fieldKey = `choice_${c.label}`
             return (
               <div key={c.label}>
                 <div className={`flex gap-3 items-start p-3 rounded-lg border text-sm ${
-                  c.label === q.answer ? 'border-emerald-600 bg-emerald-900/20' : 'border-border'
+                  isCorrect ? 'border-emerald-600 bg-emerald-900/20' : 'border-border'
                 }`}>
-                  <span className={`font-semibold shrink-0 ${c.label === q.answer ? 'text-emerald-400' : 'text-primary'}`}>
+                  <span className={`font-semibold shrink-0 ${isCorrect ? 'text-emerald-400' : 'text-primary'}`}>
                     {c.label}
                   </span>
-                  <span className="text-foreground flex-1">{c.text}</span>
-                  {c.label === q.answer && (
+                  <span
+                    ref={(el) => { fieldRefs.current[fieldKey] = el }}
+                    className="text-foreground flex-1 select-text"
+                  >
+                    {renderHighlighted(c.text, fieldKey, highlights, removeHighlight)}
+                  </span>
+                  <span className={`shrink-0 text-xs font-bold ${isCorrect ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {isCorrect ? 'O' : 'X'}
+                  </span>
+                  {isCorrect && (
                     <span className="shrink-0 text-emerald-400 text-xs font-medium">✓ 정답</span>
                   )}
-                  <button
-                    onClick={() => {
-                      if (isOpen) { setChoiceMemoOpen(null); setChoiceMemoText('') }
-                      else { setChoiceMemoOpen(memoKey); setChoiceMemoText(existingMemo ?? '') }
-                    }}
-                    className={`shrink-0 text-xs px-1.5 py-0.5 rounded transition-colors ${
-                      existingMemo ? 'text-yellow-400 hover:text-yellow-300' : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {existingMemo ? '📌' : '🖊️'}
-                  </button>
+                  {!subChoices && (
+                    <ChoiceMemoButton memoKey={memoKey} label={c.label} existingMemo={existingMemo} />
+                  )}
                 </div>
-                {existingMemo && !isOpen && (
-                  <div className="ml-3 mt-1 px-2 py-1 bg-yellow-900/20 border-l-2 border-yellow-500/50 rounded-r text-xs text-yellow-300">
-                    {existingMemo}
-                  </div>
+                {explanation && (
+                  <p className="ml-3 mt-1 text-xs text-muted-foreground leading-relaxed">{explanation}</p>
                 )}
-                {isOpen && (
-                  <div className="ml-3 mt-1 space-y-1.5">
-                    <textarea
-                      value={choiceMemoText}
-                      onChange={(e) => setChoiceMemoText(e.target.value)}
-                      placeholder="이 선지에서 유의할 점을 메모하세요..."
-                      rows={2}
-                      autoFocus
-                      className="w-full bg-input border border-border rounded-lg px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
-                    />
-                    <div className="flex gap-2 justify-end">
-                      <button onClick={() => { setChoiceMemoOpen(null); setChoiceMemoText('') }} className="text-xs text-muted-foreground hover:text-foreground">취소</button>
-                      {existingMemo && (
-                        <button onClick={() => saveChoiceMemo(c.label, '')} className="text-xs text-red-400 hover:text-red-300">삭제</button>
-                      )}
-                      <button onClick={() => saveChoiceMemo(c.label, choiceMemoText)} className="text-xs text-primary font-medium hover:opacity-80">저장</button>
-                    </div>
-                  </div>
-                )}
+                {!subChoices && <ChoiceMemoPanel memoKey={memoKey} label={c.label} existingMemo={existingMemo} />}
               </div>
             )
           })}
@@ -370,6 +642,25 @@ function StudyBulkPreview({
           </div>
         )}
       </div>
+
+      {/* 형광펜 색상 팝업 */}
+      {highlightPopup && (
+        <div
+          ref={popupRef}
+          className="fixed z-50 flex items-center gap-1.5 bg-card border border-border rounded-full shadow-lg px-2 py-1.5"
+          style={{ left: highlightPopup.x, top: Math.max(highlightPopup.y - 44, 8), transform: 'translateX(-50%)' }}
+        >
+          {(['yellow', 'green', 'pink'] as HighlightColor[]).map((color) => (
+            <button
+              key={color}
+              onClick={() => applyHighlight(color)}
+              className={`w-6 h-6 rounded-full border border-black/10 hover:scale-110 transition-transform ${HIGHLIGHT_SWATCH_CLASSES[color]}`}
+              title={color === 'yellow' ? '노랑' : color === 'green' ? '초록' : '핑크'}
+            />
+          ))}
+          <button onClick={() => setHighlightPopup(null)} className="text-muted-foreground hover:text-foreground text-xs px-1">×</button>
+        </div>
+      )}
 
       {/* 네비게이션 */}
       <div className="flex gap-2">
@@ -441,7 +732,7 @@ function StudyBulkPreview({
 
       {bookmarked.size > 0 && (
         <p className="text-xs text-center text-yellow-400">
-          ⭐ {bookmarked.size}개 암기장에 추가됨
+          ⭐ {bookmarked.size}개 오답노트에 추가됨
         </p>
       )}
     </div>

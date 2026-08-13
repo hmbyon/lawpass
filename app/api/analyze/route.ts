@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
 
       const prompt = `당신은 변호사시험 문제 추출 전문가입니다.
 이 PDF에서 모든 문제를 추출하여 JSON 배열만 출력하세요.
-각 항목 형식: {"문제번호": number, "연도": number, "단원": string, "지문": string, "선지": {"①": string, "②": string, "③": string, "④": string,"⑤": string}, "정답": string, "해설": string|null}
+각 항목 형식: {"문제번호": number, "연도": number, "단원": string, "지문": string, "선지": {"①": string, "②": string, "③": string, "④": string,"⑤": string}, "정답": string, "해설": string|null, "보기정답": {"ㄱ": boolean, "ㄴ": boolean, "ㄷ": boolean, "ㄹ": boolean}|null, "선지별설명": {"①": string, "②": string, "③": string, "④": string, "⑤": string}|null}
 - 단원은 아래 목록에서 반드시 하나만 선택하세요:
   민법: 민법총칙, 물권법, 채권총론, 채권각론, 가족법
   민사소송법: 소송요건, 소송절차, 증거, 상소, 강제집행
@@ -41,6 +41,12 @@ export async function POST(req: NextRequest) {
   행정법: 총론, 각론
 - PDF에 단원 표시가 없으면 문제 내용으로 추론하세요
 - 연도는 PDF 표지나 문제에서 직접 읽어서 추출하세요 (예: "2023년도 제12회 변호사시험" → 2023). 찾을 수 없으면 ${subject} ${examType} 시험의 실제 연도를 추론하세요.
+- 해설 추출 규칙:
+  - "해설", "풀이", "정답해설", "[해설]" 등 다양한 표기를 모두 해설 시작 표시로 인식하세요
+  - 해당 표시 다음부터 시작해, 다음 문제 번호(예: "문 2.", "2.")가 나오기 직전까지의 모든 텍스트를 그 문제의 해설로 추출하세요
+  - 해설이 없으면 null
+- 지문에 "ㄱ.", "ㄴ.", "ㄷ.", "ㄹ."로 시작하는 보기 항목이 있으면, 각 항목이 옳은 진술인지 판단해 "보기정답"에 boolean으로 표시하세요 (판단 근거가 부족하면 해당 항목은 생략). 보기 항목이 없으면 "보기정답"은 null.
+- "선지별설명"은 각 선지(①~⑤)가 왜 옳은지/틀린지를 한 줄로 설명하세요. 해설이나 지문 근거로 판단하기 어려우면 null.
 - 문제가 없으면 빈 배열 []
 - PDF 내용 이외의 법률 내용을 절대 생성하지 마세요
 - JSON 외 다른 텍스트 출력 금지`
