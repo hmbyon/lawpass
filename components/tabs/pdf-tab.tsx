@@ -418,7 +418,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
           />
           <button
             onClick={testApiKey}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+            className="shrink-0 break-keep px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
           >
             연결 확인
           </button>
