@@ -120,23 +120,25 @@ export function SettingsModal({
           <div className="flex gap-2">
             <button
               onClick={() => onModeChange('law')}
-              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all border ${
+              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all border flex flex-col items-center gap-0.5 ${
                 mode === 'law'
                   ? 'bg-primary text-primary-foreground border-primary'
                   : 'bg-card text-muted-foreground border-border hover:text-foreground'
               }`}
             >
-              ⚖️ LawPass (변호사시험)
+              <span>⚖️ LawPass</span>
+              <span className="text-xs font-normal opacity-80">변호사시험</span>
             </button>
             <button
               onClick={() => onModeChange('general')}
-              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all border ${
+              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all border flex flex-col items-center gap-0.5 ${
                 mode === 'general'
                   ? 'bg-primary text-primary-foreground border-primary'
                   : 'bg-card text-muted-foreground border-border hover:text-foreground'
               }`}
             >
-              📚 ExamPass (일반수험)
+              <span>📚 ExamPass</span>
+              <span className="text-xs font-normal opacity-80">일반수험</span>
             </button>
           </div>
         </div>
