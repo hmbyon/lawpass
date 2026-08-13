@@ -317,20 +317,26 @@ interface SubChoice {
 }
 
 function parseSubChoices(passage: string): SubChoice | null {
-  const firstMatch = passage.match(/[가나다라ㄱㄴㄷㄹ]\s*\./)
-  if (!firstMatch || firstMatch.index === undefined) return null
+  // 줄 시작에 오는 라벨만 항목 표시로 인정 (문장이 "~다."로 끝나는 등 일반 텍스트의
+  // 우연한 "가/나/다/라 + ." 매칭을 배제하기 위해 줄 시작 여부로 앵커링)
+  const regex = /(?:^|\n)[ \t]*([가나다라ㄱㄴㄷㄹ])[ \t]*\.[ \t]*/g
+  const markers: { label: string; start: number; contentStart: number }[] = []
+  let m: RegExpExecArray | null
+  while ((m = regex.exec(passage))) {
+    const label = SUB_LABEL_MAP[m[1]]
+    if (!label) continue
+    const labelIndex = m.index + m[0].indexOf(m[1])
+    markers.push({ label, start: labelIndex, contentStart: m.index + m[0].length })
+  }
+  if (markers.length < 2) return null
 
-  const stem = passage.slice(0, firstMatch.index).trim()
-  const rest = passage.slice(firstMatch.index)
-  const parts = rest.split(/\s*([가나다라ㄱㄴㄷㄹ])\s*\.\s*/)
-
+  const stem = passage.slice(0, markers[0].start).trim()
   const items: { label: string; text: string }[] = []
-  for (let i = 1; i < parts.length - 1; i += 2) {
-    const label = SUB_LABEL_MAP[parts[i]]
-    const text = parts[i + 1]?.trim()
-    if (label && text) {
-      items.push({ label, text })
-    }
+  for (let i = 0; i < markers.length; i++) {
+    const textStart = markers[i].contentStart
+    const textEnd = i + 1 < markers.length ? markers[i + 1].start : passage.length
+    const text = passage.slice(textStart, textEnd).trim()
+    if (text) items.push({ label: markers[i].label, text })
   }
   return items.length >= 2 ? { stem, items } : null
 }
