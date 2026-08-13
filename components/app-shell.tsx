@@ -36,7 +36,6 @@ export function AppShell({ user }: Props) {
   const [syncing, setSyncing] = useState(false)
   const [syncedAt, setSyncedAt] = useState(0)
   const [showUserMenu, setShowUserMenu] = useState(false)
-  const [avatarError, setAvatarError] = useState(false)
   const [mode, setMode] = useState<AppMode>(() => getAppMode())
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
@@ -51,7 +50,7 @@ export function AppShell({ user }: Props) {
     loadFromFirebase()
   }
 
-  const appTitle = mode === 'general' ? 'ExamPass AI' : 'LawPass AI'
+  const appTitleBase = mode === 'general' ? 'ExamPass' : 'LawPass'
   const appBadge = mode === 'general' ? '일반수험' : '변호사시험'
 
   useEffect(() => {
@@ -121,7 +120,7 @@ export function AppShell({ user }: Props) {
               onClick={handleLogoClick}
               className="text-primary text-lg font-bold tracking-tight hover:opacity-80 transition-opacity"
             >
-              {appTitle}
+              {appTitleBase}<span className="hidden sm:inline"> AI</span>
             </button>
             <span className="hidden sm:inline text-xs text-muted-foreground">
               {appBadge}
@@ -130,13 +129,15 @@ export function AppShell({ user }: Props) {
               onClick={() => setShowFeedbackModal(true)}
               className="text-xs text-muted-foreground border border-border rounded-full px-2 py-0.5 hover:text-foreground hover:border-foreground/30 transition-colors"
             >
-              💬 피드백
+              💬<span className="hidden sm:inline"> 피드백</span>
             </button>
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             {syncing && <span className="text-primary animate-pulse">동기화 중...</span>}
-            <span>{questions.length}문제</span>
-            <span>오답 {wrongNotes.length}</span>
+            <div className="flex flex-col items-end sm:flex-row sm:items-center gap-0 sm:gap-3 leading-tight">
+              <span>{questions.length}문제</span>
+              <span>오답 {wrongNotes.length}</span>
+            </div>
             <button
               onClick={() => setShowSettingsModal(true)}
               className={`flex items-center gap-1 px-2 py-1 rounded-lg border transition-all text-xs ${
@@ -145,40 +146,20 @@ export function AppShell({ user }: Props) {
                   : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-accent'
               }`}
             >
-              ⚙️ 설정
+              ⚙️<span className="hidden sm:inline"> 설정</span>
             </button>
             <div className="relative" ref={userMenuRef}>
               <button
                 onClick={() => setShowUserMenu((v) => !v)}
                 className="w-7 h-7 rounded-full overflow-hidden border border-border flex items-center justify-center bg-primary/20 text-primary text-xs font-semibold hover:opacity-80 transition-opacity shrink-0"
               >
-                {user.photoURL && !avatarError ? (
-                  <img
-                    src={user.photoURL}
-                    alt={user.displayName ?? user.email ?? '프로필'}
-                    crossOrigin="anonymous"
-                    onError={() => setAvatarError(true)}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <span>{(user.displayName ?? user.email ?? '?').charAt(0).toUpperCase()}</span>
-                )}
+                <span>{(user.displayName ?? user.email ?? '?').charAt(0).toUpperCase()}</span>
               </button>
               {showUserMenu && (
                 <div className="absolute right-0 top-9 w-56 bg-card border border-border rounded-xl shadow-lg py-2 z-50">
                   <div className="flex items-center gap-3 px-3 py-2">
                     <div className="w-9 h-9 rounded-full overflow-hidden border border-border flex items-center justify-center bg-primary/20 text-primary text-sm font-semibold shrink-0">
-                      {user.photoURL && !avatarError ? (
-                        <img
-                          src={user.photoURL}
-                          alt={user.displayName ?? user.email ?? '프로필'}
-                          crossOrigin="anonymous"
-                          onError={() => setAvatarError(true)}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <span>{(user.displayName ?? user.email ?? '?').charAt(0).toUpperCase()}</span>
-                      )}
+                      <span>{(user.displayName ?? user.email ?? '?').charAt(0).toUpperCase()}</span>
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-foreground truncate">{user.displayName ?? '이름 없음'}</p>
