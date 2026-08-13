@@ -129,14 +129,14 @@ export function AppShell({ user }: Props) {
               onClick={() => setShowFeedbackModal(true)}
               className="text-xs text-muted-foreground border border-border rounded-full px-2 py-0.5 hover:text-foreground hover:border-foreground/30 transition-colors"
             >
-              💬<span className="hidden sm:inline"> 피드백</span>
+              <span className="hidden sm:inline">💬 </span>피드백
             </button>
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             {syncing && <span className="text-primary animate-pulse">동기화 중...</span>}
             <div className="flex flex-col items-end sm:flex-row sm:items-center gap-0 sm:gap-3 leading-tight">
-              <span>{questions.length}문제</span>
-              <span>오답 {wrongNotes.length}</span>
+              <span>문제 {questions.length}개</span>
+              <span>오답 {wrongNotes.length}개</span>
             </div>
             <button
               onClick={() => setShowSettingsModal(true)}
@@ -146,7 +146,7 @@ export function AppShell({ user }: Props) {
                   : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-accent'
               }`}
             >
-              ⚙️<span className="hidden sm:inline"> 설정</span>
+              <span className="hidden sm:inline">⚙️ </span>설정
             </button>
             <div className="relative" ref={userMenuRef}>
               <button
