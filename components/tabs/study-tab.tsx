@@ -303,26 +303,32 @@ function renderHighlighted(
   return nodes
 }
 
-// ── ㄱㄴㄷㄹ 보기 항목 파싱 ────────────────────────────────────────────────
+// ── 가나다/ㄱㄴㄷㄹ 보기 항목 파싱 ─────────────────────────────────────────
+// 지문·해설 원문이 "가나다라" 또는 "ㄱㄴㄷㄹ" 어느 표기를 쓰든 인식해 ㄱㄴㄷㄹ로 정규화
+// (subChoiceAnswers 등 다른 필드가 ㄱㄴㄷㄹ 키를 쓰기 때문)
+const SUB_LABEL_MAP: Record<string, string> = {
+  '가': 'ㄱ', '나': 'ㄴ', '다': 'ㄷ', '라': 'ㄹ',
+  'ㄱ': 'ㄱ', 'ㄴ': 'ㄴ', 'ㄷ': 'ㄷ', 'ㄹ': 'ㄹ',
+}
+
 interface SubChoice {
   stem: string
   items: { label: string; text: string }[]
 }
 
 function parseSubChoices(passage: string): SubChoice | null {
-  const labels = ['ㄱ', 'ㄴ', 'ㄷ', 'ㄹ']
-  const firstMatch = passage.match(/ㄱ\s*\./)
+  const firstMatch = passage.match(/[가나다라ㄱㄴㄷㄹ]\s*\./)
   if (!firstMatch || firstMatch.index === undefined) return null
 
   const stem = passage.slice(0, firstMatch.index).trim()
   const rest = passage.slice(firstMatch.index)
-  const parts = rest.split(/\s*([ㄱㄴㄷㄹ])\s*\.\s*/)
+  const parts = rest.split(/\s*([가나다라ㄱㄴㄷㄹ])\s*\.\s*/)
 
   const items: { label: string; text: string }[] = []
   for (let i = 1; i < parts.length - 1; i += 2) {
-    const label = parts[i]
+    const label = SUB_LABEL_MAP[parts[i]]
     const text = parts[i + 1]?.trim()
-    if (labels.includes(label) && text) {
+    if (label && text) {
       items.push({ label, text })
     }
   }
@@ -330,19 +336,13 @@ function parseSubChoices(passage: string): SubChoice | null {
 }
 
 // 전체 해설 텍스트에서 "ㄱ.(O)", "나.(X)" 등 항목별 표시를 찾아 각 항목의 해설을 분리
-// (해설 원문이 ㄱㄴㄷㄹ 또는 가나다 중 어느 표기를 쓰든 인식하도록 둘 다 매칭)
-const SUB_EXPLANATION_LABEL_MAP: Record<string, string> = {
-  '가': 'ㄱ', '나': 'ㄴ', '다': 'ㄷ', '라': 'ㄹ',
-  'ㄱ': 'ㄱ', 'ㄴ': 'ㄴ', 'ㄷ': 'ㄷ', 'ㄹ': 'ㄹ',
-}
-
 function parseSubExplanations(explanation: string | null): Record<string, string> {
   if (!explanation) return {}
   const regex = /([가나다라ㄱㄴㄷㄹ])\s*\.\s*\([OoXx]\)/g
   const markers: { label: string; start: number; end: number }[] = []
   let match: RegExpExecArray | null
   while ((match = regex.exec(explanation))) {
-    const label = SUB_EXPLANATION_LABEL_MAP[match[1]]
+    const label = SUB_LABEL_MAP[match[1]]
     if (label) markers.push({ label, start: match.index, end: match.index + match[0].length })
   }
 
