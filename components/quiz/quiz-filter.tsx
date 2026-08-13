@@ -85,6 +85,9 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
     return subjects.flatMap((s) => UNITS[s] ?? [])
   }, [subjects])
 
+  const allGeneralUnitsSelected = generalAvailableUnits.length > 0 && generalAvailableUnits.every((u) => units.includes(u))
+  const allLawUnitsSelected = availableUnits.length > 0 && availableUnits.every((u) => units.includes(u))
+
   const filtered = useMemo(() => {
     return questions.filter((q) => {
       if (activeSubjects.length && !activeSubjects.includes(q.subject)) return false
@@ -237,8 +240,12 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-muted-foreground">범위 (복수 선택)</label>
               <button
-                onClick={() => setUnits(generalAvailableUnits)}
-                className="text-[10px] px-2 py-0.5 rounded-full border border-border text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => setUnits(allGeneralUnitsSelected ? [] : generalAvailableUnits)}
+                className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                  allGeneralUnitsSelected
+                    ? 'border-primary text-primary'
+                    : 'border-border text-muted-foreground hover:text-foreground hover:border-primary/40'
+                }`}
               >
                 전체
               </button>
@@ -247,14 +254,17 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
           </div>
         )
       ) : (
-        units.length > 0 &&
         availableUnits.length > 0 && (
           <div className="bg-card border border-border rounded-xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-muted-foreground">범위 (복수 선택)</label>
               <button
-                onClick={() => setUnits(availableUnits)}
-                className="text-[10px] px-2 py-0.5 rounded-full border border-border text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => setUnits(allLawUnitsSelected ? [] : availableUnits)}
+                className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                  allLawUnitsSelected
+                    ? 'border-primary text-primary'
+                    : 'border-border text-muted-foreground hover:text-foreground hover:border-primary/40'
+                }`}
               >
                 전체
               </button>
