@@ -50,7 +50,6 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
       addSavedStudySession(session)
       setSavedSessions(getSavedStudySessions())
     } else {
-      // 다 봤으면 해당 세션 삭제
       if (activeSession) {
         removeSavedStudySession(activeSession.savedAt)
         setSavedSessions(getSavedStudySessions())
@@ -250,12 +249,10 @@ function saveHighlights(questionId: string, highlights: Highlight[]) {
   }
 }
 
-// 지정한 field 안에서 새 하이라이트와 겹치는 기존 하이라이트 제거
 function withoutOverlaps(highlights: Highlight[], field: string, start: number, end: number) {
   return highlights.filter((h) => h.field !== field || h.end <= start || h.start >= end)
 }
 
-// container 안에서 node/offset 위치까지의 순수 텍스트 길이(문자 오프셋) 계산
 function getTextOffset(container: Node, node: Node, offset: number): number {
   const range = document.createRange()
   range.selectNodeContents(container)
@@ -267,7 +264,6 @@ function getTextOffset(container: Node, node: Node, offset: number): number {
   return range.toString().length
 }
 
-// 텍스트를 하이라이트 구간에 따라 <mark>로 분할 렌더링
 function renderHighlighted(
   text: string,
   field: string,
@@ -304,14 +300,11 @@ function renderHighlighted(
 }
 
 // ── 가나다/ㄱㄴㄷㄹ 보기 항목 파싱 ─────────────────────────────────────────
-// 지문·해설 원문이 "가나다라" 또는 "ㄱㄴㄷㄹ" 어느 표기를 쓰든 인식해 ㄱㄴㄷㄹ로 정규화
-// (subChoiceAnswers 등 다른 필드가 ㄱㄴㄷㄹ 키를 쓰기 때문)
 const SUB_LABEL_MAP: Record<string, string> = {
   '가': 'ㄱ', '나': 'ㄴ', '다': 'ㄷ', '라': 'ㄹ',
   'ㄱ': 'ㄱ', 'ㄴ': 'ㄴ', 'ㄷ': 'ㄷ', 'ㄹ': 'ㄹ',
 }
 
-// O/X 표시에 쓰이는 문자들 (Latin O/X 외에 한국 OX문제집 관행인 동그라미·가위표 기호도 인식)
 const OX_CHAR_CLASS = 'OoXx○◯〇×✕✗ＯＸ'
 
 interface SubChoice {
@@ -320,8 +313,6 @@ interface SubChoice {
 }
 
 function parseSubChoices(passage: string): SubChoice | null {
-  // 줄 시작에 오는 라벨만 항목 표시로 인정 (문장이 "~다."로 끝나는 등 일반 텍스트의
-  // 우연한 "가/나/다/라 + ." 매칭을 배제하기 위해 줄 시작 여부로 앵커링)
   const regex = /(?:^|\n)[ \t]*([가나다라ㄱㄴㄷㄹ])[ \t]*\.[ \t]*/g
   const markers: { label: string; start: number; contentStart: number }[] = []
   let m: RegExpExecArray | null
@@ -338,7 +329,6 @@ function parseSubChoices(passage: string): SubChoice | null {
   for (let i = 0; i < markers.length; i++) {
     const textStart = markers[i].contentStart
     const textEnd = i + 1 < markers.length ? markers[i + 1].start : passage.length
-    // 지문 자체에 "(O)"/"(X)" 정답 표시가 딸려 있으면, 항목 앞 ✓/✗ 배지와 중복 표시되므로 제거
     const text = passage.slice(textStart, textEnd).trim()
       .replace(new RegExp(`\\s*\\([${OX_CHAR_CLASS}]\\)\\.?\\s*$`), '')
       .trim()
@@ -347,11 +337,8 @@ function parseSubChoices(passage: string): SubChoice | null {
   return items.length >= 2 ? { stem, items } : null
 }
 
-// 전체 해설 텍스트에서 "ㄱ.(O)", "나.(X)" 등 항목별 표시를 찾아 각 항목의 해설을 분리
 function parseSubExplanations(explanation: string | null): Record<string, string> {
   if (!explanation) return {}
-  // 앞에 다른 한글 음절이 붙어있으면 (예: "유효하다.(O)") 항목 표시가 아니라 일반 문장의
-  // 끝맺음이 우연히 겹친 것이므로, 한글 음절 뒤가 아닐 때만 항목 표시로 인정
   const regex = new RegExp(`(?<![가-힣])([가나다라ㄱㄴㄷㄹ])\\s*\\.\\s*\\([${OX_CHAR_CLASS}]\\)`, 'g')
   const markers: { label: string; start: number; end: number }[] = []
   let match: RegExpExecArray | null
@@ -366,11 +353,6 @@ function parseSubExplanations(explanation: string | null): Record<string, string
     const textEnd = i + 1 < markers.length ? markers[i + 1].start : explanation.length
     const text = explanation.slice(textStart, textEnd).trim()
     if (text) result[markers[i].label] = text
-  }
-
-  if (process.env.NODE_ENV !== 'production') {
-    // eslint-disable-next-line no-console
-    console.log('[parseSubExplanations]', { explanation, markers, result })
   }
 
   return result
@@ -418,7 +400,6 @@ function StudyBulkPreview({
   const subChoices = parseSubChoices(q.passage)
   const subExplanations = subChoices ? parseSubExplanations(q.explanation) : {}
 
-  // 형광펜 상태 (문제 전환 시 다시 로드)
   const [highlights, setHighlights] = useState<Highlight[]>(() => loadHighlights(q.id))
   const [highlightPopup, setHighlightPopup] = useState<{ field: string; start: number; end: number; x: number; y: number } | null>(null)
   const fieldRefs = useRef<Record<string, HTMLElement | null>>({})
@@ -428,7 +409,6 @@ function StudyBulkPreview({
     setHighlights(loadHighlights(q.id))
     setHighlightPopup(null)
     fieldRefs.current = {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q.id])
 
   useEffect(() => {
@@ -528,53 +508,6 @@ function StudyBulkPreview({
     onDone()
   }
 
-  function ChoiceMemoButton({ memoKey, label, existingMemo }: { memoKey: string; label: string; existingMemo?: string }) {
-    return (
-      <button
-        onClick={() => {
-          if (choiceMemoOpen === memoKey) { setChoiceMemoOpen(null); setChoiceMemoText('') }
-          else { setChoiceMemoOpen(memoKey); setChoiceMemoText(existingMemo ?? '') }
-        }}
-        className={`shrink-0 text-xs px-1.5 py-0.5 rounded transition-colors ${
-          existingMemo ? 'text-yellow-400 hover:text-yellow-300' : 'text-muted-foreground hover:text-foreground'
-        }`}
-      >
-        {existingMemo ? '📌' : '🖊️'}
-      </button>
-    )
-  }
-
-  function ChoiceMemoPanel({ memoKey, label, existingMemo }: { memoKey: string; label: string; existingMemo?: string }) {
-    const isOpen = choiceMemoOpen === memoKey
-    if (existingMemo && !isOpen) {
-      return (
-        <div className="ml-3 mt-1 px-2 py-1 bg-yellow-900/20 border-l-2 border-yellow-500/50 rounded-r text-xs text-yellow-300">
-          {existingMemo}
-        </div>
-      )
-    }
-    if (!isOpen) return null
-    return (
-      <div className="ml-3 mt-1 space-y-1.5">
-        <textarea
-          value={choiceMemoText}
-          onChange={(e) => setChoiceMemoText(e.target.value)}
-          placeholder="이 항목에서 유의할 점을 메모하세요..."
-          rows={2}
-          autoFocus
-          className="w-full bg-input border border-border rounded-lg px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
-        />
-        <div className="flex gap-2 justify-end">
-          <button onClick={() => { setChoiceMemoOpen(null); setChoiceMemoText('') }} className="text-xs text-muted-foreground hover:text-foreground">취소</button>
-          {existingMemo && (
-            <button onClick={() => saveChoiceMemo(label, '')} className="text-xs text-red-400 hover:text-red-300">삭제</button>
-          )}
-          <button onClick={() => saveChoiceMemo(label, choiceMemoText)} className="text-xs text-primary font-medium hover:opacity-80">저장</button>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       <div className="flex items-center justify-between bg-card border border-border rounded-xl px-4 py-2.5 text-sm">
@@ -617,6 +550,8 @@ function StudyBulkPreview({
               const subAnswer = q.subChoiceAnswers?.[item.label]
               const subExplanation = subExplanations[item.label]
               const fieldKey = `sub_${item.label}`
+              const isOpen = choiceMemoOpen === memoKey
+
               return (
                 <div key={item.label}>
                   <div className="flex gap-2 items-start text-sm">
@@ -632,9 +567,45 @@ function StudyBulkPreview({
                     >
                       {renderHighlighted(item.text, fieldKey, highlights, removeHighlight)}
                     </span>
-                    <ChoiceMemoButton memoKey={memoKey} label={item.label} existingMemo={existingMemo} />
+                    <button
+                      onClick={() => {
+                        if (isOpen) { setChoiceMemoOpen(null); setChoiceMemoText('') }
+                        else { setChoiceMemoOpen(memoKey); setChoiceMemoText(existingMemo ?? '') }
+                      }}
+                      className={`shrink-0 text-xs px-1.5 py-0.5 rounded transition-colors ${
+                        existingMemo ? 'text-yellow-400 hover:text-yellow-300' : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {existingMemo ? '📌' : '🖊️'}
+                    </button>
                   </div>
-                  <ChoiceMemoPanel memoKey={memoKey} label={item.label} existingMemo={existingMemo} />
+
+                  {existingMemo && !isOpen && (
+                    <div className="ml-3 mt-1 px-2 py-1 bg-yellow-900/20 border-l-2 border-yellow-500/50 rounded-r text-xs text-yellow-300">
+                      {existingMemo}
+                    </div>
+                  )}
+
+                  {isOpen && (
+                    <div className="ml-3 mt-1 space-y-1.5">
+                      <textarea
+                        value={choiceMemoText}
+                        onChange={(e) => setChoiceMemoText(e.target.value)}
+                        placeholder="이 항목에서 유의할 점을 메모하세요..."
+                        rows={2}
+                        autoFocus
+                        className="w-full bg-input border border-border rounded-lg px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                      />
+                      <div className="flex gap-2 justify-end">
+                        <button onClick={() => { setChoiceMemoOpen(null); setChoiceMemoText('') }} className="text-xs text-muted-foreground hover:text-foreground">취소</button>
+                        {existingMemo && (
+                          <button onClick={() => saveChoiceMemo(item.label, '')} className="text-xs text-red-400 hover:text-red-300">삭제</button>
+                        )}
+                        <button onClick={() => saveChoiceMemo(item.label, choiceMemoText)} className="text-xs text-primary font-medium hover:opacity-80">저장</button>
+                      </div>
+                    </div>
+                  )}
+
                   {subExplanation && (
                     <div className="ml-5 mt-1 bg-muted rounded-lg p-2.5">
                       <p className="text-xs text-foreground leading-relaxed">{subExplanation}</p>
@@ -646,6 +617,7 @@ function StudyBulkPreview({
           </div>
         )}
 
+        {/* 선지 (1~5번) */}
         <div className="space-y-2">
           {q.choices.map((c) => {
             const memoKey = `${q.id}_${c.label}`
@@ -653,6 +625,8 @@ function StudyBulkPreview({
             const isCorrect = c.label === q.answer
             const explanation = q.choiceExplanations?.[c.label]
             const fieldKey = `choice_${c.label}`
+            const isOpen = choiceMemoOpen === memoKey
+
             return (
               <div key={c.label}>
                 <div className={`flex gap-3 items-start p-3 rounded-lg border text-sm ${
@@ -673,9 +647,45 @@ function StudyBulkPreview({
                   {isCorrect && (
                     <span className="shrink-0 text-emerald-400 text-xs font-medium">✓ 정답</span>
                   )}
-                  <ChoiceMemoButton memoKey={memoKey} label={c.label} existingMemo={existingMemo} />
+                  <button
+                    onClick={() => {
+                      if (isOpen) { setChoiceMemoOpen(null); setChoiceMemoText('') }
+                      else { setChoiceMemoOpen(memoKey); setChoiceMemoText(existingMemo ?? '') }
+                    }}
+                    className={`shrink-0 text-xs px-1.5 py-0.5 rounded transition-colors ${
+                      existingMemo ? 'text-yellow-400 hover:text-yellow-300' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {existingMemo ? '📌' : '🖊️'}
+                  </button>
                 </div>
-                <ChoiceMemoPanel memoKey={memoKey} label={c.label} existingMemo={existingMemo} />
+
+                {existingMemo && !isOpen && (
+                  <div className="ml-3 mt-1 px-2 py-1 bg-yellow-900/20 border-l-2 border-yellow-500/50 rounded-r text-xs text-yellow-300">
+                    {existingMemo}
+                  </div>
+                )}
+
+                {isOpen && (
+                  <div className="ml-3 mt-1 space-y-1.5">
+                    <textarea
+                      value={choiceMemoText}
+                      onChange={(e) => setChoiceMemoText(e.target.value)}
+                      placeholder="이 항목에서 유의할 점을 메모하세요..."
+                      rows={2}
+                      autoFocus
+                      className="w-full bg-input border border-border rounded-lg px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <button onClick={() => { setChoiceMemoOpen(null); setChoiceMemoText('') }} className="text-xs text-muted-foreground hover:text-foreground">취소</button>
+                      {existingMemo && (
+                        <button onClick={() => saveChoiceMemo(c.label, '')} className="text-xs text-red-400 hover:text-red-300">삭제</button>
+                      )}
+                      <button onClick={() => saveChoiceMemo(c.label, choiceMemoText)} className="text-xs text-primary font-medium hover:opacity-80">저장</button>
+                    </div>
+                  </div>
+                )}
+
                 {!subChoices && explanation && (
                   <div className="ml-3 mt-1 bg-muted rounded-lg p-2.5">
                     <p className="text-xs text-foreground leading-relaxed">{explanation}</p>
@@ -731,7 +741,7 @@ function StudyBulkPreview({
         )}
       </div>
 
-      {/* 여기까지만 풀기 / 임시저장 */}
+      {/* 여기까지 풀기 / 임시저장 */}
       <div className="flex gap-2">
         <button
           onClick={() => {
