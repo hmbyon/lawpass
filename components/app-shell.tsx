@@ -45,9 +45,8 @@ export function AppShell({ user }: Props) {
   function handleModeChange(next: AppMode) {
     setAppMode(next)
     setMode(next)
-    // 전환된 모드의 로컬 데이터를 즉시 반영한 뒤, Firebase에서 최신 데이터를 새로 불러옴
     refresh()
-    setSyncedAt(Date.now()) // syncedAt을 key로 쓰는 탭(StudyTab 등)을 즉시 재마운트
+    setSyncedAt(Date.now())
     loadFromFirebase()
   }
 
@@ -135,16 +134,19 @@ export function AppShell({ user }: Props) {
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             {syncing && <span className="text-primary animate-pulse">동기화 중...</span>}
-            <div className="flex flex-col items-end sm:flex-row sm:items-center gap-0.5 sm:gap-3 leading-tight">
-              <div className="flex justify-between w-20">
+            
+            {/* 💡 문제/오답 간격 밀착 수정 부분 */}
+            <div className="flex items-center gap-3 leading-none">
+              <div className="flex items-center gap-1">
                 <span>문제</span>
-                <span className="tabular-nums">{questions.length}개</span>
+                <span className="tabular-nums font-semibold text-foreground">{questions.length}개</span>
               </div>
-              <div className="flex justify-between w-20">
+              <div className="flex items-center gap-1">
                 <span>오답</span>
-                <span className="tabular-nums">{wrongNotes.length}개</span>
+                <span className="tabular-nums font-semibold text-foreground">{wrongNotes.length}개</span>
               </div>
             </div>
+
             <button
               onClick={() => setShowSettingsModal(true)}
               className={`flex items-center gap-1 px-2 py-1 rounded-lg border transition-all text-xs ${
