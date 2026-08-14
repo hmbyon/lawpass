@@ -311,22 +311,12 @@ const SUB_LABEL_MAP: Record<string, string> = {
   'ㄱ': 'ㄱ', 'ㄴ': 'ㄴ', 'ㄷ': 'ㄷ', 'ㄹ': 'ㄹ',
 }
 
+// O/X 표시에 쓰이는 문자들 (Latin O/X 외에 한국 OX문제집 관행인 동그라미·가위표 기호도 인식)
+const OX_CHAR_CLASS = 'OoXx○◯〇×✕✗ＯＸ'
+
 interface SubChoice {
   stem: string
   items: { label: string; text: string }[]
-}
-
-// 텍스트 끝에 붙은 정오 표시 기호(예: "...약정(X)", "...계약 ✓", "...약정○")를 제거.
-// 우리가 subChoiceAnswers 기반으로 별도 O/X 배지를 렌더링하므로 원문에 남아있으면 중복 표시됨
-function stripAnswerMark(text: string): string {
-  const pattern = /[\s]*[([（]?[\s]*[OoXx○✓✗×][\s]*[)\]）]?[\s]*$/
-  let result = text.trimEnd()
-  while (pattern.test(result)) {
-    const next = result.replace(pattern, '').trimEnd()
-    if (next === result || next.length === 0) { result = next; break }
-    result = next
-  }
-  return result
 }
 
 function parseSubChoices(passage: string): SubChoice | null {
@@ -348,7 +338,10 @@ function parseSubChoices(passage: string): SubChoice | null {
   for (let i = 0; i < markers.length; i++) {
     const textStart = markers[i].contentStart
     const textEnd = i + 1 < markers.length ? markers[i + 1].start : passage.length
-    const text = stripAnswerMark(passage.slice(textStart, textEnd).trim())
+    // 지문 자체에 "(O)"/"(X)" 정답 표시가 딸려 있으면, 항목 앞 ✓/✗ 배지와 중복 표시되므로 제거
+    const text = passage.slice(textStart, textEnd).trim()
+      .replace(new RegExp(`\\s*\\([${OX_CHAR_CLASS}]\\)\\.?\\s*$`), '')
+      .trim()
     if (text) items.push({ label: markers[i].label, text })
   }
   return items.length >= 2 ? { stem, items } : null
@@ -357,7 +350,9 @@ function parseSubChoices(passage: string): SubChoice | null {
 // 전체 해설 텍스트에서 "ㄱ.(O)", "나.(X)" 등 항목별 표시를 찾아 각 항목의 해설을 분리
 function parseSubExplanations(explanation: string | null): Record<string, string> {
   if (!explanation) return {}
-  const regex = /([가나다라ㄱㄴㄷㄹ])\s*\.\s*\([OoXx]\)/g
+  // 앞에 다른 한글 음절이 붙어있으면 (예: "유효하다.(O)") 항목 표시가 아니라 일반 문장의
+  // 끝맺음이 우연히 겹친 것이므로, 한글 음절 뒤가 아닐 때만 항목 표시로 인정
+  const regex = new RegExp(`(?<![가-힣])([가나다라ㄱㄴㄷㄹ])\\s*\\.\\s*\\([${OX_CHAR_CLASS}]\\)`, 'g')
   const markers: { label: string; start: number; end: number }[] = []
   let match: RegExpExecArray | null
   while ((match = regex.exec(explanation))) {
@@ -372,6 +367,12 @@ function parseSubExplanations(explanation: string | null): Record<string, string
     const text = explanation.slice(textStart, textEnd).trim()
     if (text) result[markers[i].label] = text
   }
+
+  if (process.env.NODE_ENV !== 'production') {
+    // eslint-disable-next-line no-console
+    console.log('[parseSubExplanations]', { explanation, markers, result })
+  }
+
   return result
 }
 
@@ -652,7 +653,6 @@ function StudyBulkPreview({
             const isCorrect = c.label === q.answer
             const explanation = q.choiceExplanations?.[c.label]
             const fieldKey = `choice_${c.label}`
-            const choiceText = stripAnswerMark(c.text)
             return (
               <div key={c.label}>
                 <div className={`flex gap-3 items-start p-3 rounded-lg border text-sm ${
@@ -665,7 +665,7 @@ function StudyBulkPreview({
                     ref={(el) => { fieldRefs.current[fieldKey] = el }}
                     className="text-foreground flex-1 select-text"
                   >
-                    {renderHighlighted(choiceText, fieldKey, highlights, removeHighlight)}
+                    {renderHighlighted(c.text, fieldKey, highlights, removeHighlight)}
                   </span>
                   <span className={`shrink-0 text-xs font-bold ${isCorrect ? 'text-emerald-400' : 'text-red-400'}`}>
                     {isCorrect ? 'O' : 'X'}
