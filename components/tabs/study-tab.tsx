@@ -311,6 +311,9 @@ const SUB_LABEL_MAP: Record<string, string> = {
   'ㄱ': 'ㄱ', 'ㄴ': 'ㄴ', 'ㄷ': 'ㄷ', 'ㄹ': 'ㄹ',
 }
 
+// O/X 표시에 쓰이는 문자들 (Latin O/X 외에 한국 OX문제집 관행인 동그라미·가위표 기호도 인식)
+const OX_CHAR_CLASS = 'OoXx○◯〇×✕✗ＯＸ'
+
 interface SubChoice {
   stem: string
   items: { label: string; text: string }[]
@@ -335,7 +338,10 @@ function parseSubChoices(passage: string): SubChoice | null {
   for (let i = 0; i < markers.length; i++) {
     const textStart = markers[i].contentStart
     const textEnd = i + 1 < markers.length ? markers[i + 1].start : passage.length
+    // 지문 자체에 "(O)"/"(X)" 정답 표시가 딸려 있으면, 항목 앞 ✓/✗ 배지와 중복 표시되므로 제거
     const text = passage.slice(textStart, textEnd).trim()
+      .replace(new RegExp(`\\s*\\([${OX_CHAR_CLASS}]\\)\\.?\\s*$`), '')
+      .trim()
     if (text) items.push({ label: markers[i].label, text })
   }
   return items.length >= 2 ? { stem, items } : null
@@ -346,7 +352,7 @@ function parseSubExplanations(explanation: string | null): Record<string, string
   if (!explanation) return {}
   // 앞에 다른 한글 음절이 붙어있으면 (예: "유효하다.(O)") 항목 표시가 아니라 일반 문장의
   // 끝맺음이 우연히 겹친 것이므로, 한글 음절 뒤가 아닐 때만 항목 표시로 인정
-  const regex = /(?<![가-힣])([가나다라ㄱㄴㄷㄹ])\s*\.\s*\([OoXx]\)/g
+  const regex = new RegExp(`(?<![가-힣])([가나다라ㄱㄴㄷㄹ])\\s*\\.\\s*\\([${OX_CHAR_CLASS}]\\)`, 'g')
   const markers: { label: string; start: number; end: number }[] = []
   let match: RegExpExecArray | null
   while ((match = regex.exec(explanation))) {
@@ -361,6 +367,12 @@ function parseSubExplanations(explanation: string | null): Record<string, string
     const text = explanation.slice(textStart, textEnd).trim()
     if (text) result[markers[i].label] = text
   }
+
+  if (process.env.NODE_ENV !== 'production') {
+    // eslint-disable-next-line no-console
+    console.log('[parseSubExplanations]', { explanation, markers, result })
+  }
+
   return result
 }
 
@@ -567,9 +579,6 @@ function StudyBulkPreview({
     <div className="space-y-4 max-w-2xl mx-auto">
       <div className="flex items-center justify-between bg-card border border-border rounded-xl px-4 py-2.5 text-sm">
         <span className="text-muted-foreground">학습 {current + 1} / {questions.length}</span>
-        <span className="bg-purple-800/50 text-purple-300 text-xs px-2 py-0.5 rounded-full border border-purple-700/40">
-          선학습 미리보기
-        </span>
         <span className="text-xs text-muted-foreground">{q.subject} · {q.year}년</span>
       </div>
 
