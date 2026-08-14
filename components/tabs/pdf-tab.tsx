@@ -130,9 +130,12 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   const [uploadMode, setUploadMode] = useState<UploadMode>('file')
   const [files, setFiles] = useState<FileState[]>([])
   const [fileUri, setFileUri] = useState('')
-  const [subjects, setSubjects] = useState<Subject[]>(['민법'])
+  
+  // 💡 기본값 빈 배열([])로 수정
+  const [subjects, setSubjects] = useState<Subject[]>([])
   const [generalSubjectText, setGeneralSubjectText] = useState('')
-  const [examTypes, setExamTypes] = useState<ExamType[]>(isGeneral ? ['모의고사'] : ['변호사시험'])
+  const [examTypes, setExamTypes] = useState<ExamType[]>(isGeneral ? ['모의고사'] : [])
+
   const [isRunning, setIsRunning] = useState(false)
   const [summary, setSummary] = useState<{ added: number; merged: number } | null>(null)
   const [uriStatus, setUriStatus] = useState<'idle' | 'analyzing' | 'done' | 'error'>('idle')
@@ -144,6 +147,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   const [progressView, setProgressView] = useState<ProgressViewMode>('all')
   const [mergeMode, setMergeMode] = useState(false)
   const [mergeSelected, setMergeSelected] = useState<Set<string>>(new Set())
+
   useEffect(() => {
     setSourceFiles(getSourceFiles())
     setProgress(computeProgress())
@@ -228,7 +232,6 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     })
   }
 
-  // 파일 하나를 startChunk 청크부터 분석. 반환값은 이번 호출에서 새로 추가/병합된 문제 수(델타)
   async function processFile(i: number, startChunk: number): Promise<{ added: number; merged: number }> {
     const entry = files[i]
     const sourceFile = entry.displayName.trim() || entry.file.name.replace(/\.pdf$/i, '')
@@ -294,7 +297,6 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
             chunkIndex: chunkIndex + 1,
             count: fileQuestionCount,
           })
-          // 청크 하나가 성공적으로 끝날 때마다 진행상황을 임시 저장 (오류 시 이어서 처리하기용)
           savePdfProgress(sourceFile, {
             chunkIndex,
             chunkTotal,
@@ -334,7 +336,6 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     onQuestionsAdded()
   }
 
-  // 오류 발생 후 마지막으로 성공한 청크 다음부터 이어서 처리
   async function handleResume(i: number) {
     if (!apiKey) return
     const entry = files[i]
@@ -852,9 +853,10 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
               </div>
             )}
 
+            {/* 💡 subjects.length === 0 대신 activeSubjects.length === 0 적용 */}
             <button
               onClick={startAnalysis}
-              disabled={isRunning || !apiKey || files.length === 0 || examTypes.length === 0 || subjects.length === 0}
+              disabled={isRunning || !apiKey || files.length === 0 || examTypes.length === 0 || activeSubjects.length === 0}
               className="w-full py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
             >
               {isRunning ? '분석 중...' : '분석 시작'}
@@ -907,9 +909,10 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
               <p className="text-xs text-red-400 break-all">{uriError}</p>
             )}
 
+            {/* 💡 subjects.length === 0 대신 activeSubjects.length === 0 적용 */}
             <button
               onClick={startUriAnalysis}
-              disabled={uriStatus === 'analyzing' || !apiKey || !fileUri.trim() || examTypes.length === 0 || subjects.length === 0}
+              disabled={uriStatus === 'analyzing' || !apiKey || !fileUri.trim() || examTypes.length === 0 || activeSubjects.length === 0}
               className="w-full py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
             >
               {uriStatus === 'analyzing' ? 'Gemini 분석 중...' : '분석 시작'}
