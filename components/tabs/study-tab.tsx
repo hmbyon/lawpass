@@ -344,7 +344,9 @@ function parseSubChoices(passage: string): SubChoice | null {
 // 전체 해설 텍스트에서 "ㄱ.(O)", "나.(X)" 등 항목별 표시를 찾아 각 항목의 해설을 분리
 function parseSubExplanations(explanation: string | null): Record<string, string> {
   if (!explanation) return {}
-  const regex = /([가나다라ㄱㄴㄷㄹ])\s*\.\s*\([OoXx]\)/g
+  // 앞에 다른 한글 음절이 붙어있으면 (예: "유효하다.(O)") 항목 표시가 아니라 일반 문장의
+  // 끝맺음이 우연히 겹친 것이므로, 한글 음절 뒤가 아닐 때만 항목 표시로 인정
+  const regex = /(?<![가-힣])([가나다라ㄱㄴㄷㄹ])\s*\.\s*\([OoXx]\)/g
   const markers: { label: string; start: number; end: number }[] = []
   let match: RegExpExecArray | null
   while ((match = regex.exec(explanation))) {
