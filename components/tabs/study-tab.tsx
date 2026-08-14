@@ -8,6 +8,15 @@ import {
   clearSavedSession, getSavedSession
 } from '@/lib/store'
 import type { SavedStudySession } from '@/lib/store'
+import {
+  HighlightColor,
+  Highlight,
+  HIGHLIGHT_SWATCH_CLASSES,
+  loadHighlights,
+  saveHighlights,
+  withoutOverlaps,
+  renderHighlighted,
+} from '@/lib/highlights'
 
 type StudyPhase = 'filter' | 'preview' | 'quiz'
 
@@ -140,7 +149,6 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
         </p>
       </div>
 
-      {/* 이어서 하기 - 퀴즈 */}
       {savedQuiz && savedQuiz.mode === 'study' && (
         <div className="max-w-2xl mx-auto bg-primary/10 border border-primary/30 rounded-xl p-4 space-y-3">
           <p className="text-sm font-semibold text-primary">📌 풀던 퀴즈 이어서 하기</p>
@@ -160,7 +168,6 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
         </div>
       )}
 
-      {/* 이어서 하기 - 미리보기 목록 */}
       {savedSessions.length > 0 && (
         <div className="max-w-2xl mx-auto space-y-2">
           <p className="text-xs font-medium text-muted-foreground px-1">📖 이어서 학습하기</p>
@@ -203,56 +210,6 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
   )
 }
 
-// ── 형광펜 ──────────────────────────────────────────────────────────────────
-type HighlightColor = 'yellow' | 'green' | 'pink'
-
-interface Highlight {
-  id: string
-  field: string
-  start: number
-  end: number
-  color: HighlightColor
-}
-
-const HIGHLIGHT_CLASSES: Record<HighlightColor, string> = {
-  yellow: 'bg-yellow-300/70 dark:bg-yellow-500/40',
-  green: 'bg-emerald-300/70 dark:bg-emerald-500/40',
-  pink: 'bg-pink-300/70 dark:bg-pink-500/40',
-}
-
-const HIGHLIGHT_SWATCH_CLASSES: Record<HighlightColor, string> = {
-  yellow: 'bg-yellow-400',
-  green: 'bg-emerald-400',
-  pink: 'bg-pink-400',
-}
-
-function highlightsKey(questionId: string) {
-  return `lawpass_highlights_${questionId}`
-}
-
-function loadHighlights(questionId: string): Highlight[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = localStorage.getItem(highlightsKey(questionId))
-    return raw ? (JSON.parse(raw) as Highlight[]) : []
-  } catch {
-    return []
-  }
-}
-
-function saveHighlights(questionId: string, highlights: Highlight[]) {
-  if (typeof window === 'undefined') return
-  try {
-    localStorage.setItem(highlightsKey(questionId), JSON.stringify(highlights))
-  } catch (e) {
-    console.error('[study-tab] 형광펜 저장 실패', e)
-  }
-}
-
-function withoutOverlaps(highlights: Highlight[], field: string, start: number, end: number) {
-  return highlights.filter((h) => h.field !== field || h.end <= start || h.start >= end)
-}
-
 function getTextOffset(container: Node, node: Node, offset: number): number {
   const range = document.createRange()
   range.selectNodeContents(container)
@@ -264,42 +221,6 @@ function getTextOffset(container: Node, node: Node, offset: number): number {
   return range.toString().length
 }
 
-function renderHighlighted(
-  text: string,
-  field: string,
-  highlights: Highlight[],
-  onRemove: (id: string) => void
-) {
-  const fieldHighlights = highlights
-    .filter((h) => h.field === field && h.start < h.end && h.end <= text.length)
-    .sort((a, b) => a.start - b.start)
-
-  if (fieldHighlights.length === 0) return text
-
-  const nodes: React.ReactNode[] = []
-  let cursor = 0
-  for (const h of fieldHighlights) {
-    if (h.start > cursor) nodes.push(text.slice(cursor, h.start))
-    nodes.push(
-      <mark
-        key={h.id}
-        onClick={(e) => {
-          e.stopPropagation()
-          onRemove(h.id)
-        }}
-        title="클릭하면 형광펜이 지워집니다"
-        className={`${HIGHLIGHT_CLASSES[h.color]} rounded-sm cursor-pointer`}
-      >
-        {text.slice(h.start, h.end)}
-      </mark>
-    )
-    cursor = Math.max(cursor, h.end)
-  }
-  if (cursor < text.length) nodes.push(text.slice(cursor))
-  return nodes
-}
-
-// ── 가나다/ㄱㄴㄷㄹ 보기 항목 파싱 ─────────────────────────────────────────
 const SUB_LABEL_MAP: Record<string, string> = {
   '가': 'ㄱ', '나': 'ㄴ', '다': 'ㄷ', '라': 'ㄹ',
   'ㄱ': 'ㄱ', 'ㄴ': 'ㄴ', 'ㄷ': 'ㄷ', 'ㄹ': 'ㄹ',

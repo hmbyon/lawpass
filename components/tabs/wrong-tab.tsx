@@ -7,6 +7,7 @@ import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
 import { FilterChips } from '@/components/filter-chips'
 import { getAppMode } from '@/lib/appMode'
+import { loadHighlights, renderHighlighted, saveHighlights } from '@/lib/highlights'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const RISKS = ['★1', '★2', '★3', '★4', '★5']
@@ -23,11 +24,19 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
   const a = note.analysis
   const [memo, setMemo] = useState(note.memo ?? '')
   const [memoSaved, setMemoSaved] = useState(false)
+  const [highlights, setHighlights] = useState(() => loadHighlights(note.question.id))
 
   function saveMemo() {
     updateWrongNoteMemo(note.id, memo)
     setMemoSaved(true)
     setTimeout(() => setMemoSaved(false), 1500)
+    onMemoSaved()
+  }
+
+  function removeHighlight(id: string) {
+    const next = highlights.filter((h) => h.id !== id)
+    setHighlights(next)
+    saveHighlights(note.question.id, next)
     onMemoSaved()
   }
 
@@ -56,7 +65,9 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
           {/* 문제 지문 */}
           <div className="bg-muted rounded-lg p-3">
             <p className="text-xs text-muted-foreground mb-1">문제 지문</p>
-            <p className="text-foreground leading-relaxed text-xs whitespace-pre-wrap">{note.question.passage}</p>
+            <p className="text-foreground leading-relaxed text-xs whitespace-pre-wrap">
+              {renderHighlighted(note.question.passage, 'passage', highlights, removeHighlight)}
+            </p>
           </div>
 
           {/* 선지 */}
@@ -72,7 +83,9 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
                     }`}
                 >
                   <span className="font-semibold shrink-0">{c.label}</span>
-                  <span>{c.text}</span>
+                  <span className="flex-1">
+                    {renderHighlighted(c.text, `choice_${c.label}`, highlights, removeHighlight)}
+                  </span>
                   {c.label === note.question.answer && <span className="ml-auto shrink-0">✓ 정답</span>}
                   {c.label === note.userAnswer && c.label !== note.question.answer && <span className="ml-auto shrink-0">✗ 내 답</span>}
                 </div>
@@ -336,67 +349,70 @@ export function WrongTab({
         </div>
       ) : (
         <div className="space-y-2">
-          {filtered.map((note) => (
-            <div
-              key={note.id}
-              className={`bg-card border rounded-xl p-4 transition-colors ${
-                selectMode
-                  ? checkedIds.has(note.id)
-                    ? 'border-primary bg-primary/5 cursor-pointer'
+          {filtered.map((note) => {
+            const listHighlights = loadHighlights(note.question.id)
+            return (
+              <div
+                key={note.id}
+                className={`bg-card border rounded-xl p-4 transition-colors ${
+                  selectMode
+                    ? checkedIds.has(note.id)
+                      ? 'border-primary bg-primary/5 cursor-pointer'
+                      : 'border-border cursor-pointer hover:border-primary/40'
                     : 'border-border cursor-pointer hover:border-primary/40'
-                  : 'border-border cursor-pointer hover:border-primary/40'
-              }`}
-              onClick={() => selectMode ? toggleCheck(note.id) : setSelected(note)}
-            >
-              <div className="flex items-start gap-3">
-                {/* 체크박스 */}
-                {selectMode && (
-                  <div className={`mt-0.5 w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center transition-colors ${
-                    checkedIds.has(note.id)
-                      ? 'bg-primary border-primary'
-                      : 'border-muted-foreground'
-                  }`}>
-                    {checkedIds.has(note.id) && (
-                      <svg className="w-2.5 h-2.5 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    )}
-                  </div>
-                )}
-
-                <div className="flex-1 space-y-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-medium text-foreground">{note.question.subject}</span>
-                    <span className="text-xs text-muted-foreground">{note.question.year}년</span>
-                    {!isGeneral && note.dominantCause && <CauseBadge cause={note.dominantCause} />}
-                    {note.isBookmarked && note.wrongCount === 0 && (
-                      <span className="text-xs text-yellow-400">📌 북마크</span>
-                    )}
-                    {note.wrongCount > 0 && note.analysis && <StarRating value={note.analysis.위험도} />}
-                  </div>
-                  {note.analysis?.핵심개념 && (
-                    <p className="text-xs text-muted-foreground">{note.analysis.핵심개념}</p>
+                }`}
+                onClick={() => selectMode ? toggleCheck(note.id) : setSelected(note)}
+              >
+                <div className="flex items-start gap-3">
+                  {/* 체크박스 */}
+                  {selectMode && (
+                    <div className={`mt-0.5 w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center transition-colors ${
+                      checkedIds.has(note.id)
+                        ? 'bg-primary border-primary'
+                        : 'border-muted-foreground'
+                    }`}>
+                      {checkedIds.has(note.id) && (
+                        <svg className="w-2.5 h-2.5 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </div>
                   )}
-                  <p className="text-sm text-foreground line-clamp-1">
-                    {note.question.passage.slice(0, 70)}...
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {new Date(note.createdAt).toLocaleDateString('ko-KR')}
-                  </p>
-                </div>
 
-                {/* 선택 모드 아닐 때만 개별 삭제 버튼 표시 */}
-                {!selectMode && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); del(note.id) }}
-                    className="text-muted-foreground hover:text-red-400 transition-colors text-lg leading-none shrink-0"
-                  >
-                    ×
-                  </button>
-                )}
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-medium text-foreground">{note.question.subject}</span>
+                      <span className="text-xs text-muted-foreground">{note.question.year}년</span>
+                      {!isGeneral && note.dominantCause && <CauseBadge cause={note.dominantCause} />}
+                      {note.isBookmarked && note.wrongCount === 0 && (
+                        <span className="text-xs text-yellow-400">📌 북마크</span>
+                      )}
+                      {note.wrongCount > 0 && note.analysis && <StarRating value={note.analysis.위험도} />}
+                    </div>
+                    {note.analysis?.핵심개념 && (
+                      <p className="text-xs text-muted-foreground">{note.analysis.핵심개념}</p>
+                    )}
+                    <p className="text-sm text-foreground line-clamp-1">
+                      {renderHighlighted(note.question.passage.slice(0, 70), 'passage', listHighlights)}...
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(note.createdAt).toLocaleDateString('ko-KR')}
+                    </p>
+                  </div>
+
+                  {/* 선택 모드 아닐 때만 개별 삭제 버튼 표시 */}
+                  {!selectMode && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); del(note.id) }}
+                      className="text-muted-foreground hover:text-red-400 transition-colors text-lg leading-none shrink-0"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
