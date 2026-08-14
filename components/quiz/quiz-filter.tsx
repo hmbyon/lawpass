@@ -98,6 +98,11 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
     })
   }, [questions, activeSubjects, examTypes, years, units])
 
+  // 범위(단원)는 과목 선택 시 자동으로 채우지 않음: UNITS는 사람이 고른 후보 목록일 뿐이라
+  // 실제 PDF에서 추출된 q.unit 값과 문자열이 정확히 일치하지 않는 경우가 있고, 자동으로
+  // 전체 선택된 것처럼 보여도 filtered에서 조용히 대부분의 문제가 걸러지는 버그가 있었음.
+  // units가 비어 있으면(필터 미적용) 모든 문제가 통과하므로, 과목만 고른 상태에서는
+  // 단원 제한 없이 전부 보여주고 필요할 때 사용자가 직접 범위를 좁히도록 함.
   function toggleGroup(groupSubjects: Subject[]) {
     const allSelected = groupSubjects.every((s) => subjects.includes(s))
     if (allSelected) {
@@ -112,8 +117,6 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
     } else {
       const newSubjects = Array.from(new Set([...subjects, ...groupSubjects]))
       setSubjects(newSubjects)
-      const addedUnits = groupSubjects.flatMap((s) => UNITS[s] ?? [])
-      setUnits((prev) => Array.from(new Set([...prev, ...addedUnits])))
       if (subjects.length === 0) {
         setExamTypes([...EXAM_TYPES])
         setYears(availableYears)
@@ -122,12 +125,10 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
   }
 
   function handleSubjectsChange(newSubjects: Subject[]) {
-    const added = newSubjects.filter((s) => !subjects.includes(s))
     const removed = subjects.filter((s) => !newSubjects.includes(s))
-    const addedUnits = added.flatMap((s) => UNITS[s] ?? [])
     const removedUnits = removed.flatMap((s) => UNITS[s] ?? [])
     setSubjects(newSubjects)
-    setUnits((prev) => Array.from(new Set([...prev.filter((u) => !removedUnits.includes(u)), ...addedUnits])))
+    setUnits((prev) => prev.filter((u) => !removedUnits.includes(u)))
     if (subjects.length === 0 && newSubjects.length > 0) {
       setExamTypes([...EXAM_TYPES])
       setYears(availableYears)

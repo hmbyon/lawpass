@@ -316,6 +316,19 @@ interface SubChoice {
   items: { label: string; text: string }[]
 }
 
+// 텍스트 끝에 붙은 정오 표시 기호(예: "...약정(X)", "...계약 ✓", "...약정○")를 제거.
+// 우리가 subChoiceAnswers 기반으로 별도 O/X 배지를 렌더링하므로 원문에 남아있으면 중복 표시됨
+function stripAnswerMark(text: string): string {
+  const pattern = /[\s]*[([（]?[\s]*[OoXx○✓✗×][\s]*[)\]）]?[\s]*$/
+  let result = text.trimEnd()
+  while (pattern.test(result)) {
+    const next = result.replace(pattern, '').trimEnd()
+    if (next === result || next.length === 0) { result = next; break }
+    result = next
+  }
+  return result
+}
+
 function parseSubChoices(passage: string): SubChoice | null {
   // 줄 시작에 오는 라벨만 항목 표시로 인정 (문장이 "~다."로 끝나는 등 일반 텍스트의
   // 우연한 "가/나/다/라 + ." 매칭을 배제하기 위해 줄 시작 여부로 앵커링)
@@ -335,7 +348,7 @@ function parseSubChoices(passage: string): SubChoice | null {
   for (let i = 0; i < markers.length; i++) {
     const textStart = markers[i].contentStart
     const textEnd = i + 1 < markers.length ? markers[i + 1].start : passage.length
-    const text = passage.slice(textStart, textEnd).trim()
+    const text = stripAnswerMark(passage.slice(textStart, textEnd).trim())
     if (text) items.push({ label: markers[i].label, text })
   }
   return items.length >= 2 ? { stem, items } : null
@@ -565,9 +578,6 @@ function StudyBulkPreview({
     <div className="space-y-4 max-w-2xl mx-auto">
       <div className="flex items-center justify-between bg-card border border-border rounded-xl px-4 py-2.5 text-sm">
         <span className="text-muted-foreground">학습 {current + 1} / {questions.length}</span>
-        <span className="bg-purple-800/50 text-purple-300 text-xs px-2 py-0.5 rounded-full border border-purple-700/40">
-          선학습 미리보기
-        </span>
         <span className="text-xs text-muted-foreground">{q.subject} · {q.year}년</span>
       </div>
 
@@ -642,6 +652,7 @@ function StudyBulkPreview({
             const isCorrect = c.label === q.answer
             const explanation = q.choiceExplanations?.[c.label]
             const fieldKey = `choice_${c.label}`
+            const choiceText = stripAnswerMark(c.text)
             return (
               <div key={c.label}>
                 <div className={`flex gap-3 items-start p-3 rounded-lg border text-sm ${
@@ -654,7 +665,7 @@ function StudyBulkPreview({
                     ref={(el) => { fieldRefs.current[fieldKey] = el }}
                     className="text-foreground flex-1 select-text"
                   >
-                    {renderHighlighted(c.text, fieldKey, highlights, removeHighlight)}
+                    {renderHighlighted(choiceText, fieldKey, highlights, removeHighlight)}
                   </span>
                   <span className={`shrink-0 text-xs font-bold ${isCorrect ? 'text-emerald-400' : 'text-red-400'}`}>
                     {isCorrect ? 'O' : 'X'}
