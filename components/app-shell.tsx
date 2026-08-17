@@ -14,6 +14,7 @@ import { CbtTab } from '@/components/tabs/cbt-tab'
 import { StudyTab } from '@/components/tabs/study-tab'
 import { WrongTab } from '@/components/tabs/wrong-tab'
 import { MemoTab } from '@/components/tabs/memo-tab'
+import { OnboardingModal } from '@/components/onboarding-modal'
 
 type Tab = 'pdf' | 'cbt' | 'study' | 'wrong' | 'memo'
 
@@ -40,7 +41,16 @@ export function AppShell({ user }: Props) {
   const [mode, setMode] = useState<AppMode>(() => getAppMode())
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const [showOnboarding, setShowOnboarding] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
+
+  // 최초 접속 시 다시 보지 않기 여부 체크 후 팝업 출력
+  useEffect(() => {
+    const dismissed = localStorage.getItem('lawpass_onboarding_dismissed')
+    if (!dismissed) {
+      setShowOnboarding(true)
+    }
+  }, [])
 
   function handleModeChange(next: AppMode) {
     setAppMode(next)
@@ -126,6 +136,12 @@ export function AppShell({ user }: Props) {
               {appBadge}
             </span>
             <button
+              onClick={() => setShowOnboarding(true)}
+              className="text-xs text-muted-foreground border border-border rounded-full px-2 py-0.5 hover:text-foreground hover:border-foreground/30 transition-colors"
+            >
+              ❓<span className="hidden sm:inline"> 가이드</span>
+            </button>
+            <button
               onClick={() => setShowFeedbackModal(true)}
               className="text-xs text-muted-foreground border border-border rounded-full px-2 py-0.5 hover:text-foreground hover:border-foreground/30 transition-colors"
             >
@@ -135,7 +151,6 @@ export function AppShell({ user }: Props) {
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             {syncing && <span className="text-primary animate-pulse">동기화 중...</span>}
             
-            {/* 💡 문제/오답 간격 밀착 수정 부분 */}
             <div className="flex items-center gap-3 leading-none">
               <div className="flex items-center gap-1">
                 <span>문제</span>
@@ -250,6 +265,13 @@ export function AppShell({ user }: Props) {
         {tab === 'wrong' && <WrongTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
         {tab === 'memo' && <MemoTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
       </main>
+
+      {showOnboarding && (
+        <OnboardingModal
+          onClose={() => setShowOnboarding(false)}
+          onSelectTab={(selectedTab) => setTab(selectedTab)}
+        />
+      )}
 
       {showFeedbackModal && (
         <FeedbackModal
