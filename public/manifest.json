@@ -1,7 +1,7 @@
 {
   "name": "ExamPass AI",
   "short_name": "ExamPass",
-  "description": "수험생을 위한 AI 기반 문제 분석, CBT 실전 모드, 오답노트 플랫폼",
+  "description": "수험생을 위한 AI 기반 객관식 문제 분석, CBT 실전 모드, 오답노트 플랫폼",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",
