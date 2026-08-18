@@ -16,6 +16,24 @@ const DEFAULT_TIME: Record<number, number> = {
   70: 120,
 }
 
+// 과목별 범위(단원) 정적 목록. 표시 전용이며, 실제 필터링/자동선택은 q.unit 실데이터 기준이다
+const UNITS: Record<Subject, string[]> = {
+  '민법': ['민법총칙', '물권법', '채권총론', '채권각론', '가족법'],
+  '민사소송법': ['소송요건', '소송절차', '증거', '상소', '강제집행'],
+  '상법': ['총칙・상행위', '회사법', '어음수표법', '보험법', '해상법'],
+  '형법': ['총론', '각론', '특별형법'],
+  '형사소송법': ['수사', '공소', '공판', '증거', '상소'],
+  '헌법': ['총론', '기본권', '통치구조'],
+  '행정법': ['총론', '각론'],
+}
+
+// 변호사시험 1회 시행연도부터 현재 연도까지 (내림차순)
+const FIRST_EXAM_YEAR = 2012
+const ALL_YEARS: string[] = Array.from(
+  { length: new Date().getFullYear() - FIRST_EXAM_YEAR + 1 },
+  (_, i) => String(new Date().getFullYear() - i)
+)
+
 const SUBJECT_GROUPS = [
   { label: '민사법', subjects: ['민법', '민사소송법', '상법'] as Subject[] },
   { label: '형사법', subjects: ['형법', '형사소송법'] as Subject[] },
@@ -68,7 +86,9 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
       .sort((a, b) => Number(b) - Number(a))
   }, [questions])
 
-  const yearOptions = isGeneral ? generalAvailableYears : availableYears
+  // 표시용 목록: law 모드는 2012~현재 전체를 항상 노출하고, 실제 문제가 있는 연도만 강조한다
+  const yearOptions = isGeneral ? generalAvailableYears : ALL_YEARS
+  const highlightedYears = isGeneral ? generalAvailableYears : availableYears
   const allYearsSelected = yearOptions.length > 0 && yearOptions.every((y) => years.includes(y))
 
   // Law 모드: 과목별 범위(단원) 후보를 "실제 파싱된 문제 데이터"에서 뽑는다.
@@ -90,8 +110,13 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
     return Object.values(lawUnitsBySubject).flat()
   }, [lawUnitsBySubject])
 
+  // 표시용: 선택된 과목의 정적 단원 전체 (실제 문제 유무와 무관하게 항상 노출)
+  const staticLawUnits = useMemo(() => {
+    return Array.from(new Set(subjects.flatMap((s) => UNITS[s] ?? [])))
+  }, [subjects])
+
   const allGeneralUnitsSelected = generalAvailableUnits.length > 0 && generalAvailableUnits.every((u) => units.includes(u))
-  const allLawUnitsSelected = availableUnits.length > 0 && availableUnits.every((u) => units.includes(u))
+  const allLawUnitsSelected = staticLawUnits.length > 0 && staticLawUnits.every((u) => units.includes(u))
 
   // 주어진 과목들에 실제로 존재하는 단원 값 목록 (questions 원본에서 직접 계산).
   // subjects state가 아직 갱신되기 전 시점(핸들러 내부)에서도 정확한 값을 구하기 위해
@@ -255,7 +280,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
               </button>
             </div>
           </div>
-          <FilterChips options={yearOptions} selected={years} onChange={setYears} />
+          <FilterChips options={yearOptions} selected={years} onChange={setYears} available={highlightedYears} />
         </div>
       )}
 
@@ -280,12 +305,12 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
           </div>
         )
       ) : (
-        availableUnits.length > 0 && (
+        subjects.length > 0 && (
           <div className="bg-card border border-border rounded-xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-muted-foreground">범위 (복수 선택)</label>
               <button
-                onClick={() => setUnits(allLawUnitsSelected ? [] : availableUnits)}
+                onClick={() => setUnits(allLawUnitsSelected ? [] : staticLawUnits)}
                 className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
                   allLawUnitsSelected
                     ? 'border-primary text-primary'
@@ -297,12 +322,17 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
             </div>
             <div className="space-y-2">
               {subjects.map((s) => {
-                const subjectUnits = lawUnitsBySubject[s]
-                if (!subjectUnits || subjectUnits.length === 0) return null
+                const subjectUnits = UNITS[s] ?? []
+                if (subjectUnits.length === 0) return null
                 return (
                   <div key={s} className="space-y-1">
                     <p className="text-[10px] text-muted-foreground font-medium">{s}</p>
-                    <FilterChips options={subjectUnits} selected={units} onChange={setUnits} />
+                    <FilterChips
+                      options={subjectUnits}
+                      selected={units}
+                      onChange={setUnits}
+                      available={lawUnitsBySubject[s] ?? []}
+                    />
                   </div>
                 )
               })}
