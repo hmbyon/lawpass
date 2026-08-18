@@ -192,7 +192,7 @@ export function addWrongNote(note: WrongNote) {
   } else {
     const wrongCount = 1
     const totalCount = 1
-    const 위험도 = 1
+    const 위험도 = DEFAULT_RISK // 1회뿐이라 오답률(100%)로 계산하면 과대평가됨
     const newAnalysis = note.analysis ? { ...note.analysis, 위험도 } : null
     const analysisHistory = newAnalysis ? [newAnalysis] : []
     notes.push({
@@ -285,6 +285,22 @@ export function addCorrectNote(questionId: string) {
     }
     saveWrongNotes(notes)
   }
+}
+
+// 오답률로 위험도를 계산할 수 없을 때(오답 1회 등) 쓰는 기본값
+export const DEFAULT_RISK = 2
+
+// 분석(analysis)이 없거나 값이 깨진 노트라도 항상 위험도를 돌려준다.
+// 위험도가 analysis 안에만 저장되는 탓에 AI 분석 실패 시 별점이 사라지던 문제 대응.
+export function getRiskLevel(note: WrongNote): number {
+  const stored = Number(note.analysis?.위험도)
+  if (Number.isFinite(stored) && stored >= 1 && stored <= 5) return Math.round(stored)
+
+  const wrongCount = note.wrongCount ?? 0
+  const totalCount = note.totalCount ?? 0
+  if (wrongCount === 0) return 0 // 순수 북마크는 별점 없음
+  if (totalCount <= 1) return DEFAULT_RISK // 오답 1회뿐이라 오답률 계산 불가
+  return calcRisk(wrongCount, totalCount)
 }
 
 function calcRisk(wrongCount: number, totalCount: number): number {

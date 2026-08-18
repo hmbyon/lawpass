@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import type { WrongNote, Subject } from '@/lib/types'
-import { deleteWrongNote, saveWrongNotes, updateWrongNoteMemo } from '@/lib/store'
+import { deleteWrongNote, saveWrongNotes, updateWrongNoteMemo, getRiskLevel } from '@/lib/store'
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
 import { FilterChips } from '@/components/filter-chips'
@@ -56,7 +56,7 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
             {note.isBookmarked && note.wrongCount === 0 && (
               <span className="text-xs text-yellow-400">📌 북마크</span>
             )}
-            {note.wrongCount > 0 && a && <StarRating value={a.위험도} />}
+            {note.wrongCount > 0 && <StarRating value={getRiskLevel(note)} />}
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xl leading-none">×</button>
         </div>
@@ -232,13 +232,10 @@ export function WrongTab({
     if (activeSubjects.length) list = list.filter((n) => activeSubjects.includes(n.question.subject))
     if (risks.length) {
       const levels = risks.map((r) => Number(r.replace('★', '')))
-      list = list.filter((n) => {
-        const risk = n.analysis?.위험도
-        return risk !== undefined && risk !== null && levels.includes(Number(risk))
-      })
+      list = list.filter((n) => levels.includes(getRiskLevel(n)))
     }
     if (sort === '날짜순') list.sort((a, b) => b.createdAt - a.createdAt)
-    else list.sort((a, b) => (b.analysis?.위험도 ?? 0) - (a.analysis?.위험도 ?? 0))
+    else list.sort((a, b) => getRiskLevel(b) - getRiskLevel(a))
     return list
   }, [notes, activeSubjects, risks, sort])
 
@@ -387,7 +384,7 @@ export function WrongTab({
                       {note.isBookmarked && note.wrongCount === 0 && (
                         <span className="text-xs text-yellow-400">📌 북마크</span>
                       )}
-                      {note.wrongCount > 0 && note.analysis && <StarRating value={note.analysis.위험도} />}
+                      {note.wrongCount > 0 && <StarRating value={getRiskLevel(note)} />}
                     </div>
                     {note.analysis?.핵심개념 && (
                       <p className="text-xs text-muted-foreground">{note.analysis.핵심개념}</p>

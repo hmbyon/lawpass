@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { Question, QuestionStatus, WrongNote, CauseType } from '@/lib/types'
 import { analyzeWrongAnswer } from '@/lib/gemini'
-import { addWrongNote, addCorrectNote, saveSession, clearSavedSession } from '@/lib/store'
+import { addWrongNote, addCorrectNote, saveSession, clearSavedSession, getRiskLevel } from '@/lib/store'
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
 
@@ -430,7 +430,7 @@ function ResultsView({
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs text-muted-foreground">{note.question.subject}</span>
                     {note.dominantCause && <CauseBadge cause={note.dominantCause} />}
-                    <StarRating value={note.analysis?.위험도 ?? 1} />
+                    <StarRating value={getRiskLevel(note)} />
                   </div>
                   <p className="text-sm text-foreground line-clamp-2">{note.question.passage.slice(0, 80)}...</p>
                   <p className="text-xs text-muted-foreground">

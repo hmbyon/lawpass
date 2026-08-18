@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import type { WrongNote, Subject } from '@/lib/types'
-import { saveWrongNotes, updateWrongNoteMemo, updateWrongNoteAnalysis, updateWrongNoteHiddenFields } from '@/lib/store'
+import { saveWrongNotes, updateWrongNoteMemo, updateWrongNoteAnalysis, updateWrongNoteHiddenFields, getRiskLevel } from '@/lib/store'
 import { StarRating } from '@/components/star-rating'
 import { CauseBadge } from '@/components/cause-badge'
 import { FilterChips } from '@/components/filter-chips'
@@ -348,7 +348,7 @@ function MemoCard({ note, onMemoSaved, isGeneral }: { note: WrongNote; onMemoSav
             <span className="text-xs text-yellow-400">📌 북마크</span>
           )}
           {!isGeneral && note.dominantCause && <CauseBadge cause={note.dominantCause} />}
-          {note.wrongCount > 0 && <StarRating value={a.위험도} />}
+          {note.wrongCount > 0 && <StarRating value={getRiskLevel(note)} />}
         </div>
         <span className="text-xs text-muted-foreground">{note.question.year}년 {note.question.examType}</span>
       </div>
