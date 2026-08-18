@@ -20,7 +20,7 @@ interface FileState {
   file: File
   displayName: string
   progress: number
-  status: 'pending' | 'uploading' | 'analyzing' | 'done' | 'error' | 'paused'
+  status: 'pending' | 'uploading' | 'analyzing' | 'done' | 'error' | 'paused' | 'resumable'
   error?: string
   count?: number
   pageCount?: number
@@ -36,13 +36,14 @@ function sourceFileNameOf(f: { file: File; displayName: string }) {
   return f.displayName.trim() || f.file.name.replace(/\.pdf$/i, '')
 }
 
-// 저장된 진행상황으로 "중단됨" 상태의 파일 카드를 만든다
+// 저장된 진행상황으로 "이어서 처리 대기" 카드를 만든다.
+// 이번 세션에서 중단 버튼을 누른 것과 구분하려고 'paused'가 아닌 'resumable'을 쓴다
 function restoredFileState(file: File, sourceFile: string, progress: PdfParseProgress): FileState {
   return {
     file,
     displayName: sourceFile,
     progress: (Math.max(0, progress.chunkIndex + 1) / Math.max(1, progress.chunkTotal)) * 100,
-    status: 'paused',
+    status: 'resumable',
     count: progress.fileQuestionCount,
     pageCount: progress.pageCount,
     chunkIndex: progress.chunkIndex + 1,
@@ -1044,13 +1045,19 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
                         청크 {f.chunkIndex ?? 1}/{f.chunkTotal ?? 1} Gemini 분석 중...
                       </p>
                     )}
-                    {(f.status === 'error' || f.status === 'paused') && (
+                    {(f.status === 'error' || f.status === 'paused' || f.status === 'resumable') && (
                       <div className="space-y-1.5">
-                        {f.status === 'paused' ? (
+                        {f.status === 'paused' && (
                           <p className="text-xs text-orange-400">
                             사용자가 중단했습니다. 완료된 청크까지는 저장되어 있습니다.
                           </p>
-                        ) : (
+                        )}
+                        {f.status === 'resumable' && (
+                          <p className="text-xs text-orange-400">
+                            이전에 처리하던 진행상황이 남아 있습니다. 아래 버튼으로 이어서 처리하세요.
+                          </p>
+                        )}
+                        {f.status === 'error' && (
                           <p className="text-xs text-red-400 break-all">{f.error}</p>
                         )}
                         {f.resumable && (
@@ -1177,6 +1184,7 @@ function StatusChip({ status, count }: { status: FileState['status']; count?: nu
     done: { label: count !== undefined ? `${count}문제` : '완료', cls: 'text-emerald-600 dark:text-emerald-400' },
     error: { label: '오류', cls: 'text-red-400' },
     paused: { label: '중단됨', cls: 'text-orange-400' },
+    resumable: { label: '재개 대기', cls: 'text-orange-400' },
   }[status]
   return <span className={`font-medium ${map.cls}`}>{map.label}</span>
 }
