@@ -8,6 +8,7 @@ import {
   savePdfProgress, getPdfProgress, clearPdfProgress, listPdfProgress, isAbortError,
 } from '@/lib/gemini'
 import type { PdfParseProgress } from '@/lib/gemini'
+import { savePdfFile, loadPdfFile, deletePdfFile } from '@/lib/pdfCache'
 import { getAppMode } from '@/lib/appMode'
 import type { Subject, ExamType } from '@/lib/types'
 
@@ -29,6 +30,26 @@ interface FileState {
 }
 
 type UploadMode = 'file' | 'uri'
+
+// 문제집 이름은 진행상황/PDF 캐시의 공통 키다
+function sourceFileNameOf(f: { file: File; displayName: string }) {
+  return f.displayName.trim() || f.file.name.replace(/\.pdf$/i, '')
+}
+
+// 저장된 진행상황으로 "중단됨" 상태의 파일 카드를 만든다
+function restoredFileState(file: File, sourceFile: string, progress: PdfParseProgress): FileState {
+  return {
+    file,
+    displayName: sourceFile,
+    progress: (Math.max(0, progress.chunkIndex + 1) / Math.max(1, progress.chunkTotal)) * 100,
+    status: 'paused',
+    count: progress.fileQuestionCount,
+    pageCount: progress.pageCount,
+    chunkIndex: progress.chunkIndex + 1,
+    chunkTotal: progress.chunkTotal,
+    resumable: true,
+  }
+}
 
 interface ProgressRow {
   examType: ExamType
@@ -157,7 +178,29 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   useEffect(() => {
     setSourceFiles(getSourceFiles())
     setProgress(computeProgress())
-    setPendingJobs(listPdfProgress())
+    const jobs = listPdfProgress()
+    setPendingJobs(jobs)
+
+    // 보관된 PDF 원본이 있으면 파일 재선택 없이 "중단됨" 카드로 되살린다.
+    // 새로고침만으로 API를 소모하지 않도록 파싱 자체는 자동 시작하지 않는다.
+    let cancelled = false
+    ;(async () => {
+      const restored: FileState[] = []
+      for (const job of jobs) {
+        const file = await loadPdfFile(job.sourceFile)
+        if (file) restored.push(restoredFileState(file, job.sourceFile, job.progress))
+      }
+      if (cancelled || restored.length === 0) return
+      setFiles((prev) => (prev.length > 0 ? prev : restored))
+      // 중단 시점의 과목/시험 구분도 복원해야 재개가 0문제로 헛돌지 않는다
+      const withMeta = jobs.find((j) => j.progress.subjects?.length || j.progress.examTypes?.length)
+      if (withMeta?.progress.subjects?.length) {
+        if (getAppMode() === 'general') setGeneralSubjectText(withMeta.progress.subjects[0])
+        else setSubjects(withMeta.progress.subjects as Subject[])
+      }
+      if (withMeta?.progress.examTypes?.length) setExamTypes(withMeta.progress.examTypes as ExamType[])
+    })()
+    return () => { cancelled = true }
   }, [])
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -242,8 +285,11 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
 
   async function processFile(i: number, startChunk: number, signal?: AbortSignal): Promise<{ added: number; merged: number; aborted: boolean }> {
     const entry = files[i]
-    const sourceFile = entry.displayName.trim() || entry.file.name.replace(/\.pdf$/i, '')
-    const savedProgress = startChunk > 0 ? getPdfProgress(sourceFile) : null
+    const sourceFile = sourceFileNameOf(entry)
+    // startChunk가 0이어도 기록을 읽어야 누적 문제 수/추가 수가 리셋되지 않는다
+    const savedProgress = getPdfProgress(sourceFile)
+    // 새로고침 후 파일 재선택 없이 이어서 처리할 수 있도록 원본을 보관 (완료 시 삭제)
+    await savePdfFile(sourceFile, entry.file)
     let fileQuestionCount = savedProgress?.fileQuestionCount ?? 0
     let deltaAdded = 0
     let deltaMerged = 0
@@ -332,6 +378,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       }
       updateFile(i, { status: 'done', progress: 100, chunkIndex: chunkTotal, resumable: false })
       clearPdfProgress(sourceFile)
+      await deletePdfFile(sourceFile)
     } catch (err) {
       // 사용자가 중단한 경우: 마지막으로 저장된 청크까지는 그대로 두고 재개 가능 상태로 표시
       aborted = isAbortError(err)
@@ -353,6 +400,14 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     abortRef.current?.abort()
   }
 
+  // 저장된 진행상황이 있으면 그 다음 청크부터. 다른 PDF를 같은 이름으로 올린 경우엔 처음부터
+  function resolveStartChunk(entry: FileState): number {
+    const saved = getPdfProgress(sourceFileNameOf(entry))
+    if (!saved || saved.chunkIndex < 0) return 0
+    if (saved.fileName && saved.fileName !== entry.file.name) return 0
+    return saved.chunkIndex + 1
+  }
+
   async function startAnalysis() {
     if (!apiKey || files.length === 0 || examTypes.length === 0 || activeSubjects.length === 0) return
     const controller = new AbortController()
@@ -363,7 +418,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     let totalMerged = 0
 
     for (let i = 0; i < files.length; i++) {
-      const result = await processFile(i, 0, controller.signal)
+      const result = await processFile(i, resolveStartChunk(files[i]), controller.signal)
       totalAdded += result.added
       totalMerged += result.merged
       if (result.aborted) break // 남은 파일은 손대지 않고 대기 상태로 둔다
@@ -382,10 +437,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       alert('과목과 시험 구분을 먼저 선택해주세요. 선택하지 않으면 문제가 추출되지 않은 채 청크만 소모됩니다.')
       return
     }
-    const entry = files[i]
-    const sourceFile = entry.displayName.trim() || entry.file.name.replace(/\.pdf$/i, '')
-    const savedProgress = getPdfProgress(sourceFile)
-    const startChunk = savedProgress ? savedProgress.chunkIndex + 1 : 0
+    const startChunk = resolveStartChunk(files[i])
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -433,19 +485,9 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     }
     if (job.progress.examTypes?.length) setExamTypes(job.progress.examTypes as ExamType[])
 
-    const restored: FileState = {
-      file: picked,
-      displayName: sourceFile,
-      progress: (Math.max(0, job.progress.chunkIndex + 1) / Math.max(1, job.progress.chunkTotal)) * 100,
-      status: 'paused',
-      count: job.progress.fileQuestionCount,
-      pageCount: job.progress.pageCount,
-      chunkIndex: job.progress.chunkIndex + 1,
-      chunkTotal: job.progress.chunkTotal,
-      resumable: true,
-    }
+    const restored = restoredFileState(picked, sourceFile, job.progress)
     setFiles((prev) => {
-      const idx = prev.findIndex((f) => (f.displayName.trim() || f.file.name.replace(/\.pdf$/i, '')) === sourceFile)
+      const idx = prev.findIndex((f) => sourceFileNameOf(f) === sourceFile)
       if (idx >= 0) {
         const next = [...prev]
         next[idx] = restored
@@ -459,6 +501,8 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   function discardPendingJob(sourceFile: string) {
     if (!confirm(`"${sourceFile}"의 이어서 처리 기록을 삭제할까요? 이미 추가된 문제는 그대로 남습니다.`)) return
     clearPdfProgress(sourceFile)
+    void deletePdfFile(sourceFile)
+    setFiles((prev) => prev.filter((f) => sourceFileNameOf(f) !== sourceFile))
     setPendingJobs(listPdfProgress())
   }
 
@@ -889,14 +933,15 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
         </div>
 
         {/* 새로고침 후에도 남아 있는 이어서 처리 대기 목록 */}
-        {pendingJobs.filter((j) => !files.some((f) => (f.displayName.trim() || f.file.name.replace(/\.pdf$/i, '')) === j.sourceFile)).length > 0 && (
+        {pendingJobs.filter((j) => !files.some((f) => sourceFileNameOf(f) === j.sourceFile)).length > 0 && (
           <div className="space-y-2 border border-orange-500/30 bg-orange-500/5 rounded-xl p-3">
             <p className="text-xs font-medium text-orange-400">⏸ 이어서 처리 대기 중</p>
             <p className="text-xs text-muted-foreground">
-              같은 PDF를 다시 선택하면 중단된 청크부터 이어서 처리합니다. (브라우저 보안상 파일 자체는 저장할 수 없습니다)
+              원본 PDF가 보관된 항목은 위 파일 목록에 자동으로 복원됩니다. 여기 남은 항목은 원본이 없으니
+              같은 PDF를 다시 선택해주세요. 어느 쪽이든 중단된 청크부터 이어서 처리합니다.
             </p>
             {pendingJobs
-              .filter((j) => !files.some((f) => (f.displayName.trim() || f.file.name.replace(/\.pdf$/i, '')) === j.sourceFile))
+              .filter((j) => !files.some((f) => sourceFileNameOf(f) === j.sourceFile))
               .map((j) => (
                 <div key={j.sourceFile} className="bg-muted rounded-lg p-2.5 space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
