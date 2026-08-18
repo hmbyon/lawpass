@@ -9,11 +9,18 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-// 503(모델 과부하) 발생 시 3초 대기 후 최대 3회 재시도
+// 사용자가 중단(AbortController.abort)해서 끝난 요청인지 판별
+export function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'AbortError'
+}
+
+// 503(모델 과부하) 발생 시 3초 대기 후 최대 3회 재시도.
+// 중단된 경우 fetch가 AbortError를 던지므로 재시도 없이 그대로 전파된다
 async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(url, init)
     if (res.status !== 503 || attempt >= MAX_RETRIES) return res
+    if (init.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
     await sleep(RETRY_DELAY_MS)
   }
 }
@@ -22,7 +29,8 @@ async function fetchWithRetry(url: string, init: RequestInit): Promise<Response>
 export async function uploadPdfToFileApi(
   apiKey: string,
   file: File,
-  onProgress?: (pct: number) => void
+  onProgress?: (pct: number) => void,
+  signal?: AbortSignal
 ): Promise<string> {
   onProgress?.(10)
 
@@ -30,7 +38,7 @@ export async function uploadPdfToFileApi(
   form.append('file', file)
   form.append('apiKey', apiKey)
 
-  const res = await fetchWithRetry('/api/upload', { method: 'POST', body: form })
+  const res = await fetchWithRetry('/api/upload', { method: 'POST', body: form, signal })
 
   if (!res.ok) {
     const data = await res.json().catch(() => ({ error: res.statusText }))
@@ -59,12 +67,14 @@ export async function extractQuestionsFromPdf(
   fileUri: string,
   subject: Subject,
   examType: ExamType,
-  year: number
+  year: number,
+  signal?: AbortSignal
 ): Promise<Question[]> {
   const res = await fetchWithRetry('/api/analyze', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ apiKey, mode: 'extract', fileUri, subject, examType, year }),
+    signal,
   })
 
   if (!res.ok) {

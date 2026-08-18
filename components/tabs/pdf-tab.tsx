@@ -5,7 +5,7 @@ import { PDFDocument } from 'pdf-lib'
 import { getApiKey, setApiKey, addQuestions, getSourceFiles, deleteQuestionsBySource, mergeSourceFiles, getQuestions, getWrongNotes } from '@/lib/store'
 import {
   uploadPdfToFileApi, waitForFileActive, extractQuestionsFromPdf, deleteFile,
-  savePdfProgress, getPdfProgress, clearPdfProgress,
+  savePdfProgress, getPdfProgress, clearPdfProgress, isAbortError,
 } from '@/lib/gemini'
 import { getAppMode } from '@/lib/appMode'
 import type { Subject, ExamType } from '@/lib/types'
@@ -18,7 +18,7 @@ interface FileState {
   file: File
   displayName: string
   progress: number
-  status: 'pending' | 'uploading' | 'analyzing' | 'done' | 'error'
+  status: 'pending' | 'uploading' | 'analyzing' | 'done' | 'error' | 'paused'
   error?: string
   count?: number
   pageCount?: number
@@ -137,6 +137,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   const [examTypes, setExamTypes] = useState<ExamType[]>(isGeneral ? ['모의고사'] : [])
 
   const [isRunning, setIsRunning] = useState(false)
+  const abortRef = useRef<AbortController | null>(null)
   const [summary, setSummary] = useState<{ added: number; merged: number } | null>(null)
   const [uriStatus, setUriStatus] = useState<'idle' | 'analyzing' | 'done' | 'error'>('idle')
   const [uriError, setUriError] = useState('')
@@ -232,13 +233,14 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     })
   }
 
-  async function processFile(i: number, startChunk: number): Promise<{ added: number; merged: number }> {
+  async function processFile(i: number, startChunk: number, signal?: AbortSignal): Promise<{ added: number; merged: number; aborted: boolean }> {
     const entry = files[i]
     const sourceFile = entry.displayName.trim() || entry.file.name.replace(/\.pdf$/i, '')
     const savedProgress = startChunk > 0 ? getPdfProgress(sourceFile) : null
     let fileQuestionCount = savedProgress?.fileQuestionCount ?? 0
     let deltaAdded = 0
     let deltaMerged = 0
+    let aborted = false
 
     try {
       const sourcePdf = await PDFDocument.load(await entry.file.arrayBuffer())
@@ -276,7 +278,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
           uri = await uploadPdfToFileApi(apiKey, chunkFile, (pct) => {
             const overallProgress = ((chunkIndex + pct / 100) / chunkTotal) * 100
             updateFile(i, { progress: overallProgress })
-          })
+          }, signal)
           updateFile(i, {
             status: 'analyzing',
             progress: ((chunkIndex + 0.9) / chunkTotal) * 100,
@@ -285,7 +287,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
           await waitForFileActive(apiKey, uri)
           for (const s of activeSubjects) {
             for (const et of examTypes) {
-              const questions = await extractQuestionsFromPdf(apiKey, uri, s, et, new Date().getFullYear())
+              const questions = await extractQuestionsFromPdf(apiKey, uri, s, et, new Date().getFullYear(), signal)
               const result = addQuestions(questions, sourceFile)
               deltaAdded += result.added
               deltaMerged += result.merged
@@ -311,25 +313,41 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       updateFile(i, { status: 'done', progress: 100, chunkIndex: chunkTotal, resumable: false })
       clearPdfProgress(sourceFile)
     } catch (err) {
-      updateFile(i, { status: 'error', error: String(err), resumable: true, count: fileQuestionCount })
+      // 사용자가 중단한 경우: 마지막으로 저장된 청크까지는 그대로 두고 재개 가능 상태로 표시
+      aborted = isAbortError(err)
+      updateFile(i, {
+        status: aborted ? 'paused' : 'error',
+        error: aborted ? undefined : String(err),
+        resumable: true,
+        count: fileQuestionCount,
+      })
     }
 
-    return { added: deltaAdded, merged: deltaMerged }
+    return { added: deltaAdded, merged: deltaMerged, aborted }
+  }
+
+  // 진행 중인 업로드/분석 fetch를 중단. 완료된 청크는 savePdfProgress에 남아 있어 나중에 재개 가능
+  function stopAnalysis() {
+    abortRef.current?.abort()
   }
 
   async function startAnalysis() {
     if (!apiKey || files.length === 0 || examTypes.length === 0 || activeSubjects.length === 0) return
+    const controller = new AbortController()
+    abortRef.current = controller
     setIsRunning(true)
     setSummary(null)
     let totalAdded = 0
     let totalMerged = 0
 
     for (let i = 0; i < files.length; i++) {
-      const result = await processFile(i, 0)
+      const result = await processFile(i, 0, controller.signal)
       totalAdded += result.added
       totalMerged += result.merged
+      if (result.aborted) break // 남은 파일은 손대지 않고 대기 상태로 둔다
     }
 
+    abortRef.current = null
     setSummary({ added: totalAdded, merged: totalMerged })
     setIsRunning(false)
     refreshSourceFiles()
@@ -343,8 +361,11 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     const savedProgress = getPdfProgress(sourceFile)
     const startChunk = savedProgress ? savedProgress.chunkIndex + 1 : 0
 
+    const controller = new AbortController()
+    abortRef.current = controller
     setIsRunning(true)
-    const result = await processFile(i, startChunk)
+    const result = await processFile(i, startChunk, controller.signal)
+    abortRef.current = null
     setSummary((prev) => ({
       added: (prev?.added ?? 0) + result.added,
       merged: (prev?.merged ?? 0) + result.merged,
@@ -356,6 +377,8 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
 
   async function startUriAnalysis() {
     if (!apiKey || !fileUri.trim() || examTypes.length === 0 || activeSubjects.length === 0) return
+    const controller = new AbortController()
+    abortRef.current = controller
     setUriStatus('analyzing')
     setUriError('')
     setSummary(null)
@@ -366,7 +389,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       const sourceFile = fileUri.trim().split('/').pop() ?? 'URI 업로드'
       for (const s of activeSubjects) {
         for (const et of examTypes) {
-          const questions = await extractQuestionsFromPdf(apiKey, fileUri.trim(), s, et, new Date().getFullYear())
+          const questions = await extractQuestionsFromPdf(apiKey, fileUri.trim(), s, et, new Date().getFullYear(), controller.signal)
           const result = addQuestions(questions, sourceFile)
           totalAdded += result.added
           totalMerged += result.merged
@@ -377,8 +400,14 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       refreshSourceFiles()
       onQuestionsAdded()
     } catch (err) {
-      setUriError(String(err))
-      setUriStatus('error')
+      if (isAbortError(err)) {
+        setUriStatus('idle') // 중단: 같은 URI로 다시 시작할 수 있게 초기 상태로 되돌린다
+      } else {
+        setUriError(String(err))
+        setUriStatus('error')
+      }
+    } finally {
+      abortRef.current = null
     }
   }
 
@@ -834,9 +863,15 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
                         청크 {f.chunkIndex ?? 1}/{f.chunkTotal ?? 1} Gemini 분석 중...
                       </p>
                     )}
-                    {f.status === 'error' && (
+                    {(f.status === 'error' || f.status === 'paused') && (
                       <div className="space-y-1.5">
-                        <p className="text-xs text-red-400 break-all">{f.error}</p>
+                        {f.status === 'paused' ? (
+                          <p className="text-xs text-orange-400">
+                            사용자가 중단했습니다. 완료된 청크까지는 저장되어 있습니다.
+                          </p>
+                        ) : (
+                          <p className="text-xs text-red-400 break-all">{f.error}</p>
+                        )}
                         {f.resumable && (
                           <button
                             onClick={() => handleResume(i)}
@@ -854,13 +889,23 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
             )}
 
             {/* 💡 subjects.length === 0 대신 activeSubjects.length === 0 적용 */}
-            <button
-              onClick={startAnalysis}
-              disabled={isRunning || !apiKey || files.length === 0 || examTypes.length === 0 || activeSubjects.length === 0}
-              className="w-full py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-            >
-              {isRunning ? '분석 중...' : '분석 시작'}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={startAnalysis}
+                disabled={isRunning || !apiKey || files.length === 0 || examTypes.length === 0 || activeSubjects.length === 0}
+                className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              >
+                {isRunning ? '분석 중...' : '분석 시작'}
+              </button>
+              {isRunning && (
+                <button
+                  onClick={stopAnalysis}
+                  className="shrink-0 py-2.5 px-4 border border-orange-500/40 text-orange-400 rounded-lg font-medium text-sm hover:bg-orange-500/10 transition-colors"
+                >
+                  ⏸ 중단
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -910,13 +955,23 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
             )}
 
             {/* 💡 subjects.length === 0 대신 activeSubjects.length === 0 적용 */}
-            <button
-              onClick={startUriAnalysis}
-              disabled={uriStatus === 'analyzing' || !apiKey || !fileUri.trim() || examTypes.length === 0 || activeSubjects.length === 0}
-              className="w-full py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-            >
-              {uriStatus === 'analyzing' ? 'Gemini 분석 중...' : '분석 시작'}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={startUriAnalysis}
+                disabled={uriStatus === 'analyzing' || !apiKey || !fileUri.trim() || examTypes.length === 0 || activeSubjects.length === 0}
+                className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              >
+                {uriStatus === 'analyzing' ? 'Gemini 분석 중...' : '분석 시작'}
+              </button>
+              {uriStatus === 'analyzing' && (
+                <button
+                  onClick={stopAnalysis}
+                  className="shrink-0 py-2.5 px-4 border border-orange-500/40 text-orange-400 rounded-lg font-medium text-sm hover:bg-orange-500/10 transition-colors"
+                >
+                  ⏸ 중단
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -940,6 +995,7 @@ function StatusChip({ status, count }: { status: FileState['status']; count?: nu
     analyzing: { label: '분석중', cls: 'text-yellow-400' },
     done: { label: count !== undefined ? `${count}문제` : '완료', cls: 'text-emerald-600 dark:text-emerald-400' },
     error: { label: '오류', cls: 'text-red-400' },
+    paused: { label: '중단됨', cls: 'text-orange-400' },
   }[status]
   return <span className={`font-medium ${map.cls}`}>{map.label}</span>
 }
