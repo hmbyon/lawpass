@@ -163,6 +163,8 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   const abortRef = useRef<AbortController | null>(null)
   // 새로고침 후에도 남아 있는, 이어서 처리할 수 있는 파싱 기록
   const [pendingJobs, setPendingJobs] = useState<{ sourceFile: string; progress: PdfParseProgress }[]>([])
+  const [hydrated, setHydrated] = useState(false) // IndexedDB 복원 완료 여부 (완료 전엔 대기 목록을 그리지 않는다)
+  const [actionError, setActionError] = useState<string | null>(null)
   const resumeInputRef = useRef<HTMLInputElement>(null)
   const resumeTargetRef = useRef<string | null>(null)
   const [summary, setSummary] = useState<{ added: number; merged: number } | null>(null)
@@ -179,20 +181,23 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   useEffect(() => {
     setSourceFiles(getSourceFiles())
     setProgress(computeProgress())
-    const jobs = listPdfProgress()
-    setPendingJobs(jobs)
 
-    // 보관된 PDF 원본이 있으면 파일 재선택 없이 "중단됨" 카드로 되살린다.
+    // 보관된 PDF 원본이 있으면 파일 재선택 없이 카드로 되살린다.
     // 새로고침만으로 API를 소모하지 않도록 파싱 자체는 자동 시작하지 않는다.
+    //
+    // 대기 목록(pendingJobs)을 먼저 그린 뒤 복원 결과가 늦게 도착하면 섹션이 줄어들며
+    // 버튼이 밀려서 첫 클릭이 씹힌다. 그래서 복원이 끝난 뒤 한 번에 반영한다.
     let cancelled = false
     ;(async () => {
+      const jobs = listPdfProgress()
       const restored: FileState[] = []
       for (const job of jobs) {
         const file = await loadPdfFile(job.sourceFile)
         if (file) restored.push(restoredFileState(file, job.sourceFile, job.progress))
       }
-      if (cancelled || restored.length === 0) return
-      setFiles((prev) => (prev.length > 0 ? prev : restored))
+      if (cancelled) return
+      setPendingJobs(jobs)
+      if (restored.length > 0) setFiles((prev) => (prev.length > 0 ? prev : restored))
       // 중단 시점의 과목/시험 구분도 복원해야 재개가 0문제로 헛돌지 않는다
       const withMeta = jobs.find((j) => j.progress.subjects?.length || j.progress.examTypes?.length)
       if (withMeta?.progress.subjects?.length) {
@@ -200,6 +205,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
         else setSubjects(withMeta.progress.subjects as Subject[])
       }
       if (withMeta?.progress.examTypes?.length) setExamTypes(withMeta.progress.examTypes as ExamType[])
+      setHydrated(true)
     })()
     return () => { cancelled = true }
   }, [])
@@ -265,15 +271,22 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(e.target.files ?? []).filter((f) => f.type === 'application/pdf')
-    setFiles(
-      selected.map((f) => ({
-        file: f,
-        displayName: f.name.replace(/\.pdf$/i, ''),
-        progress: 0,
-        status: 'pending',
-      }))
-    )
+    const incoming: FileState[] = selected.map((f) => ({
+      file: f,
+      displayName: f.name.replace(/\.pdf$/i, ''),
+      progress: 0,
+      status: 'pending',
+    }))
+    // 이어서 처리 대기 중인 카드는 유지한다. 통째로 교체하면 복원돼 있던 다른 파일이
+    // 목록에서 사라져 캐시가 지워진 것처럼 보인다 (실제 IndexedDB 레코드는 파일별로 남아 있음)
+    setFiles((prev) => {
+      const kept = prev.filter(
+        (f) => f.resumable && !incoming.some((n) => sourceFileNameOf(n) === sourceFileNameOf(f))
+      )
+      return [...kept, ...incoming]
+    })
     setSummary(null)
+    setActionError(null)
   }
 
   function updateDisplayName(i: number, name: string) {
@@ -433,12 +446,23 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   }
 
   async function handleResume(i: number) {
-    if (!apiKey) return
-    if (activeSubjects.length === 0 || examTypes.length === 0) {
-      alert('과목과 시험 구분을 먼저 선택해주세요. 선택하지 않으면 문제가 추출되지 않은 채 청크만 소모됩니다.')
+    // 어떤 이유로든 아무 일도 안 일어난 것처럼 보이지 않도록 화면에 사유를 남긴다
+    // (alert는 브라우저가 "추가 대화상자 표시 안 함"으로 억제할 수 있어 쓰지 않는다)
+    const entry = files[i]
+    if (!entry) {
+      setActionError('파일 정보를 찾을 수 없습니다. 페이지를 새로고침해주세요.')
       return
     }
-    const startChunk = resolveStartChunk(files[i])
+    if (!apiKey) {
+      setActionError('Gemini API 키를 먼저 입력해주세요.')
+      return
+    }
+    if (activeSubjects.length === 0 || examTypes.length === 0) {
+      setActionError('과목과 시험 구분을 먼저 선택해주세요. 선택하지 않으면 문제가 추출되지 않은 채 청크만 소모됩니다.')
+      return
+    }
+    setActionError(null)
+    const startChunk = resolveStartChunk(entry)
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -934,7 +958,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
         </div>
 
         {/* 새로고침 후에도 남아 있는 이어서 처리 대기 목록 */}
-        {pendingJobs.filter((j) => !files.some((f) => sourceFileNameOf(f) === j.sourceFile)).length > 0 && (
+        {hydrated && pendingJobs.filter((j) => !files.some((f) => sourceFileNameOf(f) === j.sourceFile)).length > 0 && (
           <div className="space-y-2 border border-orange-500/30 bg-orange-500/5 rounded-xl p-3">
             <p className="text-xs font-medium text-orange-400">⏸ 이어서 처리 대기 중</p>
             <p className="text-xs text-muted-foreground">
@@ -957,6 +981,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
                   </p>
                   <div className="flex gap-2">
                     <button
+                      type="button"
                       onClick={() => requestResumeFromDisk(j.sourceFile)}
                       disabled={isRunning}
                       className="text-xs text-primary border border-primary/30 rounded-lg px-3 py-1 hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
@@ -964,6 +989,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
                       파일 다시 선택
                     </button>
                     <button
+                      type="button"
                       onClick={() => discardPendingJob(j.sourceFile)}
                       disabled={isRunning}
                       className="text-xs text-muted-foreground hover:text-red-400 disabled:opacity-40 transition-colors"
@@ -1062,6 +1088,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
                         )}
                         {f.resumable && (
                           <button
+                            type="button"
                             onClick={() => handleResume(i)}
                             disabled={isRunning}
                             className="text-xs text-primary border border-primary/30 rounded-lg px-3 py-1 hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
@@ -1076,9 +1103,14 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
               </div>
             )}
 
+            {actionError && (
+              <p className="text-xs text-red-400">{actionError}</p>
+            )}
+
             {/* 💡 subjects.length === 0 대신 activeSubjects.length === 0 적용 */}
             <div className="flex gap-2">
               <button
+                type="button"
                 onClick={startAnalysis}
                 disabled={isRunning || !apiKey || files.length === 0 || examTypes.length === 0 || activeSubjects.length === 0}
                 className="flex-1 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
@@ -1087,6 +1119,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
               </button>
               {isRunning && (
                 <button
+                  type="button"
                   onClick={stopAnalysis}
                   className="shrink-0 py-2.5 px-4 border border-orange-500/40 text-orange-400 rounded-lg font-medium text-sm hover:bg-orange-500/10 transition-colors"
                 >
@@ -1153,6 +1186,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
               </button>
               {uriStatus === 'analyzing' && (
                 <button
+                  type="button"
                   onClick={stopAnalysis}
                   className="shrink-0 py-2.5 px-4 border border-orange-500/40 text-orange-400 rounded-lg font-medium text-sm hover:bg-orange-500/10 transition-colors"
                 >
