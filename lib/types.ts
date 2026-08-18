@@ -33,6 +33,7 @@ export interface Question {
   sourceFile?: string  // 업로드한 파일명
   subChoiceAnswers?: Record<string, boolean>  // ㄱㄴㄷㄹ 보기 항목별 O/X (예: { "ㄱ": true, "ㄴ": false })
   choiceExplanations?: Record<string, string>  // 선지별(①②③④⑤) 한 줄 설명
+  subChoiceExplanations?: Record<string, string>  // ㄱㄴㄷㄹ 보기 항목별 한 줄 설명
 }
 
 export interface ErrorAnalysis {

@@ -95,6 +95,10 @@ export function addQuestions(incoming: Question[], sourceFile?: string): { added
       ])
       found.explanations = Array.from(expl)
       found.explanation = Array.from(expl)[0] ?? null
+      // 항목별 필드는 기존 값이 없을 때만 채운다 (재파싱으로 뒤늦게 추출된 경우 보강)
+      found.subChoiceAnswers ??= q.subChoiceAnswers
+      found.choiceExplanations ??= q.choiceExplanations
+      found.subChoiceExplanations ??= q.subChoiceExplanations
       byPassage.set(key, found)
       merged++
     } else {

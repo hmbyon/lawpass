@@ -319,7 +319,10 @@ function StudyBulkPreview({
   const isLast = current === questions.length - 1
   const isBookmarked = bookmarked.has(q.id)
   const subChoices = parseSubChoices(q.passage)
-  const subExplanations = subChoices ? parseSubExplanations(q.explanation) : {}
+  // 새 전용 필드(subChoiceExplanations)를 우선하고, 없는 항목만 옛 데이터용 정규식 파싱으로 채운다
+  const subExplanations = subChoices
+    ? { ...parseSubExplanations(q.explanation), ...(q.subChoiceExplanations ?? {}) }
+    : {}
 
   const [highlights, setHighlights] = useState<Highlight[]>(() => loadHighlights(q.id))
   const [highlightPopup, setHighlightPopup] = useState<{ field: string; start: number; end: number; x: number; y: number } | null>(null)
@@ -478,7 +481,7 @@ function StudyBulkPreview({
                   <div className="flex gap-2 items-start text-sm">
                     {subAnswer !== undefined && (
                       <span className={`shrink-0 font-bold ${subAnswer ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {subAnswer ? '✓ O' : '✗ X'}
+                        {subAnswer ? 'O' : 'X'}
                       </span>
                     )}
                     <span className="font-semibold text-primary shrink-0">{item.label}.</span>
