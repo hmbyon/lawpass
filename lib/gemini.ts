@@ -183,20 +183,45 @@ function fallbackAnalysis(): ErrorAnalysis {
 const PDF_PROGRESS_PREFIX = 'lawpass_pdf_progress_'
 
 export interface PdfParseProgress {
-  chunkIndex: number // 마지막으로 성공한 청크 인덱스 (0-based). 이어서 처리 시 chunkIndex + 1부터 재시작
+  chunkIndex: number // 마지막으로 성공한 청크 인덱스 (0-based). 이어서 처리 시 chunkIndex + 1부터 재시작. 아직 없으면 -1
   chunkTotal: number
   totalAdded: number
   totalMerged: number
   fileQuestionCount: number
+  // 새로고침 후 재개 UI를 복원하기 위한 정보 (옛 기록에는 없을 수 있어 전부 optional)
+  fileName?: string // 원본 PDF 파일명 (재선택 시 대조용)
+  pageCount?: number
+  subjects?: string[] // 중단 시점에 선택돼 있던 과목 — 복원하지 않으면 재개가 0문제로 헛돈다
+  examTypes?: string[]
+  updatedAt?: number
 }
 
 export function savePdfProgress(sourceFile: string, progress: PdfParseProgress) {
   if (typeof window === 'undefined') return
   try {
-    localStorage.setItem(`${PDF_PROGRESS_PREFIX}${sourceFile}`, JSON.stringify(progress))
+    const record: PdfParseProgress = { ...progress, updatedAt: Date.now() }
+    localStorage.setItem(`${PDF_PROGRESS_PREFIX}${sourceFile}`, JSON.stringify(record))
   } catch (e) {
     console.error('[gemini] PDF 진행상황 저장 실패', e)
   }
+}
+
+// 저장된 모든 진행상황 조회 (새로고침 후 "이어서 처리 대기 중" 목록 복원용)
+export function listPdfProgress(): { sourceFile: string; progress: PdfParseProgress }[] {
+  if (typeof window === 'undefined') return []
+  const items: { sourceFile: string; progress: PdfParseProgress }[] = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (!key?.startsWith(PDF_PROGRESS_PREFIX)) continue
+    try {
+      const raw = localStorage.getItem(key)
+      if (!raw) continue
+      items.push({ sourceFile: key.slice(PDF_PROGRESS_PREFIX.length), progress: JSON.parse(raw) as PdfParseProgress })
+    } catch {
+      // 손상된 기록은 무시
+    }
+  }
+  return items.sort((a, b) => (b.progress.updatedAt ?? 0) - (a.progress.updatedAt ?? 0))
 }
 
 export function getPdfProgress(sourceFile: string): PdfParseProgress | null {
