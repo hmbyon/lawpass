@@ -71,30 +71,37 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
   }, [questions, generalSubjects])
 
   const generalAvailableYears = useMemo(() => {
+    if (generalSubjects.length === 0) return []
     return Array.from(new Set(generalScopedQuestions.map((q) => String(q.year))))
       .sort((a, b) => Number(b) - Number(a))
-  }, [generalScopedQuestions])
+  }, [generalScopedQuestions, generalSubjects])
 
   const generalAvailableUnits = useMemo(() => {
+    if (generalSubjects.length === 0) return []
     return Array.from(
       new Set(generalScopedQuestions.map((q) => q.unit?.trim()).filter((u): u is string => !!u))
     ).sort((a, b) => a.localeCompare(b))
-  }, [generalScopedQuestions])
+  }, [generalScopedQuestions, generalSubjects])
 
-  const availableYears = useMemo(() => {
-    return Array.from(new Set(questions.map((q) => String(q.year))))
+  // Law 모드: 선택된 과목이 있을 때만 실제 파싱된 데이터 기반으로 활성화(보라색) 표시
+  const lawAvailableExamTypes = useMemo(() => {
+    if (subjects.length === 0) return []
+    const scoped = questions.filter((q) => subjects.includes(q.subject as Subject))
+    return Array.from(new Set(scoped.map((q) => q.examType).filter(Boolean)))
+  }, [questions, subjects])
+
+  const lawAvailableYears = useMemo(() => {
+    if (subjects.length === 0) return []
+    const scoped = questions.filter((q) => subjects.includes(q.subject as Subject))
+    return Array.from(new Set(scoped.map((q) => String(q.year))))
       .sort((a, b) => Number(b) - Number(a))
-  }, [questions])
+  }, [questions, subjects])
 
-  // 표시용 목록: law 모드는 2012~현재 전체를 항상 노출하고, 실제 문제가 있는 연도만 강조한다
+  // 표시용 목록: law 모드는 2012~현재 전체를 항상 노출하고, 선택된 과목에 실제 문제가 있는 연도만 보라색으로 강조
   const yearOptions = isGeneral ? generalAvailableYears : ALL_YEARS
-  const highlightedYears = isGeneral ? generalAvailableYears : availableYears
+  const highlightedYears = isGeneral ? generalAvailableYears : lawAvailableYears
   const allYearsSelected = yearOptions.length > 0 && yearOptions.every((y) => years.includes(y))
 
-  // Law 모드: 과목별 범위(단원) 후보를 "실제 파싱된 문제 데이터"에서 뽑는다.
-  // 이전에는 사람이 미리 정해둔 정적 UNITS 후보 목록을 썼는데, Gemini가 PDF에서 추출한
-  // q.unit 값의 표기가 후보 문자열과 정확히 일치하지 않는 경우(예: "물권법" vs "물권법 총설")
-  // 필터 매칭이 실패해서 0문제로 뜨는 버그가 있었다. general 모드와 동일하게 실데이터 기반으로 통일.
   const lawUnitsBySubject = useMemo(() => {
     const map: Record<string, string[]> = {}
     subjects.forEach((s) => {
@@ -106,10 +113,6 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
     return map
   }, [questions, subjects])
 
-  const availableUnits = useMemo(() => {
-    return Object.values(lawUnitsBySubject).flat()
-  }, [lawUnitsBySubject])
-
   // 표시용: 선택된 과목의 정적 단원 전체 (실제 문제 유무와 무관하게 항상 노출)
   const staticLawUnits = useMemo(() => {
     return Array.from(new Set(subjects.flatMap((s) => UNITS[s] ?? [])))
@@ -118,9 +121,6 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
   const allGeneralUnitsSelected = generalAvailableUnits.length > 0 && generalAvailableUnits.every((u) => units.includes(u))
   const allLawUnitsSelected = staticLawUnits.length > 0 && staticLawUnits.every((u) => units.includes(u))
 
-  // 주어진 과목들에 실제로 존재하는 단원 값 목록 (questions 원본에서 직접 계산).
-  // subjects state가 아직 갱신되기 전 시점(핸들러 내부)에서도 정확한 값을 구하기 위해
-  // lawUnitsBySubject 메모 대신 questions를 직접 필터링한다.
   function unitsForSubjects(subjs: string[]) {
     return Array.from(
       new Set(
@@ -142,8 +142,6 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
     })
   }, [questions, activeSubjects, examTypes, years, units])
 
-  // 범위(단원)는 과목 선택 시 자동으로 채우지 않음: 실제 문제에 존재하는 단원 값만 후보로
-  // 노출되므로 사용자가 직접 골라서 좁히도록 한다. (units가 비어 있으면 필터 미적용 = 전체 통과)
   function toggleGroup(groupSubjects: Subject[]) {
     const allSelected = groupSubjects.every((s) => subjects.includes(s))
     if (allSelected) {
@@ -163,7 +161,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
       setUnits((prev) => Array.from(new Set([...prev, ...addedUnits])))
       if (subjects.length === 0) {
         setExamTypes([...EXAM_TYPES])
-        setYears(availableYears)
+        setYears(lawAvailableYears)
       }
     }
   }
@@ -180,7 +178,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
     })
     if (subjects.length === 0 && newSubjects.length > 0) {
       setExamTypes([...EXAM_TYPES])
-      setYears(availableYears)
+      setYears(lawAvailableYears)
     }
     if (newSubjects.length === 0) {
       setExamTypes([])
@@ -208,7 +206,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
 
   return (
     <div className="space-y-5 max-w-2xl mx-auto">
-      {/* 과목 */}
+      {/* 과목 선택 (5번: 민사법, 형사법, 공법 계층 구조 및 오른쪽 들여쓰기 정렬) */}
       <div className="bg-card border border-border rounded-xl p-4 space-y-3">
         <label className="text-xs font-medium text-muted-foreground">과목</label>
         {isGeneral ? (
@@ -218,42 +216,60 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
             <p className="text-xs text-muted-foreground">PDF 탭에서 문제를 먼저 업로드해주세요.</p>
           )
         ) : (
-          <>
-            <div className="flex gap-2">
-              {SUBJECT_GROUPS.map((g) => {
-                const allSelected = g.subjects.every((s) => subjects.includes(s))
-                const someSelected = g.subjects.some((s) => subjects.includes(s))
-                return (
-                  <button
-                    key={g.label}
-                    onClick={() => toggleGroup(g.subjects)}
-                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                      allSelected
-                        ? 'bg-primary text-primary-foreground border-primary'
-                        : someSelected
-                          ? 'bg-primary/20 text-primary border-primary/50'
-                          : 'bg-muted text-muted-foreground border-border hover:border-primary/40'
-                    }`}
-                  >
-                    {g.label}
-                  </button>
-                )
-              })}
-            </div>
-            <FilterChips options={SUBJECTS} selected={subjects} onChange={handleSubjectsChange} />
-          </>
+          <div className="space-y-3">
+            {SUBJECT_GROUPS.map((g) => {
+              const allSelected = g.subjects.every((s) => subjects.includes(s))
+              const someSelected = g.subjects.some((s) => subjects.includes(s))
+              return (
+                <div key={g.label} className="space-y-1.5">
+                  {/* 상위 그룹 (민사법 / 형사법 / 공법) */}
+                  <div className="flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(g.subjects)}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                        allSelected
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : someSelected
+                            ? 'bg-primary/20 text-primary border-primary/50'
+                            : 'bg-muted text-muted-foreground border-border hover:border-primary/40'
+                      }`}
+                    >
+                      {g.label}
+                    </button>
+                  </div>
+                  {/* 하위 과목 (오른쪽 들여쓰기 pl-4) */}
+                  <div className="pl-4">
+                    <FilterChips
+                      options={g.subjects}
+                      selected={subjects}
+                      onChange={(newGroupSubjs) => {
+                        const otherSubjects = subjects.filter((s) => !g.subjects.includes(s))
+                        handleSubjectsChange([...otherSubjects, ...newGroupSubjs])
+                      }}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
 
-      {/* 시험 유형 */}
+      {/* 시험 유형 (4번: 초기 회색 타원 -> 과목 선택 시 존재하는 시험유형 보라색 표시) */}
       {!isGeneral && (
         <div className="bg-card border border-border rounded-xl p-4 space-y-2">
           <label className="text-xs font-medium text-muted-foreground">시험 유형 (복수 선택)</label>
-          <FilterChips options={EXAM_TYPES} selected={examTypes} onChange={setExamTypes} />
+          <FilterChips
+            options={EXAM_TYPES}
+            selected={examTypes}
+            onChange={setExamTypes}
+            available={lawAvailableExamTypes}
+          />
         </div>
       )}
 
-      {/* 연도 */}
+      {/* 연도 (4번: 초기 회색 타원 -> 과목 선택 시 존재하는 연도 보라색 표시) */}
       {yearOptions.length > 0 && (
         <div className="bg-card border border-border rounded-xl p-4 space-y-3">
           <div className="flex items-center justify-between">
@@ -301,7 +317,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
                 전체
               </button>
             </div>
-            <FilterChips options={generalAvailableUnits} selected={units} onChange={setUnits} />
+            <FilterChips options={generalAvailableUnits} selected={units} onChange={setUnits} available={generalAvailableUnits} />
           </div>
         )
       ) : (
