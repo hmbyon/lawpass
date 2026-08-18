@@ -391,10 +391,26 @@ function StudyBulkPreview({
     ensureBookmarked()
   }
 
+  // 형광펜/선지메모가 모두 사라지면 자동으로 북마크 해제 (수동 추가분도 동일하게 처리)
+  // 삭제 직후 state는 아직 갱신 전이므로 남은 형광펜/메모를 인자로 받는다. 해제했으면 true 반환
+  function unbookmarkIfEmpty(
+    remainingHighlights: Highlight[],
+    remainingMemos: Record<string, string> = choiceMemos[q.id] ?? {}
+  ): boolean {
+    if (!bookmarked.has(q.id)) return false
+    if (remainingHighlights.length > 0) return false
+    if (Object.keys(remainingMemos).length > 0) return false
+    removeBookmark(q.id)
+    setBookmarked((prev) => { const next = new Set(prev); next.delete(q.id); return next })
+    onDone()
+    return true
+  }
+
   function removeHighlight(id: string) {
     const next = highlights.filter((h) => h.id !== id)
     setHighlights(next)
     saveHighlights(q.id, next)
+    unbookmarkIfEmpty(next)
   }
 
   function toggleBookmark() {
@@ -409,27 +425,26 @@ function StudyBulkPreview({
   }
 
   function saveChoiceMemo(label: string, memo: string) {
-    if (!isBookmarked) {
+    const trimmed = memo.trim()
+    // 메모를 지우는 경우엔 북마크를 새로 만들지 않는다 (바로 아래에서 해제 대상이 되므로)
+    if (trimmed && !isBookmarked) {
       addBookmark(q)
       setBookmarked((prev) => new Set([...prev, q.id]))
     }
     const notes = getWrongNotes()
     const note = notes.find((n) => n.questionId === q.id)
     if (note) updateChoiceMemo(note.id, label, memo)
-    setChoiceMemos((prev) => {
-      const next = { ...prev }
-      if (!next[q.id]) next[q.id] = {}
-      if (memo.trim()) {
-        next[q.id] = { ...next[q.id], [label]: memo }
-      } else {
-        const { [label]: _, ...rest } = next[q.id]
-        next[q.id] = rest
-      }
-      return next
-    })
+
+    const nextMemos = { ...(choiceMemos[q.id] ?? {}) }
+    if (trimmed) nextMemos[label] = memo
+    else delete nextMemos[label]
+    setChoiceMemos((prev) => ({ ...prev, [q.id]: nextMemos }))
+
     setChoiceMemoOpen(null)
     setChoiceMemoText('')
-    onDone()
+    // 해제된 경우 unbookmarkIfEmpty가 onDone을 호출하므로 중복 동기화를 피한다
+    const unbookmarked = !trimmed && unbookmarkIfEmpty(highlights, nextMemos)
+    if (!unbookmarked) onDone()
   }
 
   return (
