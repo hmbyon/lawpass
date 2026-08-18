@@ -16,9 +16,8 @@ const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '�
 const EXAM_TYPES: ExamType[] = ['변호사시험', '모의고사']
 const CHUNK_SIZE = 5
 
-interface FileState {
-  file: File
-  displayName: string
+// 파일 카드/재개 항목이 공통으로 쓰는 표시 상태
+interface JobView {
   progress: number
   status: 'pending' | 'uploading' | 'analyzing' | 'done' | 'error' | 'paused' | 'resumable'
   error?: string
@@ -29,6 +28,20 @@ interface FileState {
   resumable?: boolean
 }
 
+// 새로 업로드해서 처리를 기다리는 파일
+interface FileState extends JobView {
+  file: File
+  displayName: string
+}
+
+// 이전에 중단돼 진행상황이 남아 있는 파일. 신규 업로드 큐와 완전히 분리해서 관리한다
+interface ResumeJob {
+  sourceFile: string
+  saved: PdfParseProgress
+  file: File | null // IndexedDB 복원 실패 시 null → "파일 다시 선택" 필요
+  view: JobView
+}
+
 type UploadMode = 'file' | 'uri'
 
 // 문제집 이름은 진행상황/PDF 캐시의 공통 키다
@@ -36,12 +49,10 @@ function sourceFileNameOf(f: { file: File; displayName: string }) {
   return f.displayName.trim() || f.file.name.replace(/\.pdf$/i, '')
 }
 
-// 저장된 진행상황으로 "이어서 처리 대기" 카드를 만든다.
+// 저장된 진행상황으로 "재개 대기" 표시 상태를 만든다.
 // 이번 세션에서 중단 버튼을 누른 것과 구분하려고 'paused'가 아닌 'resumable'을 쓴다
-function restoredFileState(file: File, sourceFile: string, progress: PdfParseProgress): FileState {
+function resumeJobView(progress: PdfParseProgress): JobView {
   return {
-    file,
-    displayName: sourceFile,
     progress: (Math.max(0, progress.chunkIndex + 1) / Math.max(1, progress.chunkTotal)) * 100,
     status: 'resumable',
     count: progress.fileQuestionCount,
@@ -161,8 +172,9 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
 
   const [isRunning, setIsRunning] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
-  // 새로고침 후에도 남아 있는, 이어서 처리할 수 있는 파싱 기록
-  const [pendingJobs, setPendingJobs] = useState<{ sourceFile: string; progress: PdfParseProgress }[]>([])
+  // 이전에 중단된 파일들 (신규 업로드 큐와 완전히 분리)
+  const [resumeJobs, setResumeJobs] = useState<ResumeJob[]>([])
+  const [runningKey, setRunningKey] = useState<string | null>(null) // 현재 처리 중인 항목의 sourceFile
   const [hydrated, setHydrated] = useState(false) // IndexedDB 복원 완료 여부 (완료 전엔 대기 목록을 그리지 않는다)
   const [actionError, setActionError] = useState<string | null>(null)
   const resumeInputRef = useRef<HTMLInputElement>(null)
@@ -190,14 +202,13 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     let cancelled = false
     ;(async () => {
       const jobs = listPdfProgress()
-      const restored: FileState[] = []
+      const restored: ResumeJob[] = []
       for (const job of jobs) {
         const file = await loadPdfFile(job.sourceFile)
-        if (file) restored.push(restoredFileState(file, job.sourceFile, job.progress))
+        restored.push({ sourceFile: job.sourceFile, saved: job.progress, file, view: resumeJobView(job.progress) })
       }
       if (cancelled) return
-      setPendingJobs(jobs)
-      if (restored.length > 0) setFiles((prev) => (prev.length > 0 ? prev : restored))
+      setResumeJobs(restored)
       // 중단 시점의 과목/시험 구분도 복원해야 재개가 0문제로 헛돌지 않는다
       const withMeta = jobs.find((j) => j.progress.subjects?.length || j.progress.examTypes?.length)
       if (withMeta?.progress.subjects?.length) {
@@ -218,7 +229,6 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   function refreshSourceFiles() {
     setSourceFiles(getSourceFiles())
     setProgress(computeProgress())
-    setPendingJobs(listPdfProgress())
   }
 
   function toggleSubjectExpand(s: string) {
@@ -271,20 +281,15 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(e.target.files ?? []).filter((f) => f.type === 'application/pdf')
-    const incoming: FileState[] = selected.map((f) => ({
-      file: f,
-      displayName: f.name.replace(/\.pdf$/i, ''),
-      progress: 0,
-      status: 'pending',
-    }))
-    // 이어서 처리 대기 중인 카드는 유지한다. 통째로 교체하면 복원돼 있던 다른 파일이
-    // 목록에서 사라져 캐시가 지워진 것처럼 보인다 (실제 IndexedDB 레코드는 파일별로 남아 있음)
-    setFiles((prev) => {
-      const kept = prev.filter(
-        (f) => f.resumable && !incoming.some((n) => sourceFileNameOf(n) === sourceFileNameOf(f))
-      )
-      return [...kept, ...incoming]
-    })
+    // 재개 대기 큐(resumeJobs)와는 완전히 분리된 배열이라 새 선택이 기존 재개 항목에 영향을 주지 않는다
+    setFiles(
+      selected.map((f) => ({
+        file: f,
+        displayName: f.name.replace(/\.pdf$/i, ''),
+        progress: 0,
+        status: 'pending' as const,
+      }))
+    )
     setSummary(null)
     setActionError(null)
   }
@@ -297,8 +302,14 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     })
   }
 
-  async function processFile(i: number, startChunk: number, signal?: AbortSignal): Promise<{ added: number; merged: number; aborted: boolean }> {
-    const entry = files[i]
+  // 신규 업로드 카드와 재개 항목이 공유하는 처리 루틴.
+  // 어느 목록에 속하는지는 update 콜백이 결정하므로 두 큐가 서로 간섭하지 않는다
+  async function processEntry(
+    entry: { file: File; displayName: string },
+    startChunk: number,
+    update: (patch: Partial<JobView>) => void,
+    signal?: AbortSignal
+  ): Promise<{ added: number; merged: number; aborted: boolean }> {
     const sourceFile = sourceFileNameOf(entry)
     // startChunk가 0이어도 기록을 읽어야 누적 문제 수/추가 수가 리셋되지 않는다
     const savedProgress = getPdfProgress(sourceFile)
@@ -331,7 +342,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       const sourcePdf = await PDFDocument.load(await entry.file.arrayBuffer())
       totalPages = sourcePdf.getPageCount()
       chunkTotal = Math.ceil(totalPages / CHUNK_SIZE)
-      updateFile(i, {
+      update({
         status: 'uploading',
         progress: (startChunk / chunkTotal) * 100,
         pageCount: totalPages,
@@ -357,14 +368,14 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
           { type: 'application/pdf' }
         )
 
-        updateFile(i, { status: 'uploading', progress: (chunkIndex / chunkTotal) * 100, chunkIndex: chunkIndex + 1 })
+        update({ status: 'uploading', progress: (chunkIndex / chunkTotal) * 100, chunkIndex: chunkIndex + 1 })
         let uri = ''
         try {
           uri = await uploadPdfToFileApi(apiKey, chunkFile, (pct) => {
             const overallProgress = ((chunkIndex + pct / 100) / chunkTotal) * 100
-            updateFile(i, { progress: overallProgress })
+            update({ progress: overallProgress })
           }, signal)
-          updateFile(i, {
+          update({
             status: 'analyzing',
             progress: ((chunkIndex + 0.9) / chunkTotal) * 100,
             chunkIndex: chunkIndex + 1,
@@ -379,7 +390,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
               fileQuestionCount += questions.length
             }
           }
-          updateFile(i, {
+          update({
             progress: ((chunkIndex + 1) / chunkTotal) * 100,
             chunkIndex: chunkIndex + 1,
             count: fileQuestionCount,
@@ -390,7 +401,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
           if (uri) await deleteFile(apiKey, uri).catch(() => {})
         }
       }
-      updateFile(i, { status: 'done', progress: 100, chunkIndex: chunkTotal, resumable: false })
+      update({ status: 'done', progress: 100, chunkIndex: chunkTotal, resumable: false })
       clearPdfProgress(sourceFile)
       await deletePdfFile(sourceFile)
     } catch (err) {
@@ -398,7 +409,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       aborted = isAbortError(err)
       // 첫 청크 도중에 멈춰도 "대기 중" 기록은 남겨서 새로고침 후 목록에 뜨게 한다
       if (chunkTotal > 0) saveProgress(lastCompletedChunk)
-      updateFile(i, {
+      update({
         status: aborted ? 'paused' : 'error',
         error: aborted ? undefined : String(err),
         resumable: true,
@@ -415,7 +426,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   }
 
   // 저장된 진행상황이 있으면 그 다음 청크부터. 다른 PDF를 같은 이름으로 올린 경우엔 처음부터
-  function resolveStartChunk(entry: FileState): number {
+  function resolveStartChunk(entry: { file: File; displayName: string }): number {
     const saved = getPdfProgress(sourceFileNameOf(entry))
     if (!saved || saved.chunkIndex < 0) return 0
     if (saved.fileName && saved.fileName !== entry.file.name) return 0
@@ -431,13 +442,22 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     let totalAdded = 0
     let totalMerged = 0
 
+    // 재개 대기 큐(resumeJobs)는 여기서 절대 건드리지 않는다. 각 항목의 "이어서 처리하기"로만 시작된다
     for (let i = 0; i < files.length; i++) {
-      const result = await processFile(i, resolveStartChunk(files[i]), controller.signal)
+      const entry = files[i]
+      setRunningKey(sourceFileNameOf(entry))
+      const result = await processEntry(
+        entry,
+        resolveStartChunk(entry),
+        (patch) => updateFile(i, patch),
+        controller.signal
+      )
       totalAdded += result.added
       totalMerged += result.merged
       if (result.aborted) break // 남은 파일은 손대지 않고 대기 상태로 둔다
     }
 
+    setRunningKey(null)
     abortRef.current = null
     setSummary({ added: totalAdded, merged: totalMerged })
     setIsRunning(false)
@@ -445,7 +465,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     onQuestionsAdded()
   }
 
-  async function handleResume(i: number) {
+  async function handleResumeFile(i: number) {
     // 어떤 이유로든 아무 일도 안 일어난 것처럼 보이지 않도록 화면에 사유를 남긴다
     // (alert는 브라우저가 "추가 대화상자 표시 안 함"으로 억제할 수 있어 쓰지 않는다)
     const entry = files[i]
@@ -462,18 +482,73 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       return
     }
     setActionError(null)
-    const startChunk = resolveStartChunk(entry)
 
     const controller = new AbortController()
     abortRef.current = controller
     setIsRunning(true)
-    const result = await processFile(i, startChunk, controller.signal)
+    setRunningKey(sourceFileNameOf(entry))
+    const result = await processEntry(
+      entry,
+      resolveStartChunk(entry),
+      (patch) => updateFile(i, patch),
+      controller.signal
+    )
+    setRunningKey(null)
     abortRef.current = null
     setSummary((prev) => ({
       added: (prev?.added ?? 0) + result.added,
       merged: (prev?.merged ?? 0) + result.merged,
     }))
     setIsRunning(false)
+    refreshSourceFiles()
+    onQuestionsAdded()
+  }
+
+  function updateResumeJob(sourceFile: string, patch: Partial<JobView>) {
+    setResumeJobs((prev) =>
+      prev.map((j) => (j.sourceFile === sourceFile ? { ...j, view: { ...j.view, ...patch } } : j))
+    )
+  }
+
+  // 재개 대기 항목 하나만 처리한다. 신규 업로드 큐는 건드리지 않는다
+  async function handleResumeJob(sourceFile: string) {
+    const job = resumeJobs.find((j) => j.sourceFile === sourceFile)
+    if (!job || !job.file) {
+      setActionError('원본 PDF가 없습니다. "파일 다시 선택"으로 같은 PDF를 지정해주세요.')
+      return
+    }
+    if (!apiKey) {
+      setActionError('Gemini API 키를 먼저 입력해주세요.')
+      return
+    }
+    if (activeSubjects.length === 0 || examTypes.length === 0) {
+      setActionError('과목과 시험 구분을 먼저 선택해주세요. 선택하지 않으면 문제가 추출되지 않은 채 청크만 소모됩니다.')
+      return
+    }
+    setActionError(null)
+
+    const entry = { file: job.file, displayName: sourceFile }
+    const controller = new AbortController()
+    abortRef.current = controller
+    setIsRunning(true)
+    setRunningKey(sourceFile)
+    const result = await processEntry(
+      entry,
+      resolveStartChunk(entry),
+      (patch) => updateResumeJob(sourceFile, patch),
+      controller.signal
+    )
+    setRunningKey(null)
+    abortRef.current = null
+    setIsRunning(false)
+    setSummary((prev) => ({
+      added: (prev?.added ?? 0) + result.added,
+      merged: (prev?.merged ?? 0) + result.merged,
+    }))
+    // 끝까지 처리된 항목은 진행상황 기록이 지워지므로 목록에서도 제거한다
+    if (!getPdfProgress(sourceFile)) {
+      setResumeJobs((prev) => prev.filter((j) => j.sourceFile !== sourceFile))
+    }
     refreshSourceFiles()
     onQuestionsAdded()
   }
@@ -491,44 +566,36 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     resumeTargetRef.current = null
     if (!picked || !sourceFile) return
 
-    const job = pendingJobs.find((j) => j.sourceFile === sourceFile)
+    const job = resumeJobs.find((j) => j.sourceFile === sourceFile)
     if (!job) return
 
     if (
-      job.progress.fileName &&
-      picked.name !== job.progress.fileName &&
+      job.saved.fileName &&
+      picked.name !== job.saved.fileName &&
       !confirm(
-        `저장된 파일명은 "${job.progress.fileName}"인데 "${picked.name}"을 선택했습니다.\n` +
+        `저장된 파일명은 "${job.saved.fileName}"인데 "${picked.name}"을 선택했습니다.\n` +
         '페이지 구성이 다르면 청크 위치가 어긋나 엉뚱한 부분부터 처리됩니다. 계속할까요?'
       )
     ) return
 
     // 중단 시점의 과목/시험 구분 복원 (없으면 현재 선택값 유지)
-    if (job.progress.subjects?.length) {
-      if (isGeneral) setGeneralSubjectText(job.progress.subjects[0])
-      else setSubjects(job.progress.subjects as Subject[])
+    if (job.saved.subjects?.length) {
+      if (isGeneral) setGeneralSubjectText(job.saved.subjects[0])
+      else setSubjects(job.saved.subjects as Subject[])
     }
-    if (job.progress.examTypes?.length) setExamTypes(job.progress.examTypes as ExamType[])
+    if (job.saved.examTypes?.length) setExamTypes(job.saved.examTypes as ExamType[])
 
-    const restored = restoredFileState(picked, sourceFile, job.progress)
-    setFiles((prev) => {
-      const idx = prev.findIndex((f) => sourceFileNameOf(f) === sourceFile)
-      if (idx >= 0) {
-        const next = [...prev]
-        next[idx] = restored
-        return next
-      }
-      return [...prev, restored]
-    })
-    setUploadMode('file')
+    // 다음 새로고침 때 다시 고르지 않도록 원본을 캐시에 넣어둔다
+    void savePdfFile(sourceFile, picked)
+    setResumeJobs((prev) => prev.map((j) => (j.sourceFile === sourceFile ? { ...j, file: picked } : j)))
+    setActionError(null)
   }
 
-  function discardPendingJob(sourceFile: string) {
+  function discardResumeJob(sourceFile: string) {
     if (!confirm(`"${sourceFile}"의 이어서 처리 기록을 삭제할까요? 이미 추가된 문제는 그대로 남습니다.`)) return
     clearPdfProgress(sourceFile)
     void deletePdfFile(sourceFile)
-    setFiles((prev) => prev.filter((f) => sourceFileNameOf(f) !== sourceFile))
-    setPendingJobs(listPdfProgress())
+    setResumeJobs((prev) => prev.filter((j) => j.sourceFile !== sourceFile))
   }
 
   async function startUriAnalysis() {
@@ -957,48 +1024,89 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
           </button>
         </div>
 
-        {/* 새로고침 후에도 남아 있는 이어서 처리 대기 목록 */}
-        {hydrated && pendingJobs.filter((j) => !files.some((f) => sourceFileNameOf(f) === j.sourceFile)).length > 0 && (
+        {/* 재개 대기 큐: 신규 업로드와 완전히 분리된 별도 영역. 각 항목의 버튼으로만 시작된다 */}
+        {hydrated && resumeJobs.length > 0 && (
           <div className="space-y-2 border border-orange-500/30 bg-orange-500/5 rounded-xl p-3">
             <p className="text-xs font-medium text-orange-400">⏸ 이어서 처리 대기 중</p>
             <p className="text-xs text-muted-foreground">
-              원본 PDF가 보관된 항목은 위 파일 목록에 자동으로 복원됩니다. 여기 남은 항목은 원본이 없으니
-              같은 PDF를 다시 선택해주세요. 어느 쪽이든 중단된 청크부터 이어서 처리합니다.
+              이전에 중단된 파일입니다. 아래 버튼을 직접 누를 때만 처리되며, 새 파일 업로드나 &quot;분석 시작&quot;에는
+              영향을 받지 않습니다.
             </p>
-            {pendingJobs
-              .filter((j) => !files.some((f) => sourceFileNameOf(f) === j.sourceFile))
-              .map((j) => (
+            {resumeJobs.map((j) => {
+              const busy = j.view.status === 'uploading' || j.view.status === 'analyzing'
+              return (
                 <div key={j.sourceFile} className="bg-muted rounded-lg p-2.5 space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-medium text-foreground truncate">{j.sourceFile}</span>
-                    <span className="text-xs text-muted-foreground shrink-0">
-                      {Math.max(0, j.progress.chunkIndex + 1)}/{j.progress.chunkTotal} 청크
-                    </span>
+                    <StatusChip status={j.view.status} count={j.view.count} />
                   </div>
                   <p className="text-xs text-muted-foreground truncate">
-                    {j.progress.fileName ?? '파일명 기록 없음'}
-                    {j.progress.fileQuestionCount > 0 && ` · ${j.progress.fileQuestionCount}문제 수집됨`}
+                    {j.saved.fileName ?? '파일명 기록 없음'}
+                    {` · ${Math.max(0, j.view.chunkIndex ?? 0)}/${j.view.chunkTotal ?? j.saved.chunkTotal} 청크`}
+                    {(j.view.count ?? 0) > 0 && ` · ${j.view.count}문제 수집됨`}
                   </p>
-                  <div className="flex gap-2">
+
+                  {busy && (
+                    <div className="w-full bg-border rounded-full h-1.5">
+                      <div
+                        className="bg-primary h-1.5 rounded-full transition-all duration-300"
+                        style={{ width: `${j.view.progress}%` }}
+                      />
+                    </div>
+                  )}
+                  {j.view.status === 'paused' && (
+                    <p className="text-xs text-orange-400">중단했습니다. 완료된 청크까지는 저장되어 있습니다.</p>
+                  )}
+                  {j.view.status === 'error' && j.view.error && (
+                    <p className="text-xs text-red-400 break-all">{j.view.error}</p>
+                  )}
+                  {!j.file && (
+                    <p className="text-xs text-muted-foreground">
+                      보관된 원본이 없습니다. 같은 PDF를 다시 선택해주세요.
+                    </p>
+                  )}
+
+                  <div className="flex gap-2 items-center">
+                    {j.file ? (
+                      <button
+                        type="button"
+                        onClick={() => handleResumeJob(j.sourceFile)}
+                        disabled={isRunning}
+                        className="text-xs text-primary border border-primary/30 rounded-lg px-3 py-1 hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {`${Math.max(0, j.saved.chunkIndex + 1)}/${j.saved.chunkTotal} 청크부터 이어서 처리하기`}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => requestResumeFromDisk(j.sourceFile)}
+                        disabled={isRunning}
+                        className="text-xs text-primary border border-primary/30 rounded-lg px-3 py-1 hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        파일 다시 선택
+                      </button>
+                    )}
+                    {isRunning && runningKey === j.sourceFile && (
+                      <button
+                        type="button"
+                        onClick={stopAnalysis}
+                        className="text-xs text-orange-400 border border-orange-500/40 rounded-lg px-3 py-1 hover:bg-orange-500/10 transition-colors"
+                      >
+                        ⏸ 중단
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => requestResumeFromDisk(j.sourceFile)}
+                      onClick={() => discardResumeJob(j.sourceFile)}
                       disabled={isRunning}
-                      className="text-xs text-primary border border-primary/30 rounded-lg px-3 py-1 hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >
-                      파일 다시 선택
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => discardPendingJob(j.sourceFile)}
-                      disabled={isRunning}
-                      className="text-xs text-muted-foreground hover:text-red-400 disabled:opacity-40 transition-colors"
+                      className="text-xs text-muted-foreground hover:text-red-400 disabled:opacity-40 transition-colors ml-auto"
                     >
                       기록 삭제
                     </button>
                   </div>
                 </div>
-              ))}
+              )
+            })}
             <input
               ref={resumeInputRef}
               type="file"
@@ -1089,7 +1197,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
                         {f.resumable && (
                           <button
                             type="button"
-                            onClick={() => handleResume(i)}
+                            onClick={() => handleResumeFile(i)}
                             disabled={isRunning}
                             className="text-xs text-primary border border-primary/30 rounded-lg px-3 py-1 hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                           >
