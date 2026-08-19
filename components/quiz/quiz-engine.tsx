@@ -18,7 +18,8 @@ interface QuizEngineProps {
   questions: Question[]
   mode: 'cbt' | 'study'
   timeLimitSeconds: number | null
-  onFinish: () => void
+  // completed=false 면 "임시저장 후 나가기". 실제로 답한 문항만 전달한다
+  onFinish: (result?: { completed: boolean; answeredQuestionIds: string[] }) => void
   initialIndex?: number
   initialAnswers?: Record<string, string | null>
   initialElapsed?: number
@@ -240,7 +241,10 @@ export function QuizEngine({
       elapsedSeconds: elapsed,
       savedAt: Date.now(),
     })
-    onFinish()
+    onFinish({
+      completed: false,
+      answeredQuestionIds: items.filter((it) => it.userAnswer !== null).map((it) => it.question.id),
+    })
   }
 
   const item = items[current]
@@ -267,7 +271,18 @@ export function QuizEngine({
   }
 
   if (results) {
-    return <ResultsView results={results} items={items} onFinish={onFinish} />
+    return (
+      <ResultsView
+        results={results}
+        items={items}
+        onFinish={() =>
+          onFinish({
+            completed: true,
+            answeredQuestionIds: items.filter((it) => it.userAnswer !== null).map((it) => it.question.id),
+          })
+        }
+      />
+    )
   }
 
   const answeredCount = items.filter((i) => i.userAnswer !== null).length

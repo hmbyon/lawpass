@@ -451,9 +451,10 @@ export function clearSavedSession() {
 export interface SavedStudySession {
   allQuestions: import('./types').Question[]
   learnedIndices: number[] // 실제로 열어본 문제 인덱스 (건너뛴 구간이 정확히 남는다)
-  quizzedUpTo: number // 퀴즈까지 끝낸 마지막 인덱스. 아직 없으면 -1
+  quizzedIndices: number[] // 실제로 답을 제출한 문제 인덱스. 출제 범위가 아닌 답변 기준이다
   savedAt: number
   // 구버전 필드 (읽기 전용, 마이그레이션에만 사용)
+  quizzedUpTo?: number
   previewedIndex?: number
   remainingFrom?: number
 }
@@ -461,13 +462,20 @@ export interface SavedStudySession {
 // 구버전 세션(previewedIndex/remainingFrom)을 새 형식으로 변환한다
 function migrateStudySession(raw: SavedStudySession): SavedStudySession {
   if (Array.isArray(raw.learnedIndices)) {
-    return { ...raw, quizzedUpTo: raw.quizzedUpTo ?? -1 }
+    if (Array.isArray(raw.quizzedIndices)) return raw
+    // 1차 구조(quizzedUpTo 단일 숫자) → 인덱스 집합
+    const upTo = raw.quizzedUpTo ?? -1
+    return {
+      ...raw,
+      quizzedIndices: Array.from({ length: Math.max(0, upTo + 1) }, (_, i) => i),
+    }
   }
+  // 최초 구조(previewedIndex/remainingFrom)
   const learnedCount = raw.remainingFrom ?? (raw.previewedIndex ?? -1) + 1
   return {
     allQuestions: raw.allQuestions,
     learnedIndices: Array.from({ length: Math.max(0, learnedCount) }, (_, i) => i),
-    quizzedUpTo: -1,
+    quizzedIndices: [],
     savedAt: raw.savedAt,
   }
 }
@@ -486,9 +494,10 @@ export function lastLearnedIndex(session: SavedStudySession): number {
   return session.learnedIndices.reduce((max, i) => (i > max ? i : max), -1)
 }
 
-// 학습은 했지만 아직 퀴즈로 풀지 않은 구간이 있는지
-export function hasUnquizzedRange(session: SavedStudySession): boolean {
-  return lastLearnedIndex(session) > session.quizzedUpTo
+// 학습은 했지만 아직 풀지 않은 문제의 인덱스 (연속 구간이 아니어도 정확히 잡힌다)
+export function unquizzedLearnedIndices(session: SavedStudySession): number[] {
+  const quizzed = new Set(session.quizzedIndices)
+  return session.learnedIndices.filter((i) => !quizzed.has(i)).sort((a, b) => a - b)
 }
 
 export function getSavedStudySession(): SavedStudySession | null {
@@ -515,6 +524,15 @@ export function saveSavedStudySessions(sessions: SavedStudySession[]) {
 }
 
 export function addSavedStudySession(session: SavedStudySession) {
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[study-session] save', {
+      savedAt: session.savedAt,
+      learned: session.learnedIndices.length,
+      quizzed: session.quizzedIndices.length,
+      lastLearned: lastLearnedIndex(session) + 1,
+      unquizzed: unquizzedLearnedIndices(session).map((i) => i + 1),
+    })
+  }
   const sessions = getSavedStudySessions()
   // savedAt이 같으면 덮어쓰기, 다르면 새로 추가
   const idx = sessions.findIndex((s) => s.savedAt === session.savedAt)
@@ -527,6 +545,9 @@ export function addSavedStudySession(session: SavedStudySession) {
 }
 
 export function removeSavedStudySession(savedAt: number) {
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[study-session] remove', savedAt)
+  }
   const sessions = getSavedStudySessions().filter((s) => s.savedAt !== savedAt)
   saveSavedStudySessions(sessions)
 }

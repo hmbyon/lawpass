@@ -5,7 +5,7 @@ import { QuizEngine } from '@/components/quiz/quiz-engine'
 import {
   addBookmark, removeBookmark, getWrongNotes, updateChoiceMemo,
   addSavedStudySession, getSavedStudySessions, removeSavedStudySession,
-  firstUnlearnedIndex, lastLearnedIndex, hasUnquizzedRange,
+  firstUnlearnedIndex, lastLearnedIndex, unquizzedLearnedIndices,
   clearSavedSession, getSavedSession
 } from '@/lib/store'
 import type { SavedStudySession } from '@/lib/store'
@@ -35,8 +35,7 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
   const [savedQuiz, setSavedQuiz] = useState(getSavedSession())
   const [activeSession, setActiveSession] = useState<SavedStudySession | null>(null)
   const [previewVisited, setPreviewVisited] = useState<number[]>([])
-  // 지금 진행 중인 퀴즈가 커버하는 마지막 인덱스 (완료 시 quizzedUpTo 갱신용)
-  const [pendingQuizUpTo, setPendingQuizUpTo] = useState<number | null>(null)
+
   // "이어서 풀기"로 들어온 경우에만 저장된 퀴즈 답안을 복원한다
   const [resumingQuiz, setResumingQuiz] = useState(false)
 
@@ -58,27 +57,26 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
   }
 
   // 이번 학습 세션의 방문 기록을 기존 세션에 합쳐 저장 형태로 만든다
-  function buildSession(visited: number[], quizzedUpTo: number): SavedStudySession {
+  function buildSession(visited: number[]): SavedStudySession {
     const merged = new Set([...(activeSession?.learnedIndices ?? []), ...visited])
     return {
       allQuestions,
       learnedIndices: Array.from(merged).sort((a, b) => a - b),
-      quizzedUpTo,
+      quizzedIndices: activeSession?.quizzedIndices ?? [],
       savedAt: activeSession?.savedAt ?? Date.now(),
     }
   }
 
-  // 아직 퀴즈로 풀지 않은 구간만 출제한다 (이미 푼 앞부분을 다시 풀지 않도록)
-  function startQuizRange(session: SavedStudySession, upToIndex: number) {
-    const start = session.quizzedUpTo + 1
-    const toQuiz = session.allQuestions.slice(start, upToIndex + 1)
+  // 학습은 했지만 아직 풀지 않은 문제만 출제한다.
+  // 연속 구간을 가정하지 않으므로 "6~20 중 일부만 풀린" 상태도 정확히 회수된다
+  function startQuizFor(session: SavedStudySession, targetIndices: number[]) {
+    const toQuiz = targetIndices.map((i) => session.allQuestions[i]).filter(Boolean)
     if (toQuiz.length === 0) return false
 
     addSavedStudySession(session)
     setSavedSessions(getSavedStudySessions())
     setActiveSession(session)
     setAllQuestions(session.allQuestions)
-    setPendingQuizUpTo(upToIndex)
 
     clearSavedSession() // 이전 퀴즈의 답안이 새 퀴즈에 실리지 않게 한다
     setSavedQuiz(null)
@@ -90,15 +88,17 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
   }
 
   function handlePartialQuiz(upToIndex: number, visited: number[]) {
-    const session = buildSession(visited, activeSession?.quizzedUpTo ?? -1)
-    if (!startQuizRange(session, upToIndex)) {
+    const session = buildSession(visited)
+    // 현재 위치까지 중, 아직 안 푼 문제만
+    const targets = unquizzedLearnedIndices(session).filter((i) => i <= upToIndex)
+    if (!startQuizFor(session, targets)) {
       alert('이 구간은 이미 모두 풀었습니다.')
     }
   }
 
   function handleSaveAndExit(upToIndex: number, visited: number[]) {
     // upToIndex까지 방문한 것으로 보되, 건너뛴 구간은 visited에만 의존한다
-    const session = buildSession(visited, activeSession?.quizzedUpTo ?? -1)
+    const session = buildSession(visited)
     addSavedStudySession(session)
     setSavedSessions(getSavedStudySessions())
     setPhase('filter')
@@ -107,26 +107,37 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
     onSync()
   }
 
-  function handleQuizFinish() {
-    clearSavedSession()
+  function handleQuizFinish(result?: { completed: boolean; answeredQuestionIds: string[] }) {
+    const completed = result?.completed ?? true
 
-    if (activeSession && pendingQuizUpTo !== null) {
+    // 중도 이탈이면 QuizEngine이 방금 저장한 퀴즈 세션을 지우지 않는다
+    // ("풀던 퀴즈 이어서 하기"로 답안을 유지한 채 재진입할 수 있어야 한다)
+    if (completed) clearSavedSession()
+
+    if (activeSession) {
+      // 출제 범위가 아니라 실제로 답한 문항만 풀이 완료로 기록한다
+      const answered = new Set(result?.answeredQuestionIds ?? [])
+      const newlyQuizzed = activeSession.allQuestions
+        .map((q, i) => (answered.has(q.id) ? i : -1))
+        .filter((i) => i >= 0)
+
       const updated: SavedStudySession = {
         ...activeSession,
-        quizzedUpTo: Math.max(activeSession.quizzedUpTo, pendingQuizUpTo),
+        quizzedIndices: Array.from(
+          new Set([...activeSession.quizzedIndices, ...newlyQuizzed])
+        ).sort((a, b) => a - b),
       }
       const total = updated.allQuestions.length
       const allLearned = firstUnlearnedIndex(updated) >= total
-      const allQuizzed = updated.quizzedUpTo >= total - 1
+      const allQuizzed = updated.quizzedIndices.length >= total
       // 학습·풀이가 모두 끝난 세션만 목록에서 지운다
       if (allLearned && allQuizzed) removeSavedStudySession(updated.savedAt)
       else addSavedStudySession(updated)
     }
 
     setSavedSessions(getSavedStudySessions())
-    setSavedQuiz(null)
+    setSavedQuiz(completed ? null : getSavedSession())
     setActiveSession(null)
-    setPendingQuizUpTo(null)
     setResumingQuiz(false)
     setPreviewVisited([])
     setPhase('filter')
@@ -141,11 +152,11 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
     setPhase('preview')
   }
 
-  // 학습은 했지만 아직 풀지 않은 구간을 바로 퀴즈로 시작한다
+  // 학습은 했지만 아직 풀지 않은 문제를 바로 퀴즈로 시작한다
   function handleResumeQuizFromSession(session: SavedStudySession) {
     setPreviewVisited(session.learnedIndices)
-    if (!startQuizRange(session, lastLearnedIndex(session))) {
-      alert('풀 수 있는 구간이 없습니다.')
+    if (!startQuizFor(session, unquizzedLearnedIndices(session))) {
+      alert('풀 수 있는 문제가 없습니다.')
     }
   }
 
@@ -233,7 +244,7 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {lastLearnedIndex(session) + 1}번까지 학습
-                    {session.quizzedUpTo >= 0 && ` · ${session.quizzedUpTo + 1}번까지 풀이`} ·{' '}
+                    {session.quizzedIndices.length > 0 && ` · ${session.quizzedIndices.length}문제 풀이 완료`} ·{' '}
                     {new Date(session.savedAt).toLocaleDateString('ko-KR')} 저장
                   </p>
                 </div>
@@ -245,12 +256,13 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
                 </button>
               </div>
               {/* 상태에 맞는 버튼만 노출한다 (둘 다 남아 있으면 둘 다) */}
-              {hasUnquizzedRange(session) && (
+              {unquizzedLearnedIndices(session).length > 0 && (
                 <button
                   onClick={() => handleResumeQuizFromSession(session)}
                   className="w-full py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
                 >
-                  ▶ {session.quizzedUpTo + 2}번부터 퀴즈 풀기
+                  ▶ {unquizzedLearnedIndices(session)[0] + 1}번부터 퀴즈 풀기
+                  {' '}({unquizzedLearnedIndices(session).length}문제)
                 </button>
               )}
               {firstUnlearnedIndex(session) < session.allQuestions.length && (
