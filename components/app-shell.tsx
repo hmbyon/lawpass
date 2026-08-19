@@ -11,6 +11,7 @@ import { FeedbackModal } from '@/components/feedback-modal'
 import { isAdminEmail } from '@/lib/admin'
 import { countUnreadFeedback } from '@/lib/firebaseServices/feedback'
 import { SettingsModal } from '@/components/settings-modal'
+import { AdminFeedbackModal } from '@/components/admin-feedback-modal'
 import { PdfTab } from '@/components/tabs/pdf-tab'
 import { CbtTab } from '@/components/tabs/cbt-tab'
 import { StudyTab } from '@/components/tabs/study-tab'
@@ -45,16 +46,19 @@ export function AppShell({ user }: Props) {
   // 관리자 계정에서만 안읽은 피드백 수를 조회해 헤더 버튼에 표시한다
   const isAdmin = isAdminEmail(user.email)
   const [unreadFeedback, setUnreadFeedback] = useState(0)
-  // 관리자가 헤더 피드백 버튼으로 들어오면 설정 모달의 관리자 섹션을 바로 연다
-  const [feedbackAdminEntry, setFeedbackAdminEntry] = useState(false)
+  // 관리자는 헤더 피드백 버튼으로 피드백 전용 관리자 모달을 연다
+  const [showAdminFeedback, setShowAdminFeedback] = useState(false)
+
+  const refreshUnreadFeedback = useCallback(() => {
+    if (!isAdmin) return
+    countUnreadFeedback()
+      .then(setUnreadFeedback)
+      .catch((e) => console.error('[app-shell] 안읽은 피드백 조회 실패', e))
+  }, [isAdmin])
 
   function handleFeedbackClick() {
-    if (isAdmin) {
-      setFeedbackAdminEntry(true)
-      setShowSettingsModal(true)
-    } else {
-      setShowFeedbackModal(true)
-    }
+    if (isAdmin) setShowAdminFeedback(true)
+    else setShowFeedbackModal(true)
   }
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [showOnboarding, setShowOnboarding] = useState(false)
@@ -119,13 +123,8 @@ export function AppShell({ user }: Props) {
   }, [loadFromFirebase])
 
   useEffect(() => {
-    if (!isAdmin) return
-    let cancelled = false
-    countUnreadFeedback()
-      .then((count) => { if (!cancelled) setUnreadFeedback(count) })
-      .catch((e) => console.error('[app-shell] 안읽은 피드백 조회 실패', e))
-    return () => { cancelled = true }
-  }, [isAdmin, showFeedbackModal, showSettingsModal])
+    refreshUnreadFeedback()
+  }, [refreshUnreadFeedback])
 
   function handleLogoClick() {
     setTab('pdf')
@@ -318,6 +317,14 @@ export function AppShell({ user }: Props) {
         />
       )}
 
+      {showAdminFeedback && (
+        <AdminFeedbackModal
+          onWriteFeedback={() => { setShowAdminFeedback(false); setShowFeedbackModal(true) }}
+          onUnreadChange={refreshUnreadFeedback}
+          onClose={() => { setShowAdminFeedback(false); refreshUnreadFeedback() }}
+        />
+      )}
+
       {showSettingsModal && (
         <SettingsModal
           questionCount={questions.length}
@@ -327,9 +334,8 @@ export function AppShell({ user }: Props) {
           onClearAll={handleClearAll}
           mode={mode}
           onModeChange={handleModeChange}
-          autoOpenFeedback={feedbackAdminEntry}
           onWriteFeedback={() => { setShowSettingsModal(false); setShowFeedbackModal(true) }}
-          onClose={() => { setShowSettingsModal(false); setFeedbackAdminEntry(false) }}
+          onClose={() => setShowSettingsModal(false)}
         />
       )}
     </div>
