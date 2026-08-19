@@ -94,6 +94,11 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
     return questions.filter((q) => activeSubjects.includes(q.subject))
   }, [questions, activeSubjects])
 
+  // 표기 차이로 매칭이 어긋나지 않도록 정규화해서 비교한다.
+  // 공백뿐 아니라 구분자(가운뎃점·중점·하이픈·슬래시)와 괄호도 제거한다
+  // 예: "어음·수표법" / "어음 수표법" / "어음수표법" 을 같은 값으로 취급
+  const normalizeUnit = (u: string) => u.replace(/[\s·・‧∙⋅/\-()［］\[\]]/g, '')
+
   // 선택 가능한 값 = 현재 조건에서 실제로 문제가 존재하는 값.
   // 여기 없는 값은 회색으로 남고 클릭해도 선택되지 않는다 (결과 0문제 방지)
   const selectableExamTypes = useMemo(
@@ -106,19 +111,29 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
     [scopedQuestions]
   )
 
-  // 단원은 과목뿐 아니라 선택된 연도까지 반영한다
+  // 단원은 과목뿐 아니라 선택된 연도까지 반영한다.
+  // 데이터의 단원 표기가 정적 UNITS와 미세하게 다를 수 있어 정규화 후 대조하고,
+  // 화면 옵션으로 쓰이는 정적 라벨과 데이터 원본 값을 모두 담는다
   const selectableUnits = useMemo(() => {
     const scoped = years.length > 0
       ? scopedQuestions.filter((q) => years.includes(String(q.year)))
       : scopedQuestions
-    return Array.from(new Set(scoped.map((q) => q.unit?.trim()).filter((u): u is string => !!u)))
+    const dataUnits = Array.from(
+      new Set(scoped.map((q) => q.unit?.trim()).filter((u): u is string => !!u))
+    )
+    const dataKeys = new Set(dataUnits.map(normalizeUnit))
+    const staticMatches = Object.values(UNITS)
+      .flat()
+      .filter((label) => dataKeys.has(normalizeUnit(label)))
+    return Array.from(new Set([...dataUnits, ...staticMatches]))
   }, [scopedQuestions, years])
 
   const allYearsSelected =
     selectableYears.length > 0 && selectableYears.every((y) => years.includes(y))
 
+  // 화면에 표시되는 단원 목록 (과목 미선택이면 전체 과목의 단원)
   const availableUnits = useMemo(() => {
-    return subjects.flatMap((s) => UNITS[s] ?? [])
+    return (subjects.length > 0 ? subjects : SUBJECTS).flatMap((s) => UNITS[s] ?? [])
   }, [subjects])
 
   const allGeneralUnitsSelected = generalAvailableUnits.length > 0 && generalAvailableUnits.every((u) => units.includes(u))
@@ -152,6 +167,31 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
     )
   }
 
+  // 해당 과목들에 실제로 존재하는 단원. 정적 UNITS 라벨과 데이터 값을 모두 반환한다
+  function unitsForSubjects(subjs: string[]) {
+    const dataUnits = Array.from(
+      new Set(
+        questions
+          .filter((q) => subjs.includes(q.subject))
+          .map((q) => q.unit?.trim())
+          .filter((u): u is string => !!u)
+      )
+    )
+    const dataKeys = new Set(dataUnits.map(normalizeUnit))
+    const staticMatches = subjs.flatMap((sub) => UNITS[sub as Subject] ?? [])
+      .filter((label) => dataKeys.has(normalizeUnit(label)))
+    return Array.from(new Set([...dataUnits, ...staticMatches]))
+  }
+
+  // 과목이 새로 추가되면 그 과목의 데이터가 있는 값들을 기존 선택에 더한다.
+  // (첫 과목일 때만 자동 선택되던 탓에, 두 번째 과목의 연도·단원이 회색으로 남던 문제)
+  function mergeSelectionsFor(added: string[]) {
+    if (added.length === 0) return
+    setExamTypes((prev) => Array.from(new Set([...prev, ...examTypesForSubjects(added)])))
+    setYears((prev) => Array.from(new Set([...prev, ...yearsForSubjects(added)])))
+    setUnits((prev) => Array.from(new Set([...prev, ...unitsForSubjects(added)])))
+  }
+
   function toggleGroup(groupSubjects: Subject[]) {
     const allSelected = groupSubjects.every((s) => subjects.includes(s))
     if (allSelected) {
@@ -165,23 +205,19 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
       }
     } else {
       const newSubjects = Array.from(new Set([...subjects, ...groupSubjects]))
+      const added = groupSubjects.filter((sub) => !subjects.includes(sub))
       setSubjects(newSubjects)
-      if (subjects.length === 0) {
-        setExamTypes(examTypesForSubjects(newSubjects))
-        setYears(yearsForSubjects(newSubjects))
-      }
+      mergeSelectionsFor(added)
     }
   }
 
   function handleSubjectsChange(newSubjects: Subject[]) {
     const removed = subjects.filter((s) => !newSubjects.includes(s))
     const removedUnits = removed.flatMap((s) => UNITS[s] ?? [])
+    const added = newSubjects.filter((sub) => !subjects.includes(sub))
     setSubjects(newSubjects)
     setUnits((prev) => prev.filter((u) => !removedUnits.includes(u)))
-    if (subjects.length === 0 && newSubjects.length > 0) {
-      setExamTypes(examTypesForSubjects(newSubjects))
-      setYears(yearsForSubjects(newSubjects))
-    }
+    mergeSelectionsFor(added)
     if (newSubjects.length === 0) {
       setExamTypes([])
       setYears([])
@@ -312,7 +348,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
           </div>
         )
       ) : (
-        availableUnits.length > 0 && (
+        (
           <div className="bg-card border border-border rounded-xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-muted-foreground">범위 (복수 선택)</label>
@@ -328,7 +364,8 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
               </button>
             </div>
             <div className="space-y-2">
-              {subjects.map((s) => {
+              {/* 과목 미선택이면 전체 과목의 단원을 모두 보여준다 (전부 회색) */}
+              {(subjects.length > 0 ? subjects : SUBJECTS).map((s) => {
                 const subjectUnits = UNITS[s]
                 if (!subjectUnits) return null
                 return (
