@@ -446,15 +446,54 @@ export function clearSavedSession() {
 }
 
 // ── 선학습 임시저장 ──
+// 학습 진도(learnedIndices)와 퀴즈 진도(quizzedUpTo)를 독립적으로 추적한다.
+// 하나의 값으로 뭉뚱그리면 "학습은 20번까지 했지만 퀴즈는 5번까지"를 표현할 수 없다
 export interface SavedStudySession {
   allQuestions: import('./types').Question[]
-  previewedIndex: number
-  remainingFrom: number
+  learnedIndices: number[] // 실제로 열어본 문제 인덱스 (건너뛴 구간이 정확히 남는다)
+  quizzedUpTo: number // 퀴즈까지 끝낸 마지막 인덱스. 아직 없으면 -1
   savedAt: number
+  // 구버전 필드 (읽기 전용, 마이그레이션에만 사용)
+  previewedIndex?: number
+  remainingFrom?: number
+}
+
+// 구버전 세션(previewedIndex/remainingFrom)을 새 형식으로 변환한다
+function migrateStudySession(raw: SavedStudySession): SavedStudySession {
+  if (Array.isArray(raw.learnedIndices)) {
+    return { ...raw, quizzedUpTo: raw.quizzedUpTo ?? -1 }
+  }
+  const learnedCount = raw.remainingFrom ?? (raw.previewedIndex ?? -1) + 1
+  return {
+    allQuestions: raw.allQuestions,
+    learnedIndices: Array.from({ length: Math.max(0, learnedCount) }, (_, i) => i),
+    quizzedUpTo: -1,
+    savedAt: raw.savedAt,
+  }
+}
+
+// 아직 학습하지 않은 첫 인덱스. 전부 학습했으면 문제 수를 반환한다
+export function firstUnlearnedIndex(session: SavedStudySession): number {
+  const learned = new Set(session.learnedIndices)
+  for (let i = 0; i < session.allQuestions.length; i++) {
+    if (!learned.has(i)) return i
+  }
+  return session.allQuestions.length
+}
+
+// 학습한 가장 마지막 인덱스. 하나도 없으면 -1
+export function lastLearnedIndex(session: SavedStudySession): number {
+  return session.learnedIndices.reduce((max, i) => (i > max ? i : max), -1)
+}
+
+// 학습은 했지만 아직 퀴즈로 풀지 않은 구간이 있는지
+export function hasUnquizzedRange(session: SavedStudySession): boolean {
+  return lastLearnedIndex(session) > session.quizzedUpTo
 }
 
 export function getSavedStudySession(): SavedStudySession | null {
-  return safeGet<SavedStudySession | null>(modeKey(BASE_KEYS.savedStudySession), null)
+  const raw = safeGet<SavedStudySession | null>(modeKey(BASE_KEYS.savedStudySession), null)
+  return raw ? migrateStudySession(raw) : null
 }
 
 export function saveStudySession(session: SavedStudySession) {
@@ -468,7 +507,7 @@ export function clearSavedStudySession() {
 
 // ── 선학습 임시저장 목록 (여러 개) ──
 export function getSavedStudySessions(): SavedStudySession[] {
-  return safeGet<SavedStudySession[]>(modeKey(BASE_KEYS.savedStudySessions), [])
+  return safeGet<SavedStudySession[]>(modeKey(BASE_KEYS.savedStudySessions), []).map(migrateStudySession)
 }
 
 export function saveSavedStudySessions(sessions: SavedStudySession[]) {

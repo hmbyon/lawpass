@@ -5,6 +5,7 @@ import { QuizEngine } from '@/components/quiz/quiz-engine'
 import {
   addBookmark, removeBookmark, getWrongNotes, updateChoiceMemo,
   addSavedStudySession, getSavedStudySessions, removeSavedStudySession,
+  firstUnlearnedIndex, lastLearnedIndex, hasUnquizzedRange,
   clearSavedSession, getSavedSession
 } from '@/lib/store'
 import type { SavedStudySession } from '@/lib/store'
@@ -33,6 +34,11 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
   const [savedSessions, setSavedSessions] = useState<SavedStudySession[]>([])
   const [savedQuiz, setSavedQuiz] = useState(getSavedSession())
   const [activeSession, setActiveSession] = useState<SavedStudySession | null>(null)
+  const [previewVisited, setPreviewVisited] = useState<number[]>([])
+  // 지금 진행 중인 퀴즈가 커버하는 마지막 인덱스 (완료 시 quizzedUpTo 갱신용)
+  const [pendingQuizUpTo, setPendingQuizUpTo] = useState<number | null>(null)
+  // "이어서 풀기"로 들어온 경우에만 저장된 퀴즈 답안을 복원한다
+  const [resumingQuiz, setResumingQuiz] = useState(false)
 
   useEffect(() => {
     setSavedSessions(getSavedStudySessions())
@@ -44,70 +50,110 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
     clearSavedSession()
     setAllQuestions(qs)
     setPreviewFrom(0)
+    setPreviewVisited([])
     setSavedQuiz(null)
     setActiveSession(null)
     onSync()
     setPhase('preview')
   }
 
-  function handlePartialQuiz(upToIndex: number) {
-    const toQuiz = allQuestions.slice(0, upToIndex + 1)
-    const remaining = upToIndex + 1
-
-    if (remaining < allQuestions.length) {
-      const session: SavedStudySession = {
-        allQuestions,
-        previewedIndex: upToIndex,
-        remainingFrom: remaining,
-        savedAt: activeSession?.savedAt ?? Date.now(),
-      }
-      addSavedStudySession(session)
-      setSavedSessions(getSavedStudySessions())
-    } else {
-      if (activeSession) {
-        removeSavedStudySession(activeSession.savedAt)
-        setSavedSessions(getSavedStudySessions())
-      }
+  // 이번 학습 세션의 방문 기록을 기존 세션에 합쳐 저장 형태로 만든다
+  function buildSession(visited: number[], quizzedUpTo: number): SavedStudySession {
+    const merged = new Set([...(activeSession?.learnedIndices ?? []), ...visited])
+    return {
+      allQuestions,
+      learnedIndices: Array.from(merged).sort((a, b) => a - b),
+      quizzedUpTo,
+      savedAt: activeSession?.savedAt ?? Date.now(),
     }
+  }
 
+  // 아직 퀴즈로 풀지 않은 구간만 출제한다 (이미 푼 앞부분을 다시 풀지 않도록)
+  function startQuizRange(session: SavedStudySession, upToIndex: number) {
+    const start = session.quizzedUpTo + 1
+    const toQuiz = session.allQuestions.slice(start, upToIndex + 1)
+    if (toQuiz.length === 0) return false
+
+    addSavedStudySession(session)
+    setSavedSessions(getSavedStudySessions())
+    setActiveSession(session)
+    setAllQuestions(session.allQuestions)
+    setPendingQuizUpTo(upToIndex)
+
+    clearSavedSession() // 이전 퀴즈의 답안이 새 퀴즈에 실리지 않게 한다
+    setSavedQuiz(null)
+    setResumingQuiz(false)
     setQuizQuestions(toQuiz)
     setPhase('quiz')
     onSync()
+    return true
   }
 
-  function handleSaveAndExit(upToIndex: number) {
-    const session: SavedStudySession = {
-      allQuestions,
-      previewedIndex: upToIndex,
-      remainingFrom: upToIndex,
-      savedAt: activeSession?.savedAt ?? Date.now(),
+  function handlePartialQuiz(upToIndex: number, visited: number[]) {
+    const session = buildSession(visited, activeSession?.quizzedUpTo ?? -1)
+    if (!startQuizRange(session, upToIndex)) {
+      alert('이 구간은 이미 모두 풀었습니다.')
     }
+  }
+
+  function handleSaveAndExit(upToIndex: number, visited: number[]) {
+    // upToIndex까지 방문한 것으로 보되, 건너뛴 구간은 visited에만 의존한다
+    const session = buildSession(visited, activeSession?.quizzedUpTo ?? -1)
     addSavedStudySession(session)
     setSavedSessions(getSavedStudySessions())
     setPhase('filter')
     setActiveSession(null)
+    setPreviewVisited([])
     onSync()
   }
 
   function handleQuizFinish() {
     clearSavedSession()
+
+    if (activeSession && pendingQuizUpTo !== null) {
+      const updated: SavedStudySession = {
+        ...activeSession,
+        quizzedUpTo: Math.max(activeSession.quizzedUpTo, pendingQuizUpTo),
+      }
+      const total = updated.allQuestions.length
+      const allLearned = firstUnlearnedIndex(updated) >= total
+      const allQuizzed = updated.quizzedUpTo >= total - 1
+      // 학습·풀이가 모두 끝난 세션만 목록에서 지운다
+      if (allLearned && allQuizzed) removeSavedStudySession(updated.savedAt)
+      else addSavedStudySession(updated)
+    }
+
     setSavedSessions(getSavedStudySessions())
     setSavedQuiz(null)
+    setActiveSession(null)
+    setPendingQuizUpTo(null)
+    setResumingQuiz(false)
+    setPreviewVisited([])
     setPhase('filter')
     onDone()
   }
 
   function handleResumePreview(session: SavedStudySession) {
     setAllQuestions(session.allQuestions)
-    setPreviewFrom(session.remainingFrom)
+    setPreviewFrom(Math.min(firstUnlearnedIndex(session), session.allQuestions.length - 1))
+    setPreviewVisited(session.learnedIndices)
     setActiveSession(session)
     setPhase('preview')
+  }
+
+  // 학습은 했지만 아직 풀지 않은 구간을 바로 퀴즈로 시작한다
+  function handleResumeQuizFromSession(session: SavedStudySession) {
+    setPreviewVisited(session.learnedIndices)
+    if (!startQuizRange(session, lastLearnedIndex(session))) {
+      alert('풀 수 있는 구간이 없습니다.')
+    }
   }
 
   function handleResumeQuiz() {
     if (!savedQuiz || savedQuiz.mode !== 'study') return
     setQuizQuestions(savedQuiz.questions)
     setSavedQuiz(null)
+    setResumingQuiz(true)
     setPhase('quiz')
     onSync()
   }
@@ -122,6 +168,7 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
       <StudyBulkPreview
         questions={allQuestions}
         startFrom={previewFrom}
+        initialVisited={previewVisited}
         onPartialQuiz={handlePartialQuiz}
         onSaveAndExit={handleSaveAndExit}
         onBack={() => setPhase('filter')}
@@ -131,7 +178,8 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
   }
 
   if (phase === 'quiz') {
-    const saved = getSavedSession()
+    // 새로 시작한 퀴즈에 이전 세션의 답안이 실리지 않도록, 이어서 풀기일 때만 복원한다
+    const saved = resumingQuiz ? getSavedSession() : null
     return (
       <QuizEngine
         questions={quizQuestions.length > 0 ? quizQuestions : (saved?.questions ?? [])}
@@ -184,7 +232,8 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
                     {session.allQuestions[0]?.subject} 외 · 전체 {session.allQuestions.length}문제
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {session.remainingFrom + 1}번부터 이어서 ·{' '}
+                    {lastLearnedIndex(session) + 1}번까지 학습
+                    {session.quizzedUpTo >= 0 && ` · ${session.quizzedUpTo + 1}번까지 풀이`} ·{' '}
                     {new Date(session.savedAt).toLocaleDateString('ko-KR')} 저장
                   </p>
                 </div>
@@ -195,12 +244,23 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
                   삭제
                 </button>
               </div>
-              <button
-                onClick={() => handleResumePreview(session)}
-                className="w-full py-2 bg-purple-700 text-white rounded-lg text-sm font-medium hover:opacity-90"
-              >
-                {session.remainingFrom + 1}번부터 이어서 학습
-              </button>
+              {/* 상태에 맞는 버튼만 노출한다 (둘 다 남아 있으면 둘 다) */}
+              {hasUnquizzedRange(session) && (
+                <button
+                  onClick={() => handleResumeQuizFromSession(session)}
+                  className="w-full py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
+                >
+                  ▶ {session.quizzedUpTo + 2}번부터 퀴즈 풀기
+                </button>
+              )}
+              {firstUnlearnedIndex(session) < session.allQuestions.length && (
+                <button
+                  onClick={() => handleResumePreview(session)}
+                  className="w-full py-2 bg-purple-700 text-white rounded-lg text-sm font-medium hover:opacity-90"
+                >
+                  📖 {firstUnlearnedIndex(session) + 1}번부터 이어서 학습
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -397,6 +457,7 @@ function parseSubExplanations(explanation: string | null): Record<string, string
 function StudyBulkPreview({
   questions,
   startFrom,
+  initialVisited = [],
   onPartialQuiz,
   onSaveAndExit,
   onBack,
@@ -404,12 +465,21 @@ function StudyBulkPreview({
 }: {
   questions: Question[]
   startFrom: number
-  onPartialQuiz: (upToIndex: number) => void
-  onSaveAndExit: (upToIndex: number) => void
+  initialVisited?: number[]
+  onPartialQuiz: (upToIndex: number, visited: number[]) => void
+  onSaveAndExit: (upToIndex: number, visited: number[]) => void
   onBack: () => void
   onDone: () => void
 }) {
   const [current, setCurrent] = useState(startFrom)
+  // 실제로 연 문제만 기록한다. 도트로 건너뛰면 중간 구간은 미학습으로 남는다
+  const [visited, setVisited] = useState<Set<number>>(() => new Set([...initialVisited, startFrom]))
+
+  useEffect(() => {
+    setVisited((prev) => (prev.has(current) ? prev : new Set(prev).add(current)))
+  }, [current])
+
+  const visitedList = () => Array.from(visited).sort((a, b) => a - b)
   const [bookmarked, setBookmarked] = useState<Set<string>>(() => {
     const notes = getWrongNotes()
     return new Set(
@@ -932,7 +1002,7 @@ function StudyBulkPreview({
         </button>
         {isLast ? (
           <button
-            onClick={() => onPartialQuiz(current)}
+            onClick={() => onPartialQuiz(current, visitedList())}
             className="flex-1 py-2.5 bg-emerald-600 text-white rounded-lg font-medium text-sm hover:opacity-90 transition-opacity"
           >
             학습 완료 — 문제 풀기 →
@@ -952,7 +1022,7 @@ function StudyBulkPreview({
         <button
           onClick={() => {
             if (!confirm(`1~${current + 1}번 문제를 지금 풀고, 나머지 ${questions.length - current - 1}문제는 나중에 이어서 할까요?`)) return
-            onPartialQuiz(current)
+            onPartialQuiz(current, visitedList())
           }}
           className="flex-1 py-2 border border-primary/40 text-primary rounded-lg text-xs hover:bg-primary/10 transition-colors"
         >
@@ -961,7 +1031,7 @@ function StudyBulkPreview({
         <button
           onClick={() => {
             if (!confirm(`여기서 멈추고 나중에 ${current + 1}번부터 이어서 할까요?`)) return
-            onSaveAndExit(current)
+            onSaveAndExit(current, visitedList())
           }}
           className="flex-1 py-2 border border-border text-muted-foreground rounded-lg text-xs hover:text-foreground hover:border-foreground/30 transition-colors"
         >
@@ -980,7 +1050,7 @@ function StudyBulkPreview({
                 ? 'bg-primary text-primary-foreground'
                 : bookmarked.has(q.id)
                   ? 'bg-yellow-500/30 text-yellow-300'
-                  : idx < current
+                  : visited.has(idx)
                     ? 'bg-emerald-700/50 text-emerald-300'
                     : 'bg-muted text-muted-foreground'
             }`}
