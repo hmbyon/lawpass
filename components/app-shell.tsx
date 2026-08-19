@@ -8,6 +8,8 @@ import { logout } from '@/lib/firebaseServices/auth'
 import { pullFromFirebase, pushToFirebase } from '@/lib/firebaseServices/sync'
 import { getAppMode, setAppMode, type AppMode } from '@/lib/appMode'
 import { FeedbackModal } from '@/components/feedback-modal'
+import { isAdminEmail } from '@/lib/admin'
+import { countUnreadFeedback } from '@/lib/firebaseServices/feedback'
 import { SettingsModal } from '@/components/settings-modal'
 import { PdfTab } from '@/components/tabs/pdf-tab'
 import { CbtTab } from '@/components/tabs/cbt-tab'
@@ -40,6 +42,9 @@ export function AppShell({ user }: Props) {
   const [avatarError, setAvatarError] = useState(false)
   const [mode, setMode] = useState<AppMode>(() => getAppMode())
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
+  // 관리자 계정에서만 안읽은 피드백 수를 조회해 헤더 버튼에 표시한다
+  const isAdmin = isAdminEmail(user.email)
+  const [unreadFeedback, setUnreadFeedback] = useState(0)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [showOnboarding, setShowOnboarding] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
@@ -102,6 +107,15 @@ export function AppShell({ user }: Props) {
     loadFromFirebase()
   }, [loadFromFirebase])
 
+  useEffect(() => {
+    if (!isAdmin) return
+    let cancelled = false
+    countUnreadFeedback()
+      .then((count) => { if (!cancelled) setUnreadFeedback(count) })
+      .catch((e) => console.error('[app-shell] 안읽은 피드백 조회 실패', e))
+    return () => { cancelled = true }
+  }, [isAdmin, showFeedbackModal])
+
   function handleLogoClick() {
     setTab('pdf')
     loadFromFirebase()
@@ -143,9 +157,20 @@ export function AppShell({ user }: Props) {
             </button>
             <button
               onClick={() => setShowFeedbackModal(true)}
-              className="text-xs text-muted-foreground border border-border rounded-full px-2 py-0.5 hover:text-foreground hover:border-foreground/30 transition-colors"
+              title={isAdmin && unreadFeedback > 0 ? `안읽은 피드백 ${unreadFeedback}건` : undefined}
+              className={`relative text-xs rounded-full px-2 py-0.5 border transition-colors ${
+                isAdmin && unreadFeedback > 0
+                  ? 'text-red-400 border-red-500/40 bg-red-500/10 hover:bg-red-500/20'
+                  : 'text-muted-foreground border-border hover:text-foreground hover:border-foreground/30'
+              }`}
             >
               <span className="hidden sm:inline">💬 </span>피드백
+              {isAdmin && unreadFeedback > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75 animate-ping" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+                </span>
+              )}
             </button>
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">

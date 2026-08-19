@@ -4,11 +4,11 @@ import { useState } from 'react'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { logout } from '@/lib/firebaseServices/auth'
 import { clearFirebaseSessions } from '@/lib/firebaseServices/sync'
-import { getAllFeedback, setFeedbackRead } from '@/lib/firebaseServices/feedback'
+import { getAllFeedback, setFeedbackRead, setFeedbackReply } from '@/lib/firebaseServices/feedback'
+import { ADMIN_EMAIL } from '@/lib/admin'
 import type { Feedback } from '@/lib/types'
 import type { AppMode } from '@/lib/appMode'
 
-const ADMIN_EMAIL = 'hmbyon97@gmail.com'
 const MODE_FILTERS: { id: 'all' | AppMode; label: string }[] = [
   { id: 'all', label: '전체' },
   { id: 'law', label: '⚖️ LawPass' },
@@ -43,6 +43,9 @@ export function SettingsModal({
   const [loadingAdmin, setLoadingAdmin] = useState(false)
   const [hasLoadedFeedback, setHasLoadedFeedback] = useState(false)
   const [adminError, setAdminError] = useState('')
+  const [replyOpen, setReplyOpen] = useState<string | null>(null)   // 답글 입력창이 열린 피드백 id
+  const [replyText, setReplyText] = useState('')
+  const [replySaving, setReplySaving] = useState(false)
   const [modeFilter, setModeFilter] = useState<'all' | AppMode>('all')
 
   function handleLogout() {
@@ -86,6 +89,28 @@ export function SettingsModal({
     } catch (e) {
       console.error('[settings-modal] 읽음 상태 변경 실패', e)
       setFeedbackList((prev) => prev.map((x) => (x.id === f.id ? { ...x, isRead: f.isRead } : x)))
+    }
+  }
+
+  async function handleSaveReply(f: Feedback) {
+    setReplySaving(true)
+    const reply = replyText.trim()
+    try {
+      await setFeedbackReply(f.id, reply)
+      setFeedbackList((prev) =>
+        prev.map((x) =>
+          x.id === f.id
+            ? { ...x, adminReply: reply || undefined, repliedAt: reply ? Date.now() : undefined }
+            : x
+        )
+      )
+      setReplyOpen(null)
+      setReplyText('')
+    } catch (e) {
+      console.error('[settings-modal] 답글 저장 실패', e)
+      setAdminError('답글 저장에 실패했습니다.')
+    } finally {
+      setReplySaving(false)
     }
   }
 
@@ -253,6 +278,66 @@ export function SettingsModal({
                       <span className="truncate">{f.userEmail ?? f.userId}</span>
                       <span className="shrink-0">{new Date(f.createdAt).toLocaleString('ko-KR')}</span>
                     </div>
+
+                    {f.adminReply && replyOpen !== f.id && (
+                      <div className="border-l-2 border-primary/50 bg-primary/5 rounded-r px-2 py-1.5 space-y-1">
+                        <p className="text-[10px] text-primary font-medium">답글</p>
+                        <p className="text-xs text-foreground whitespace-pre-wrap break-words">{f.adminReply}</p>
+                        {f.repliedAt && (
+                          <p className="text-[10px] text-muted-foreground">
+                            {new Date(f.repliedAt).toLocaleString('ko-KR')}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {replyOpen === f.id ? (
+                      <div className="space-y-1.5">
+                        <textarea
+                          value={replyText}
+                          onChange={(e) => setReplyText(e.target.value)}
+                          placeholder="답글을 입력하세요..."
+                          rows={3}
+                          autoFocus
+                          className="w-full bg-input border border-border rounded-lg px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                        />
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            type="button"
+                            onClick={() => { setReplyOpen(null); setReplyText('') }}
+                            className="text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            취소
+                          </button>
+                          {f.adminReply && (
+                            <button
+                              type="button"
+                              onClick={() => { setReplyText(''); handleSaveReply(f) }}
+                              disabled={replySaving}
+                              className="text-xs text-red-400 hover:text-red-300 disabled:opacity-40"
+                            >
+                              답글 삭제
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleSaveReply(f)}
+                            disabled={replySaving || !replyText.trim()}
+                            className="text-xs text-primary font-medium hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            {replySaving ? '전송 중...' : '답글 전송'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => { setReplyOpen(f.id); setReplyText(f.adminReply ?? '') }}
+                        className="text-xs text-primary border border-primary/30 rounded-lg px-2.5 py-1 hover:bg-primary/10 transition-colors"
+                      >
+                        {f.adminReply ? '답글 수정' : '답글 달기'}
+                      </button>
+                    )}
                   </div>
                 )
               })}

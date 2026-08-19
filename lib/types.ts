@@ -134,4 +134,6 @@ export interface Feedback {
   createdAt: number
   isRead: boolean
   mode?: import('./appMode').AppMode
+  adminReply?: string   // 관리자 답글
+  repliedAt?: number    // 답글 등록 시각
 }
