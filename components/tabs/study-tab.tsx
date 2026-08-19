@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import type { Question } from '@/lib/types'
+import type { Question, ExplanationBlock } from '@/lib/types'
 import { QuizFilter } from '@/components/quiz/quiz-filter'
 import { QuizEngine } from '@/components/quiz/quiz-engine'
 import {
@@ -20,6 +20,8 @@ import {
   withoutOverlaps,
   renderHighlighted,
 } from '@/lib/highlights'
+import type { BoldRange } from '@/lib/highlights'
+import { PassageTable } from '@/components/passage-table'
 
 type StudyPhase = 'filter' | 'preview' | 'quiz'
 
@@ -273,6 +275,12 @@ function parseSubChoices(passage: string): SubChoice | null {
   }
   if (markers.length < 2) return null
 
+  // 표·서식 안의 "가.", "다." 같은 산발적 표기를 하위지문으로 오인하지 않도록,
+  // 실제 보기 항목처럼 ㄱ부터 순서대로 이어지는 경우만 인정한다
+  const order = markers.map((m) => SUB_LABEL_CONSONANTS.indexOf(m.label))
+  if (order[0] !== 0) return null
+  if (order.some((v, i) => i > 0 && v !== order[i - 1] + 1)) return null
+
   const stem = passage.slice(0, markers[0].start).trim()
   const items: { label: string; text: string }[] = []
   for (let i = 0; i < markers.length; i++) {
@@ -284,6 +292,36 @@ function parseSubChoices(passage: string): SubChoice | null {
     if (text) items.push({ label: markers[i].label, text })
   }
   return items.length >= 2 ? { stem, items } : null
+}
+
+// 원본에서 밑줄로 강조돼 있던 구간을 AI가 **텍스트** 형태로 표시해 준다.
+// 형광펜 오프셋은 화면에 렌더된 텍스트 기준이므로, ** 마크를 제거한 문자열과
+// 그 문자열 기준 볼드 범위를 함께 돌려줘야 두 기능이 어긋나지 않는다
+function parseBoldMarks(raw: string): { text: string; bolds: BoldRange[] } {
+  const regex = /\*\*([\s\S]+?)\*\*/g
+  const bolds: BoldRange[] = []
+  let text = ''
+  let last = 0
+  let match: RegExpExecArray | null
+  while ((match = regex.exec(raw))) {
+    text += raw.slice(last, match.index)
+    const start = text.length
+    text += match[1]
+    bolds.push({ start, end: text.length })
+    last = match.index + match[0].length
+  }
+  text += raw.slice(last)
+  return { text, bolds }
+}
+
+// 해설은 블록 배열이 표준이지만, 블록 구조 도입 이전 데이터와 정규식 폴백 결과는 문자열이다
+function toExplanationBlocks(raw: string | ExplanationBlock[] | undefined): ExplanationBlock[] {
+  if (!raw) return []
+  if (typeof raw === 'string') {
+    const content = raw.trim()
+    return content ? [{ type: 'text', content }] : []
+  }
+  return raw.filter((b) => b?.content?.trim())
 }
 
 function escapeRegExp(text: string) {
@@ -544,6 +582,16 @@ function StudyBulkPreview({
           )}
         </p>
 
+        {/* 지문 안의 표/서식 */}
+        {q.passageTable && q.passageTable.length > 0 && (
+          <PassageTable
+            tables={q.passageTable}
+            highlights={highlights}
+            onRemoveHighlight={removeHighlight}
+            registerRef={(key, el) => { fieldRefs.current[key] = el }}
+          />
+        )}
+
         {/* ㄱㄴㄷㄹ 보기 항목 */}
         {subChoices && (
           <div className="space-y-2 pl-3 border-l-2 border-border">
@@ -552,7 +600,16 @@ function StudyBulkPreview({
               const existingMemo = choiceMemos[q.id]?.[item.label]
               const subItem = subItemByLabel.get(item.label)
               const subAnswer = subItem ? subItem.isCorrect : q.subChoiceAnswers?.[item.label]
-              const subExplanation = subItem?.explanation?.trim() || subExplanations[item.label]
+              // 새 블록 구조를 우선하고, 없으면 옛 데이터(정규식 파싱 결과 문자열)로 폴백
+              const subItemBlocks = toExplanationBlocks(subItem?.explanation)
+              const subBlocks = subItemBlocks.length > 0
+                ? subItemBlocks
+                : toExplanationBlocks(subExplanations[item.label])
+              // 블록 배열이면 블록마다 독립 필드 키가 필요하다.
+              // 옛 문자열 데이터는 기존 키를 그대로 써야 이미 칠해둔 형광펜이 어긋나지 않는다
+              const isBlockData = subItemBlocks.length > 0
+              const subExpFieldKey = (i: number) =>
+                isBlockData ? `subexp_${item.label}_${i}` : `subexp_${item.label}`
               const subSummary = subItem?.explanationSummary?.trim()
               const fieldKey = `sub_${item.label}`
               const isOpen = choiceMemoOpen === memoKey
@@ -611,7 +668,7 @@ function StudyBulkPreview({
                     </div>
                   )}
 
-                  {(subSummary || subExplanation) && (
+                  {(subSummary || subBlocks.length > 0) && (
                     <div className="ml-5 mt-1 bg-muted rounded-lg p-2.5 space-y-2">
                       {subSummary && (
                         <div className="flex gap-1.5 items-start">
@@ -619,15 +676,35 @@ function StudyBulkPreview({
                           <p className="text-xs font-semibold text-foreground leading-relaxed whitespace-pre-wrap">{subSummary}</p>
                         </div>
                       )}
-                      {subSummary && subExplanation && <div className="border-t border-border" />}
-                      {subExplanation && (
-                        <p
-                          ref={(el) => { fieldRefs.current[`subexp_${item.label}`] = el }}
-                          className="text-xs text-foreground leading-relaxed whitespace-pre-wrap select-text"
-                        >
-                          {renderHighlighted(subExplanation, `subexp_${item.label}`, highlights, removeHighlight)}
-                        </p>
-                      )}
+                      {subSummary && subBlocks.length > 0 && <div className="border-t border-border" />}
+                      {subBlocks.map((block, bi) => {
+                        const key = subExpFieldKey(bi)
+                        const { text: blockText, bolds } = parseBoldMarks(block.content)
+                        if (block.type === 'lawBox') {
+                          return (
+                            <div key={key} className="border border-primary/30 bg-primary/5 rounded-lg p-2 space-y-1">
+                              {block.title && (
+                                <p className="text-[11px] font-semibold text-primary leading-snug">{parseBoldMarks(block.title).text}</p>
+                              )}
+                              <p
+                                ref={(el) => { fieldRefs.current[key] = el }}
+                                className="text-xs text-foreground leading-relaxed whitespace-pre-wrap select-text"
+                              >
+                                {renderHighlighted(blockText, key, highlights, removeHighlight, bolds)}
+                              </p>
+                            </div>
+                          )
+                        }
+                        return (
+                          <p
+                            key={key}
+                            ref={(el) => { fieldRefs.current[key] = el }}
+                            className="text-xs text-foreground leading-relaxed whitespace-pre-wrap select-text"
+                          >
+                            {renderHighlighted(blockText, key, highlights, removeHighlight, bolds)}
+                          </p>
+                        )
+                      })}
                     </div>
                   )}
                 </div>
@@ -642,7 +719,14 @@ function StudyBulkPreview({
             const memoKey = `${q.id}_${c.label}`
             const existingMemo = choiceMemos[q.id]?.[c.label]
             const isCorrect = c.label === q.answer
-            const explanation = q.choiceExplanations?.[c.label]
+            const rawExplanation = q.choiceExplanations?.[c.label]
+            const explanationBlocks = toExplanationBlocks(rawExplanation)
+            // 블록 배열이면 블록마다 독립 필드 키가 필요하다.
+            // 옛 문자열 데이터는 기존 키를 그대로 써야 이미 칠해둔 형광펜이 어긋나지 않는다
+            const isBlockExplanation = Array.isArray(rawExplanation)
+            const choiceExpFieldKey = (i: number) =>
+              isBlockExplanation ? `choiceexp_${c.label}_${i}` : `choiceexp_${c.label}`
+            const explanationSummary = q.choiceExplanationSummaries?.[c.label]?.trim()
             const fieldKey = `choice_${c.label}`
             const isOpen = choiceMemoOpen === memoKey
 
@@ -705,14 +789,43 @@ function StudyBulkPreview({
                   </div>
                 )}
 
-                {!subChoices && explanation && (
-                  <div className="ml-3 mt-1 bg-muted rounded-lg p-2.5">
-                    <p
-                      ref={(el) => { fieldRefs.current[`choiceexp_${c.label}`] = el }}
-                      className="text-xs text-foreground leading-relaxed whitespace-pre-wrap select-text"
-                    >
-                      {renderHighlighted(explanation, `choiceexp_${c.label}`, highlights, removeHighlight)}
-                    </p>
+                {!subChoices && (explanationSummary || explanationBlocks.length > 0) && (
+                  <div className="ml-3 mt-1 bg-muted rounded-lg p-2.5 space-y-2">
+                    {explanationSummary && (
+                      <div className="flex gap-1.5 items-start">
+                        <span className="shrink-0 text-[10px] text-primary font-medium mt-0.5">요약</span>
+                        <p className="text-xs font-semibold text-foreground leading-relaxed whitespace-pre-wrap">{explanationSummary}</p>
+                      </div>
+                    )}
+                    {explanationSummary && explanationBlocks.length > 0 && <div className="border-t border-border" />}
+                    {explanationBlocks.map((block, bi) => {
+                      const key = choiceExpFieldKey(bi)
+                      const { text: blockText, bolds } = parseBoldMarks(block.content)
+                      if (block.type === 'lawBox') {
+                        return (
+                          <div key={key} className="border border-primary/30 bg-primary/5 rounded-lg p-2 space-y-1">
+                            {block.title && (
+                              <p className="text-[11px] font-semibold text-primary leading-snug">{parseBoldMarks(block.title).text}</p>
+                            )}
+                            <p
+                              ref={(el) => { fieldRefs.current[key] = el }}
+                              className="text-xs text-foreground leading-relaxed whitespace-pre-wrap select-text"
+                            >
+                              {renderHighlighted(blockText, key, highlights, removeHighlight, bolds)}
+                            </p>
+                          </div>
+                        )
+                      }
+                      return (
+                        <p
+                          key={key}
+                          ref={(el) => { fieldRefs.current[key] = el }}
+                          className="text-xs text-foreground leading-relaxed whitespace-pre-wrap select-text"
+                        >
+                          {renderHighlighted(blockText, key, highlights, removeHighlight, bolds)}
+                        </p>
+                      )
+                    })}
                   </div>
                 )}
               </div>

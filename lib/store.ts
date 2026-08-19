@@ -78,38 +78,87 @@ export function saveQuestions(questions: Question[]) {
   safeSet(modeKey(BASE_KEYS.questions), questions)
 }
 
+// 지문 비교용 정규화 (줄바꿈·공백 차이로 같은 문제가 다르게 보이지 않도록)
+function normalizePassage(passage: string): string {
+  return passage.replace(/\s+/g, ' ').trim()
+}
+
+// 중복 판정 1차 후보 키. 문제번호가 있으면 그것으로 좁히고, 없으면 지문 전체로 좁힌다.
+// 문제번호만으로 병합하면 같은 해의 서로 다른 모의고사끼리 충돌하므로 2차 확인을 반드시 거친다
+function questionBucketKey(q: Question): string {
+  const no = Number(q.no)
+  return Number.isFinite(no) && no > 0
+    ? `no:${q.subject}|${q.examType}|${q.year}|${no}`
+    : `psg:${normalizePassage(q.passage)}`
+}
+
+// 2차 확인: 정말 같은 문제인가.
+// 청크 겹침으로 한쪽이 페이지 경계에서 잘린 경우 짧은 쪽이 긴 쪽의 앞부분이 되므로 같은 문제로 인정한다
+function isSameQuestion(a: Question, b: Question): boolean {
+  const pa = normalizePassage(a.passage)
+  const pb = normalizePassage(b.passage)
+  if (pa === pb) return true
+  const [shorter, longer] = pa.length <= pb.length ? [pa, pb] : [pb, pa]
+  return shorter.length >= 40 && longer.startsWith(shorter)
+}
+
+// 더 온전한 판본을 고르기 위한 점수 (채워진 선지 수 우선, 그다음 지문 길이)
+function completenessScore(q: Question): number {
+  const filledChoices = q.choices.filter((c) => c.text?.trim()).length
+  return filledChoices * 100000 + q.passage.length
+}
+
 export function addQuestions(incoming: Question[], sourceFile?: string): { added: number; merged: number } {
-  const existing = getQuestions()
+  const result = getQuestions()
   let added = 0
   let merged = 0
 
-  const byPassage = new Map(existing.map((q) => [q.passage.slice(0, 100), q]))
+  // 후보 키 → result 배열 인덱스 목록 (기존 문제의 순서를 그대로 보존한다)
+  const buckets = new Map<string, number[]>()
+  result.forEach((q, i) => {
+    const key = questionBucketKey(q)
+    const list = buckets.get(key)
+    if (list) list.push(i)
+    else buckets.set(key, [i])
+  })
 
   for (const q of incoming) {
-    const key = q.passage.slice(0, 100)
-    const found = byPassage.get(key)
-    if (found) {
-      const expl = new Set([
-        ...(found.explanations ?? (found.explanation ? [found.explanation] : [])),
-        ...(q.explanations ?? (q.explanation ? [q.explanation] : [])),
-      ])
-      found.explanations = Array.from(expl)
-      found.explanation = Array.from(expl)[0] ?? null
-      // 항목별 필드는 기존 값이 없을 때만 채운다 (재파싱으로 뒤늦게 추출된 경우 보강)
-      found.subChoiceAnswers ??= q.subChoiceAnswers
-      found.choiceExplanations ??= q.choiceExplanations
-      found.subChoiceExplanations ??= q.subChoiceExplanations
-      found.subItems ??= q.subItems
-      byPassage.set(key, found)
-      merged++
-    } else {
-      byPassage.set(key, { ...q, sourceFile })
+    const key = questionBucketKey(q)
+    const candidates = buckets.get(key) ?? []
+    const matchIndex = candidates.find((i) => isSameQuestion(result[i], q))
+
+    if (matchIndex === undefined) {
+      result.push({ ...q, sourceFile })
+      buckets.set(key, [...candidates, result.length - 1])
       added++
+      continue
     }
+
+    const found = result[matchIndex]
+    const expl = new Set([
+      ...(found.explanations ?? (found.explanation ? [found.explanation] : [])),
+      ...(q.explanations ?? (q.explanation ? [q.explanation] : [])),
+    ])
+    found.explanations = Array.from(expl)
+    found.explanation = Array.from(expl)[0] ?? null
+    // 항목별 필드는 기존 값이 없을 때만 채운다 (재파싱으로 뒤늦게 추출된 경우 보강)
+    found.subChoiceAnswers ??= q.subChoiceAnswers
+    found.choiceExplanations ??= q.choiceExplanations
+    found.choiceExplanationSummaries ??= q.choiceExplanationSummaries
+    found.subChoiceExplanations ??= q.subChoiceExplanations
+    found.subItems ??= q.subItems
+    found.passageTable ??= q.passageTable
+    // 청크 경계에서 잘린 판본이 온전한 판본을 밀어내지 않도록, 더 완전한 쪽 내용을 채택한다.
+    // id는 유지하므로 오답노트·형광펜 연결이 끊기지 않는다
+    if (completenessScore(q) > completenessScore(found)) {
+      found.passage = q.passage
+      found.choices = q.choices
+      if (q.subItems?.length) found.subItems = q.subItems
+    }
+    merged++
   }
 
-  const merged_questions = Array.from(byPassage.values())
-  saveQuestions(merged_questions)
+  saveQuestions(result)
   return { added, merged }
 }
 

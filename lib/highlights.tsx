@@ -89,22 +89,61 @@ export function withoutOverlaps(highlights: Highlight[], field: string, start: n
 // 🧹 빨간색 지우개 커서 SVG
 const ERASER_CURSOR_SVG = `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23ef4444' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m7 21-4-3 8.5-8.5a2.12 2.12 0 0 1 3 0l3.5 3.5a2.12 2.12 0 0 1 0 3L9 21'/><path d='m11 7 3 3'/><path d='m19 21-4 0'/></svg>`
 
+// 원본 PDF에서 밑줄로 강조돼 있던 구간 (text 기준 오프셋)
+export interface BoldRange {
+  start: number
+  end: number
+}
+
+// 주어진 구간의 텍스트에 볼드 범위를 적용한다.
+// absStart는 이 조각이 전체 text에서 시작하는 위치 (하이라이트로 잘린 조각도 정확히 매핑하기 위함)
+function applyBold(
+  slice: string,
+  absStart: number,
+  bolds: BoldRange[],
+  keyPrefix: string
+): React.ReactNode {
+  if (bolds.length === 0 || !slice) return slice
+  const absEnd = absStart + slice.length
+  const overlapping = bolds
+    .filter((b) => b.end > absStart && b.start < absEnd)
+    .sort((a, b) => a.start - b.start)
+  if (overlapping.length === 0) return slice
+
+  const nodes: React.ReactNode[] = []
+  let cursor = absStart
+  for (const b of overlapping) {
+    const start = Math.max(b.start, absStart)
+    const end = Math.min(b.end, absEnd)
+    if (start > cursor) nodes.push(slice.slice(cursor - absStart, start - absStart))
+    nodes.push(
+      <strong key={`${keyPrefix}_b${start}`} className="font-bold">
+        {slice.slice(start - absStart, end - absStart)}
+      </strong>
+    )
+    cursor = Math.max(cursor, end)
+  }
+  if (cursor < absEnd) nodes.push(slice.slice(cursor - absStart))
+  return nodes
+}
+
 export function renderHighlighted(
   text: string,
   field: string,
   highlights: Highlight[],
-  onRemove?: (id: string) => void
+  onRemove?: (id: string) => void,
+  bolds: BoldRange[] = []
 ) {
   const fieldHighlights = highlights
     .filter((h) => h.field === field && h.start < h.end && h.end <= text.length)
     .sort((a, b) => a.start - b.start)
 
-  if (fieldHighlights.length === 0) return text
+  if (fieldHighlights.length === 0) return applyBold(text, 0, bolds, field)
 
   const nodes: React.ReactNode[] = []
   let cursor = 0
   for (const h of fieldHighlights) {
-    if (h.start > cursor) nodes.push(text.slice(cursor, h.start))
+    if (h.start > cursor) nodes.push(applyBold(text.slice(cursor, h.start), cursor, bolds, field))
     nodes.push(
       <mark
         key={h.id}
@@ -124,11 +163,11 @@ export function renderHighlighted(
           onRemove ? 'hover:bg-red-500/30 hover:line-through hover:decoration-red-500 hover:decoration-2' : ''
         }`}
       >
-        {text.slice(h.start, h.end)}
+        {applyBold(text.slice(h.start, h.end), h.start, bolds, field)}
       </mark>
     )
     cursor = Math.max(cursor, h.end)
   }
-  if (cursor < text.length) nodes.push(text.slice(cursor))
+  if (cursor < text.length) nodes.push(applyBold(text.slice(cursor), cursor, bolds, field))
   return nodes
 }

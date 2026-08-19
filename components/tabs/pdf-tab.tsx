@@ -15,6 +15,9 @@ import type { Subject, ExamType } from '@/lib/types'
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const EXAM_TYPES: ExamType[] = ['변호사시험', '모의고사']
 const CHUNK_SIZE = 5
+// 청크 경계에 걸친 문제가 최소 한 청크에는 온전히 들어가도록 이전 청크의 마지막 페이지를 겹쳐 담는다.
+// 청크 개수(=API 호출 횟수)는 그대로이고 청크당 페이지만 늘어난다
+const CHUNK_OVERLAP = 1
 
 // 파일 카드/재개 항목이 공통으로 쓰는 표시 상태
 interface JobView {
@@ -354,8 +357,9 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
 
       for (let chunkIndex = startChunk; chunkIndex < chunkTotal; chunkIndex++) {
         const chunkPdf = await PDFDocument.create()
-        const startPage = chunkIndex * CHUNK_SIZE
-        const endPage = Math.min(startPage + CHUNK_SIZE, totalPages)
+        // 첫 청크는 그대로, 이후 청크는 시작점만 앞으로 당겨 직전 청크의 마지막 페이지를 포함시킨다
+        const startPage = Math.max(0, chunkIndex * CHUNK_SIZE - (chunkIndex > 0 ? CHUNK_OVERLAP : 0))
+        const endPage = Math.min(chunkIndex * CHUNK_SIZE + CHUNK_SIZE, totalPages)
         const pages = await chunkPdf.copyPages(
           sourcePdf,
           Array.from({ length: endPage - startPage }, (_, p) => startPage + p)

@@ -6,6 +6,7 @@ import { analyzeWrongAnswer } from '@/lib/gemini'
 import { addWrongNote, addCorrectNote, saveSession, clearSavedSession, getRiskLevel } from '@/lib/store'
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
+import { PassageTable } from '@/components/passage-table'
 
 interface QuizItem {
   question: Question
@@ -298,6 +299,11 @@ export function QuizEngine({
 
       <div className="bg-card border border-border rounded-xl p-5 space-y-4">
         <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">{q.passage}</p>
+        {q.passageTable && q.passageTable.length > 0 && (
+          <div className="mt-3">
+            <PassageTable tables={q.passageTable} />
+          </div>
+        )}
         <div className="space-y-2">
           {q.choices.map((c) => (
             <label

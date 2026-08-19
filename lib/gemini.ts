@@ -1,6 +1,6 @@
 'use client'
 
-import type { Question, SubItem, Subject, ExamType, ErrorAnalysis, QuestionStatus } from './types'
+import type { Question, SubItem, ExplanationBlock, TableBlock, Subject, ExamType, ErrorAnalysis, QuestionStatus } from './types'
 
 const RETRY_DELAY_MS = 3000
 const MAX_RETRIES = 3
@@ -93,9 +93,17 @@ export async function extractQuestionsFromPdf(
     정답: string
     해설: string | null
     보기정답?: Record<string, boolean> | null
-    선지별설명?: Record<string, string> | null
+    선지별설명?: Record<string, string | { type?: string; title?: string; content?: string }[]> | null
+    선지별설명요약?: Record<string, string> | null
     보기별설명?: Record<string, string> | null
-    보기목록?: { label?: string; text?: string; isCorrect?: boolean; explanation?: string; explanationSummary?: string }[] | null
+    표서식?: { title?: string; rows?: ({ cells?: unknown[] } | unknown[])[] }[] | null
+    보기목록?: {
+      label?: string
+      text?: string
+      isCorrect?: boolean
+      explanation?: string | { type?: string; title?: string; content?: string }[]
+      explanationSummary?: string
+    }[] | null
   }[]
 
   try {
@@ -107,6 +115,61 @@ export async function extractQuestionsFromPdf(
 
   const LABELS = ['①', '②', '③', '④', '⑤']
 
+  // 해설을 항상 블록 배열로 정규화한다. 옛 형식(문자열)으로 와도 단일 text 블록으로 취급
+  function toExplanationBlocks(raw: unknown): ExplanationBlock[] {
+    if (typeof raw === 'string') {
+      const content = raw.trim()
+      return content ? [{ type: 'text', content }] : []
+    }
+    if (!Array.isArray(raw)) return []
+    return raw
+      .map((b) => {
+        const content = String((b as { content?: unknown })?.content ?? '').trim()
+        const title = String((b as { title?: unknown })?.title ?? '').trim()
+        const type: ExplanationBlock['type'] =
+          (b as { type?: unknown })?.type === 'lawBox' ? 'lawBox' : 'text'
+        const block: ExplanationBlock = { type, content }
+        if (type === 'lawBox' && title) block.title = title
+        return block
+      })
+      .filter((b) => b.content)
+  }
+
+  // 표/서식 정규화. 행이 배열로 와도({cells} 없이) 받아들이고, 빈 칸·빈 행은 걸러낸다
+  function toPassageTables(raw: typeof parsed[number]['표서식']): TableBlock[] | undefined {
+    if (!Array.isArray(raw)) return undefined
+    const tables = raw
+      .map((t) => {
+        const rows = (Array.isArray(t?.rows) ? t.rows : [])
+          .map((r) => {
+            const rawCells = Array.isArray(r) ? r : (r as { cells?: unknown[] })?.cells
+            const cells = (Array.isArray(rawCells) ? rawCells : [])
+              .map((c) => String(c ?? '').trim())
+            return { cells }
+          })
+          .filter((r) => r.cells.some((c) => c))
+        const title = String(t?.title ?? '').trim()
+        const table: TableBlock = { rows }
+        if (title) table.title = title
+        return table
+      })
+      .filter((t) => t.rows.length > 0)
+    return tables.length > 0 ? tables : undefined
+  }
+
+  // 선지별 해설도 같은 블록 구조로 정규화한다 (옛 형식인 문자열은 단일 text 블록으로)
+  function toChoiceExplanations(
+    raw: typeof parsed[number]['선지별설명']
+  ): Record<string, ExplanationBlock[]> | undefined {
+    if (!raw || typeof raw !== 'object') return undefined
+    const result: Record<string, ExplanationBlock[]> = {}
+    for (const [label, value] of Object.entries(raw)) {
+      const blocks = toExplanationBlocks(value)
+      if (blocks.length > 0) result[label] = blocks
+    }
+    return Object.keys(result).length > 0 ? result : undefined
+  }
+
   // 라벨과 본문이 모두 있는 항목만 취한다 (라벨은 원본 표기 그대로 유지)
   function toSubItems(raw: typeof parsed[number]['보기목록']): SubItem[] | undefined {
     if (!Array.isArray(raw)) return undefined
@@ -115,7 +178,7 @@ export async function extractQuestionsFromPdf(
         label: String(it?.label ?? '').trim(),
         text: String(it?.text ?? '').trim(),
         isCorrect: Boolean(it?.isCorrect),
-        explanation: String(it?.explanation ?? '').trim(),
+        explanation: toExplanationBlocks(it?.explanation),
         explanationSummary: String(it?.explanationSummary ?? '').trim() || undefined,
       }))
       .filter((it) => it.label && it.text)
@@ -135,9 +198,11 @@ export async function extractQuestionsFromPdf(
     explanation: item.해설,
     addedAt: Date.now(),
     subChoiceAnswers: item.보기정답 ?? undefined,
-    choiceExplanations: item.선지별설명 ?? undefined,
+    choiceExplanations: toChoiceExplanations(item.선지별설명),
+    choiceExplanationSummaries: item.선지별설명요약 ?? undefined,
     subChoiceExplanations: item.보기별설명 ?? undefined,
     subItems: toSubItems(item.보기목록),
+    passageTable: toPassageTables(item.표서식),
   }))
 }
 
