@@ -81,6 +81,28 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
   const yearOptions = isGeneral ? generalAvailableYears : availableYears
   const allYearsSelected = yearOptions.length > 0 && yearOptions.every((y) => years.includes(y))
 
+  // 하이라이트(연보라)는 "선택된 과목에 실제로 존재하는 데이터" 기준으로만 켠다.
+  // 과목 미선택이면 빈 배열이므로 시험유형/연도/범위가 모두 회색으로 표시된다
+  const scopedQuestions = useMemo(() => {
+    if (activeSubjects.length === 0) return []
+    return questions.filter((q) => activeSubjects.includes(q.subject))
+  }, [questions, activeSubjects])
+
+  const highlightedExamTypes = useMemo(
+    () => Array.from(new Set(scopedQuestions.map((q) => q.examType))),
+    [scopedQuestions]
+  )
+
+  const highlightedYears = useMemo(
+    () => Array.from(new Set(scopedQuestions.map((q) => String(q.year)))),
+    [scopedQuestions]
+  )
+
+  const highlightedUnits = useMemo(
+    () => Array.from(new Set(scopedQuestions.map((q) => q.unit?.trim()).filter((u): u is string => !!u))),
+    [scopedQuestions]
+  )
+
   const availableUnits = useMemo(() => {
     return subjects.flatMap((s) => UNITS[s] ?? [])
   }, [subjects])
@@ -169,28 +191,34 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
           )
         ) : (
           <>
-            <div className="flex gap-2">
+            {/* 각 그룹 버튼 아래에 그 그룹의 과목만 오도록 3열로 배치한다 */}
+            <div className="grid grid-cols-3 gap-2 items-start">
               {SUBJECT_GROUPS.map((g) => {
                 const allSelected = g.subjects.every((s) => subjects.includes(s))
                 const someSelected = g.subjects.some((s) => subjects.includes(s))
                 return (
-                  <button
-                    key={g.label}
-                    onClick={() => toggleGroup(g.subjects)}
-                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                      allSelected
-                        ? 'bg-primary text-primary-foreground border-primary'
-                        : someSelected
-                          ? 'bg-primary/20 text-primary border-primary/50'
-                          : 'bg-muted text-muted-foreground border-border hover:border-primary/40'
-                    }`}
-                  >
-                    {g.label}
-                  </button>
+                  <div key={g.label} className="space-y-2">
+                    <button
+                      onClick={() => toggleGroup(g.subjects)}
+                      className={`w-full py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                        allSelected
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : someSelected
+                            ? 'bg-primary/20 text-primary border-primary/50'
+                            : 'bg-muted text-muted-foreground border-border hover:border-primary/40'
+                      }`}
+                    >
+                      {g.label}
+                    </button>
+                    <FilterChips
+                      options={g.subjects}
+                      selected={subjects}
+                      onChange={handleSubjectsChange}
+                    />
+                  </div>
                 )
               })}
             </div>
-            <FilterChips options={SUBJECTS} selected={subjects} onChange={handleSubjectsChange} />
           </>
         )}
       </div>
@@ -199,7 +227,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
       {!isGeneral && (
         <div className="bg-card border border-border rounded-xl p-4 space-y-2">
           <label className="text-xs font-medium text-muted-foreground">시험 유형 (복수 선택)</label>
-          <FilterChips options={EXAM_TYPES} selected={examTypes} onChange={setExamTypes} />
+          <FilterChips options={EXAM_TYPES} selected={examTypes} onChange={setExamTypes} available={highlightedExamTypes} />
         </div>
       )}
 
@@ -230,7 +258,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
               </button>
             </div>
           </div>
-          <FilterChips options={yearOptions} selected={years} onChange={setYears} />
+          <FilterChips options={yearOptions} selected={years} onChange={setYears} available={highlightedYears} />
         </div>
       )}
 
@@ -251,7 +279,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
                 전체
               </button>
             </div>
-            <FilterChips options={generalAvailableUnits} selected={units} onChange={setUnits} />
+            <FilterChips options={generalAvailableUnits} selected={units} onChange={setUnits} available={highlightedUnits} />
           </div>
         )
       ) : (
@@ -277,7 +305,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
                 return (
                   <div key={s} className="space-y-1">
                     <p className="text-[10px] text-muted-foreground font-medium">{s}</p>
-                    <FilterChips options={subjectUnits} selected={units} onChange={setUnits} />
+                    <FilterChips options={subjectUnits} selected={units} onChange={setUnits} available={highlightedUnits} />
                   </div>
                 )
               })}
