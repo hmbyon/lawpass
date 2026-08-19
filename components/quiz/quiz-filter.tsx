@@ -16,6 +16,13 @@ const DEFAULT_TIME: Record<number, number> = {
   70: 120,
 }
 
+// 변호사시험 1회 시행연도부터 현재까지 (내림차순). 과목 미선택이어도 항상 전체가 보인다
+const FIRST_EXAM_YEAR = 2012
+const ALL_YEARS: string[] = Array.from(
+  { length: new Date().getFullYear() - FIRST_EXAM_YEAR + 1 },
+  (_, i) => String(new Date().getFullYear() - i)
+)
+
 const SUBJECT_GROUPS = [
   { label: '민사법', subjects: ['민법', '민사소송법', '상법'] as Subject[] },
   { label: '형사법', subjects: ['형법', '형사소송법'] as Subject[] },
@@ -78,8 +85,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
       .sort((a, b) => Number(b) - Number(a))
   }, [questions])
 
-  const yearOptions = isGeneral ? generalAvailableYears : availableYears
-  const allYearsSelected = yearOptions.length > 0 && yearOptions.every((y) => years.includes(y))
+  const yearOptions = isGeneral ? generalAvailableYears : ALL_YEARS
 
   // 하이라이트(연보라)는 "선택된 과목에 실제로 존재하는 데이터" 기준으로만 켠다.
   // 과목 미선택이면 빈 배열이므로 시험유형/연도/범위가 모두 회색으로 표시된다
@@ -88,20 +94,28 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
     return questions.filter((q) => activeSubjects.includes(q.subject))
   }, [questions, activeSubjects])
 
-  const highlightedExamTypes = useMemo(
+  // 선택 가능한 값 = 현재 조건에서 실제로 문제가 존재하는 값.
+  // 여기 없는 값은 회색으로 남고 클릭해도 선택되지 않는다 (결과 0문제 방지)
+  const selectableExamTypes = useMemo(
     () => Array.from(new Set(scopedQuestions.map((q) => q.examType))),
     [scopedQuestions]
   )
 
-  const highlightedYears = useMemo(
+  const selectableYears = useMemo(
     () => Array.from(new Set(scopedQuestions.map((q) => String(q.year)))),
     [scopedQuestions]
   )
 
-  const highlightedUnits = useMemo(
-    () => Array.from(new Set(scopedQuestions.map((q) => q.unit?.trim()).filter((u): u is string => !!u))),
-    [scopedQuestions]
-  )
+  // 단원은 과목뿐 아니라 선택된 연도까지 반영한다
+  const selectableUnits = useMemo(() => {
+    const scoped = years.length > 0
+      ? scopedQuestions.filter((q) => years.includes(String(q.year)))
+      : scopedQuestions
+    return Array.from(new Set(scoped.map((q) => q.unit?.trim()).filter((u): u is string => !!u)))
+  }, [scopedQuestions, years])
+
+  const allYearsSelected =
+    selectableYears.length > 0 && selectableYears.every((y) => years.includes(y))
 
   const availableUnits = useMemo(() => {
     return subjects.flatMap((s) => UNITS[s] ?? [])
@@ -125,6 +139,19 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
   // 전체 선택된 것처럼 보여도 filtered에서 조용히 대부분의 문제가 걸러지는 버그가 있었음.
   // units가 비어 있으면(필터 미적용) 모든 문제가 통과하므로, 과목만 고른 상태에서는
   // 단원 제한 없이 전부 보여주고 필요할 때 사용자가 직접 범위를 좁히도록 함.
+  // 주어진 과목들에 실제로 존재하는 값 (자동 선택 시 데이터 없는 값이 켜지지 않도록)
+  function yearsForSubjects(subjs: string[]) {
+    return Array.from(
+      new Set(questions.filter((q) => subjs.includes(q.subject)).map((q) => String(q.year)))
+    )
+  }
+
+  function examTypesForSubjects(subjs: string[]) {
+    return Array.from(
+      new Set(questions.filter((q) => subjs.includes(q.subject)).map((q) => q.examType))
+    )
+  }
+
   function toggleGroup(groupSubjects: Subject[]) {
     const allSelected = groupSubjects.every((s) => subjects.includes(s))
     if (allSelected) {
@@ -140,8 +167,8 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
       const newSubjects = Array.from(new Set([...subjects, ...groupSubjects]))
       setSubjects(newSubjects)
       if (subjects.length === 0) {
-        setExamTypes([...EXAM_TYPES])
-        setYears(availableYears)
+        setExamTypes(examTypesForSubjects(newSubjects))
+        setYears(yearsForSubjects(newSubjects))
       }
     }
   }
@@ -152,8 +179,8 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
     setSubjects(newSubjects)
     setUnits((prev) => prev.filter((u) => !removedUnits.includes(u)))
     if (subjects.length === 0 && newSubjects.length > 0) {
-      setExamTypes([...EXAM_TYPES])
-      setYears(availableYears)
+      setExamTypes(examTypesForSubjects(newSubjects))
+      setYears(yearsForSubjects(newSubjects))
     }
     if (newSubjects.length === 0) {
       setExamTypes([])
@@ -161,8 +188,9 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
     }
   }
 
+  // 최근 N개년 중에서도 실제로 데이터가 있는 연도만 선택한다
   function selectRecentYears(n: number) {
-    setYears(yearOptions.slice(0, n))
+    setYears(yearOptions.slice(0, n).filter((y) => selectableYears.includes(y)))
   }
 
   function handleStart() {
@@ -214,6 +242,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
                       options={g.subjects}
                       selected={subjects}
                       onChange={handleSubjectsChange}
+                      centered
                     />
                   </div>
                 )
@@ -227,7 +256,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
       {!isGeneral && (
         <div className="bg-card border border-border rounded-xl p-4 space-y-2">
           <label className="text-xs font-medium text-muted-foreground">시험 유형 (복수 선택)</label>
-          <FilterChips options={EXAM_TYPES} selected={examTypes} onChange={setExamTypes} available={highlightedExamTypes} />
+          <FilterChips options={EXAM_TYPES} selected={examTypes} onChange={setExamTypes} available={selectableExamTypes} />
         </div>
       )}
 
@@ -247,7 +276,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
                 </button>
               ))}
               <button
-                onClick={() => setYears(allYearsSelected ? [] : yearOptions)}
+                onClick={() => setYears(allYearsSelected ? [] : selectableYears)}
                 className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
                   allYearsSelected
                     ? 'border-primary text-primary'
@@ -258,7 +287,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
               </button>
             </div>
           </div>
-          <FilterChips options={yearOptions} selected={years} onChange={setYears} available={highlightedYears} />
+          <FilterChips options={yearOptions} selected={years} onChange={setYears} available={selectableYears} />
         </div>
       )}
 
@@ -269,7 +298,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-muted-foreground">범위 (복수 선택)</label>
               <button
-                onClick={() => setUnits(allGeneralUnitsSelected ? [] : generalAvailableUnits)}
+                onClick={() => setUnits(allGeneralUnitsSelected ? [] : selectableUnits)}
                 className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
                   allGeneralUnitsSelected
                     ? 'border-primary text-primary'
@@ -279,7 +308,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
                 전체
               </button>
             </div>
-            <FilterChips options={generalAvailableUnits} selected={units} onChange={setUnits} available={highlightedUnits} />
+            <FilterChips options={generalAvailableUnits} selected={units} onChange={setUnits} available={selectableUnits} />
           </div>
         )
       ) : (
@@ -288,7 +317,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-muted-foreground">범위 (복수 선택)</label>
               <button
-                onClick={() => setUnits(allLawUnitsSelected ? [] : availableUnits)}
+                onClick={() => setUnits(allLawUnitsSelected ? [] : selectableUnits)}
                 className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
                   allLawUnitsSelected
                     ? 'border-primary text-primary'
@@ -305,7 +334,7 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
                 return (
                   <div key={s} className="space-y-1">
                     <p className="text-[10px] text-muted-foreground font-medium">{s}</p>
-                    <FilterChips options={subjectUnits} selected={units} onChange={setUnits} available={highlightedUnits} />
+                    <FilterChips options={subjectUnits} selected={units} onChange={setUnits} available={selectableUnits} />
                   </div>
                 )
               })}
