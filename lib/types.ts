@@ -16,6 +16,14 @@ export interface Choice {
   text: string
 }
 
+// PDF 원본에서 구조화해 추출한 하위 보기 항목 (ㄱㄴㄷㄹ, 가나다라, 1·2·3 등 라벨은 원본 표기 그대로)
+export interface SubItem {
+  label: string
+  text: string
+  isCorrect: boolean
+  explanation: string // 원본 PDF에 적힌 해설 그대로. 원본에 없으면 빈 문자열
+}
+
 export interface Question {
   id: string
   no: number
@@ -34,6 +42,7 @@ export interface Question {
   subChoiceAnswers?: Record<string, boolean>  // ㄱㄴㄷㄹ 보기 항목별 O/X (예: { "ㄱ": true, "ㄴ": false })
   choiceExplanations?: Record<string, string>  // 선지별(①②③④⑤) 한 줄 설명
   subChoiceExplanations?: Record<string, string>  // ㄱㄴㄷㄹ 보기 항목별 한 줄 설명
+  subItems?: SubItem[]  // 하위 보기 항목 (구조화 추출). 없으면 지문 정규식 파싱으로 폴백
 }
 
 export interface ErrorAnalysis {

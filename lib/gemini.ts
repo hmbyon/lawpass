@@ -1,6 +1,6 @@
 'use client'
 
-import type { Question, Subject, ExamType, ErrorAnalysis, QuestionStatus } from './types'
+import type { Question, SubItem, Subject, ExamType, ErrorAnalysis, QuestionStatus } from './types'
 
 const RETRY_DELAY_MS = 3000
 const MAX_RETRIES = 3
@@ -95,6 +95,7 @@ export async function extractQuestionsFromPdf(
     보기정답?: Record<string, boolean> | null
     선지별설명?: Record<string, string> | null
     보기별설명?: Record<string, string> | null
+    보기목록?: { label?: string; text?: string; isCorrect?: boolean; explanation?: string }[] | null
   }[]
 
   try {
@@ -105,6 +106,20 @@ export async function extractQuestionsFromPdf(
   }
 
   const LABELS = ['①', '②', '③', '④', '⑤']
+
+  // 라벨과 본문이 모두 있는 항목만 취한다 (라벨은 원본 표기 그대로 유지)
+  function toSubItems(raw: typeof parsed[number]['보기목록']): SubItem[] | undefined {
+    if (!Array.isArray(raw)) return undefined
+    const items = raw
+      .map((it) => ({
+        label: String(it?.label ?? '').trim(),
+        text: String(it?.text ?? '').trim(),
+        isCorrect: Boolean(it?.isCorrect),
+        explanation: String(it?.explanation ?? '').trim(),
+      }))
+      .filter((it) => it.label && it.text)
+    return items.length > 0 ? items : undefined
+  }
 
   return parsed.map((item) => ({
     id: `${subject}_${examType}_${year}_${item.문제번호}_${Date.now()}`,
@@ -121,6 +136,7 @@ export async function extractQuestionsFromPdf(
     subChoiceAnswers: item.보기정답 ?? undefined,
     choiceExplanations: item.선지별설명 ?? undefined,
     subChoiceExplanations: item.보기별설명 ?? undefined,
+    subItems: toSubItems(item.보기목록),
   }))
 }
 

@@ -99,6 +99,7 @@ export function addQuestions(incoming: Question[], sourceFile?: string): { added
       found.subChoiceAnswers ??= q.subChoiceAnswers
       found.choiceExplanations ??= q.choiceExplanations
       found.subChoiceExplanations ??= q.subChoiceExplanations
+      found.subItems ??= q.subItems
       byPassage.set(key, found)
       merged++
     } else {

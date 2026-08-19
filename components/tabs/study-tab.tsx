@@ -221,10 +221,31 @@ function getTextOffset(container: Node, node: Node, offset: number): number {
   return range.toString().length
 }
 
-const SUB_LABEL_MAP: Record<string, string> = {
-  '가': 'ㄱ', '나': 'ㄴ', '다': 'ㄷ', '라': 'ㄹ', '마': 'ㅁ',
-  'ㄱ': 'ㄱ', 'ㄴ': 'ㄴ', 'ㄷ': 'ㄷ', 'ㄹ': 'ㄹ', 'ㅁ': 'ㅁ',
+// 유니코드 한글 음절 조합 순서의 초성 19자
+const CHOSEONG = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ']
+const HANGUL_SYLLABLE_BASE = 0xac00 // '가'
+const CHOSEONG_STRIDE = 588 // 중성 21 × 종성 28
+
+// 자음 라벨을 같은 순서의 가나다 라벨로 변환한다 (중성 'ㅏ', 받침 없음)
+// 예: 'ㄱ' → '가', 'ㅁ' → '마', 'ㅎ' → '하'
+function syllableForConsonant(consonant: string): string | null {
+  const index = CHOSEONG.indexOf(consonant)
+  return index < 0 ? null : String.fromCharCode(HANGUL_SYLLABLE_BASE + index * CHOSEONG_STRIDE)
 }
+
+// 라벨로 인정할 자음: ㄱ~ㅎ (쌍자음은 보기 라벨로 쓰이지 않으므로 제외)
+const SUB_LABEL_CONSONANTS = CHOSEONG.filter((c) => !'ㄲㄸㅃㅆㅉ'.includes(c))
+
+// { 'ㄱ': 'ㄱ', '가': 'ㄱ', 'ㄴ': 'ㄴ', '나': 'ㄴ', ... 'ㅎ': 'ㅎ', '하': 'ㅎ' }
+// 글자를 직접 나열하지 않고 계산으로 만들어, 새로운 라벨(ㅂ/바, ㅅ/사 …)도 코드 수정 없이 인식된다
+const SUB_LABEL_MAP: Record<string, string> = Object.fromEntries(
+  SUB_LABEL_CONSONANTS.flatMap((consonant) => {
+    const syllable = syllableForConsonant(consonant)
+    const entries: [string, string][] = [[consonant, consonant]]
+    if (syllable) entries.push([syllable, consonant])
+    return entries
+  })
+)
 
 // 보기 항목 라벨로 인정하는 문자들. 마커 정규식들이 이 상수를 공유해야
 // SUB_LABEL_MAP과 어긋나지 않는다 (ㅁ/마가 빠져 ㄹ 항목에 흡수되던 버그)
@@ -260,6 +281,39 @@ function parseSubChoices(passage: string): SubChoice | null {
     if (text) items.push({ label: markers[i].label, text })
   }
   return items.length >= 2 ? { stem, items } : null
+}
+
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// subItems에는 발문(stem)이 없다. 지문에서 첫 항목이 시작되는 위치를 찾아 그 앞을 발문으로 자른다.
+// 못 찾으면 기존 정규식 파싱의 stem으로, 그것도 없으면 지문 전체로 폴백한다
+function stemForSubItems(passage: string, items: { label: string; text: string }[]): string {
+  const first = items[0]
+  if (!first) return passage
+
+  const probe = first.text.trim().slice(0, 20)
+  let idx = probe ? passage.indexOf(probe) : -1
+  if (idx < 0) {
+    idx = passage.search(new RegExp(`(?:^|\n)\\s*${escapeRegExp(first.label)}\\s*[.)]`))
+  }
+  if (idx < 0) return parseSubChoices(passage)?.stem ?? passage
+
+  // 본문 앞에 남은 라벨 표기("ㄱ." 등)까지 함께 잘라낸다
+  return passage
+    .slice(0, idx)
+    .replace(new RegExp(`\\s*${escapeRegExp(first.label)}\\s*[.)]?\\s*$`), '')
+    .trim()
+}
+
+// subItems(구조화 추출)를 우선 사용하고, 없으면 지문 정규식 파싱으로 폴백한다
+function resolveSubChoices(q: Question): SubChoice | null {
+  if (q.subItems?.length) {
+    const items = q.subItems.map((it) => ({ label: it.label, text: it.text }))
+    return { stem: stemForSubItems(q.passage, items), items }
+  }
+  return parseSubChoices(q.passage)
 }
 
 function parseSubExplanations(explanation: string | null): Record<string, string> {
@@ -322,8 +376,10 @@ function StudyBulkPreview({
   const q = questions[current]
   const isLast = current === questions.length - 1
   const isBookmarked = bookmarked.has(q.id)
-  const subChoices = parseSubChoices(q.passage)
-  // 새 전용 필드(subChoiceExplanations)를 우선하고, 없는 항목만 옛 데이터용 정규식 파싱으로 채운다
+  const subChoices = resolveSubChoices(q)
+  // subItems가 있으면 O/X·해설을 거기서 직접 읽는다 (라벨 키로 조회)
+  const subItemByLabel = new Map((q.subItems ?? []).map((it) => [it.label, it]))
+  // 옛 데이터 폴백: 전용 필드를 우선하고, 없는 항목만 정규식 파싱 결과로 채운다
   const subExplanations = subChoices
     ? { ...parseSubExplanations(q.explanation), ...(q.subChoiceExplanations ?? {}) }
     : {}
@@ -490,8 +546,9 @@ function StudyBulkPreview({
             {subChoices.items.map((item) => {
               const memoKey = `${q.id}_${item.label}`
               const existingMemo = choiceMemos[q.id]?.[item.label]
-              const subAnswer = q.subChoiceAnswers?.[item.label]
-              const subExplanation = subExplanations[item.label]
+              const subItem = subItemByLabel.get(item.label)
+              const subAnswer = subItem ? subItem.isCorrect : q.subChoiceAnswers?.[item.label]
+              const subExplanation = subItem?.explanation?.trim() || subExplanations[item.label]
               const fieldKey = `sub_${item.label}`
               const isOpen = choiceMemoOpen === memoKey
 
