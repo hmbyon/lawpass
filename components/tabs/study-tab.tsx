@@ -222,9 +222,13 @@ function getTextOffset(container: Node, node: Node, offset: number): number {
 }
 
 const SUB_LABEL_MAP: Record<string, string> = {
-  '가': 'ㄱ', '나': 'ㄴ', '다': 'ㄷ', '라': 'ㄹ',
-  'ㄱ': 'ㄱ', 'ㄴ': 'ㄴ', 'ㄷ': 'ㄷ', 'ㄹ': 'ㄹ',
+  '가': 'ㄱ', '나': 'ㄴ', '다': 'ㄷ', '라': 'ㄹ', '마': 'ㅁ',
+  'ㄱ': 'ㄱ', 'ㄴ': 'ㄴ', 'ㄷ': 'ㄷ', 'ㄹ': 'ㄹ', 'ㅁ': 'ㅁ',
 }
+
+// 보기 항목 라벨로 인정하는 문자들. 마커 정규식들이 이 상수를 공유해야
+// SUB_LABEL_MAP과 어긋나지 않는다 (ㅁ/마가 빠져 ㄹ 항목에 흡수되던 버그)
+const SUB_LABEL_CHARS = Object.keys(SUB_LABEL_MAP).join('')
 
 const OX_CHAR_CLASS = 'OoXx○◯〇×✕✗ＯＸ'
 
@@ -234,7 +238,7 @@ interface SubChoice {
 }
 
 function parseSubChoices(passage: string): SubChoice | null {
-  const regex = /(?:^|\n)[ \t]*([가나다라ㄱㄴㄷㄹ])[ \t]*\.[ \t]*/g
+  const regex = new RegExp(`(?:^|\n)[ \t]*([${SUB_LABEL_CHARS}])[ \t]*\\.[ \t]*`, 'g')
   const markers: { label: string; start: number; contentStart: number }[] = []
   let m: RegExpExecArray | null
   while ((m = regex.exec(passage))) {
@@ -260,7 +264,7 @@ function parseSubChoices(passage: string): SubChoice | null {
 
 function parseSubExplanations(explanation: string | null): Record<string, string> {
   if (!explanation) return {}
-  const regex = new RegExp(`(?<![가-힣])([가나다라ㄱㄴㄷㄹ])\\s*\\.\\s*\\([${OX_CHAR_CLASS}]\\)`, 'g')
+  const regex = new RegExp(`(?<![가-힣])([${SUB_LABEL_CHARS}])\\s*\\.\\s*\\([${OX_CHAR_CLASS}]\\)`, 'g')
   const markers: { label: string; start: number; end: number }[] = []
   let match: RegExpExecArray | null
   while ((match = regex.exec(explanation))) {
