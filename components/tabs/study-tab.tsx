@@ -297,6 +297,22 @@ function parseSubChoices(passage: string): SubChoice | null {
 // 원본에서 밑줄로 강조돼 있던 구간을 AI가 **텍스트** 형태로 표시해 준다.
 // 형광펜 오프셋은 화면에 렌더된 텍스트 기준이므로, ** 마크를 제거한 문자열과
 // 그 문자열 기준 볼드 범위를 함께 돌려줘야 두 기능이 어긋나지 않는다
+// 발문의 부정어. "옳지 않은 것은?" 유형이면 정답 선지의 문장이 '틀린 서술'이다
+const NEGATIVE_STEM = /(옳지\s*않은|적절하지\s*않은|타당하지\s*않은|바르지\s*않은|올바르지\s*않은|틀린|잘못된|아닌\s*것)/
+const POSITIVE_STEM = /(옳은|적절한|타당한|바른|올바른)\s*것/
+
+// 선지 문장의 참/거짓은 추론할 필요가 없다 — 발문 유형과 정답 하나로 결정된다.
+// AI가 채운 값보다 이 계산이 신뢰도가 높고, 옛 데이터에도 재파싱 없이 적용된다
+function deriveChoiceTruth(q: Question): Record<string, boolean> | undefined {
+  if (!q.answer || q.choices.length === 0) return undefined
+  const negative = NEGATIVE_STEM.test(q.passage)
+  const positive = POSITIVE_STEM.test(q.passage)
+  if (!negative && !positive) return undefined // 유형을 못 읽으면 추측하지 않는다
+  return Object.fromEntries(
+    q.choices.map((c) => [c.label, negative ? c.label !== q.answer : c.label === q.answer])
+  )
+}
+
 function parseBoldMarks(raw: string): { text: string; bolds: BoldRange[] } {
   const regex = /\*\*([\s\S]+?)\*\*/g
   const bolds: BoldRange[] = []
@@ -418,6 +434,8 @@ function StudyBulkPreview({
   const isLast = current === questions.length - 1
   const isBookmarked = bookmarked.has(q.id)
   const subChoices = resolveSubChoices(q)
+  // ㄱㄴㄷㄹ 조합형 문제의 ①~⑤는 "조합"이라 문장 참/거짓 개념이 없으므로 계산에서 제외한다
+  const choiceTruth = subChoices ? q.choiceIsCorrectStatement : (deriveChoiceTruth(q) ?? q.choiceIsCorrectStatement)
   // subItems가 있으면 O/X·해설을 거기서 직접 읽는다 (라벨 키로 조회)
   const subItemByLabel = new Map((q.subItems ?? []).map((it) => [it.label, it]))
   // 옛 데이터 폴백: 전용 필드를 우선하고, 없는 항목만 정규식 파싱 결과로 채운다
@@ -732,7 +750,7 @@ function StudyBulkPreview({
             const choiceExpFieldKey = (i: number) =>
               isBlockExplanation ? `choiceexp_${c.label}_${i}` : `choiceexp_${c.label}`
             const explanationSummary = q.choiceExplanationSummaries?.[c.label]?.trim()
-            const statementIsTrue = q.choiceIsCorrectStatement?.[c.label]
+            const statementIsTrue = choiceTruth?.[c.label]
             const fieldKey = `choice_${c.label}`
             const isOpen = choiceMemoOpen === memoKey
 
