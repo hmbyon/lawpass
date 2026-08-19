@@ -608,7 +608,12 @@ function StudyBulkPreview({
 
                   {subExplanation && (
                     <div className="ml-5 mt-1 bg-muted rounded-lg p-2.5">
-                      <p className="text-xs text-foreground leading-relaxed">{subExplanation}</p>
+                      <p
+                        ref={(el) => { fieldRefs.current[`subexp_${item.label}`] = el }}
+                        className="text-xs text-foreground leading-relaxed whitespace-pre-wrap select-text"
+                      >
+                        {renderHighlighted(subExplanation, `subexp_${item.label}`, highlights, removeHighlight)}
+                      </p>
                     </div>
                   )}
                 </div>
@@ -688,7 +693,12 @@ function StudyBulkPreview({
 
                 {!subChoices && explanation && (
                   <div className="ml-3 mt-1 bg-muted rounded-lg p-2.5">
-                    <p className="text-xs text-foreground leading-relaxed">{explanation}</p>
+                    <p
+                      ref={(el) => { fieldRefs.current[`choiceexp_${c.label}`] = el }}
+                      className="text-xs text-foreground leading-relaxed whitespace-pre-wrap select-text"
+                    >
+                      {renderHighlighted(explanation, `choiceexp_${c.label}`, highlights, removeHighlight)}
+                    </p>
                   </div>
                 )}
               </div>
