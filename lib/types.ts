@@ -58,6 +58,7 @@ export interface Question {
   addedAt: number
   sourceFile?: string  // 업로드한 파일명
   subChoiceAnswers?: Record<string, boolean>  // ㄱㄴㄷㄹ 보기 항목별 O/X (예: { "ㄱ": true, "ㄴ": false })
+  choiceIsCorrectStatement?: Record<string, boolean>  // 선지(①②③④⑤) 문장 자체의 참/거짓. 정답 여부(answer)와는 별개
   choiceExplanations?: Record<string, string | ExplanationBlock[]>  // 선지별(①②③④⑤) 원문 해설 그대로. string은 블록 구조 도입 이전 데이터
   choiceExplanationSummaries?: Record<string, string>  // 선지별 AI 요약 (원문인 choiceExplanations와 별개)
   subChoiceExplanations?: Record<string, string>  // ㄱㄴㄷㄹ 보기 항목별 한 줄 설명

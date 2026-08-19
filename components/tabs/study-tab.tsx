@@ -673,7 +673,12 @@ function StudyBulkPreview({
                       {subSummary && (
                         <div className="flex gap-1.5 items-start">
                           <span className="shrink-0 text-[10px] text-primary font-medium mt-0.5">요약</span>
-                          <p className="text-xs font-semibold text-foreground leading-relaxed whitespace-pre-wrap">{subSummary}</p>
+                          <p className="text-xs font-semibold text-foreground leading-relaxed whitespace-pre-wrap">
+                            {(() => {
+                              const { text, bolds } = parseBoldMarks(subSummary)
+                              return renderHighlighted(text, `subsum_${item.label}`, [], undefined, bolds)
+                            })()}
+                          </p>
                         </div>
                       )}
                       {subSummary && subBlocks.length > 0 && <div className="border-t border-border" />}
@@ -727,6 +732,7 @@ function StudyBulkPreview({
             const choiceExpFieldKey = (i: number) =>
               isBlockExplanation ? `choiceexp_${c.label}_${i}` : `choiceexp_${c.label}`
             const explanationSummary = q.choiceExplanationSummaries?.[c.label]?.trim()
+            const statementIsTrue = q.choiceIsCorrectStatement?.[c.label]
             const fieldKey = `choice_${c.label}`
             const isOpen = choiceMemoOpen === memoKey
 
@@ -744,9 +750,12 @@ function StudyBulkPreview({
                   >
                     {renderHighlighted(c.text, fieldKey, highlights, removeHighlight)}
                   </span>
-                  <span className={`shrink-0 text-xs font-bold ${isCorrect ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {isCorrect ? 'O' : 'X'}
-                  </span>
+                  {/* 선지 문장 자체의 참/거짓 (정답 여부와 별개). 옛 데이터에는 없으므로 그때는 표시하지 않는다 */}
+                  {statementIsTrue !== undefined && (
+                    <span className={`shrink-0 text-xs font-bold ${statementIsTrue ? 'text-blue-400' : 'text-red-400'}`}>
+                      {statementIsTrue ? 'O' : 'X'}
+                    </span>
+                  )}
                   {isCorrect && (
                     <span className="shrink-0 text-emerald-400 text-xs font-medium">✓ 정답</span>
                   )}
@@ -794,7 +803,12 @@ function StudyBulkPreview({
                     {explanationSummary && (
                       <div className="flex gap-1.5 items-start">
                         <span className="shrink-0 text-[10px] text-primary font-medium mt-0.5">요약</span>
-                        <p className="text-xs font-semibold text-foreground leading-relaxed whitespace-pre-wrap">{explanationSummary}</p>
+                        <p className="text-xs font-semibold text-foreground leading-relaxed whitespace-pre-wrap">
+                          {(() => {
+                            const { text, bolds } = parseBoldMarks(explanationSummary)
+                            return renderHighlighted(text, `choicesum_${c.label}`, [], undefined, bolds)
+                          })()}
+                        </p>
                       </div>
                     )}
                     {explanationSummary && explanationBlocks.length > 0 && <div className="border-t border-border" />}

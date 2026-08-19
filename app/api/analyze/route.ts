@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
 
       const prompt = `당신은 변호사시험 문제 추출 전문가입니다.
 이 PDF에서 모든 문제를 추출하여 JSON 배열만 출력하세요.
-각 항목 형식: {"문제번호": number, "연도": number, "단원": string, "지문": string, "선지": {"①": string, "②": string, "③": string, "④": string,"⑤": string}, "정답": string, "해설": string|null, "선지별설명": {"①": [{"type": "text"|"lawBox", "title": string, "content": string}], "②": [...], "③": [...], "④": [...], "⑤": [...]}|null, "선지별설명요약": {"①": string, "②": string, "③": string, "④": string, "⑤": string}|null, "표서식": [{"title": string, "rows": [{"cells": [string]}]}]|null, "보기목록": [{"label": string, "text": string, "isCorrect": boolean, "explanation": [{"type": "text"|"lawBox", "title": string, "content": string}], "explanationSummary": string}]|null}
+각 항목 형식: {"문제번호": number, "연도": number, "단원": string, "지문": string, "선지": {"①": string, "②": string, "③": string, "④": string,"⑤": string}, "정답": string, "해설": string|null, "선지정오": {"①": boolean, "②": boolean, "③": boolean, "④": boolean, "⑤": boolean}|null, "선지별설명": {"①": [{"type": "text"|"lawBox", "title": string, "content": string}], "②": [...], "③": [...], "④": [...], "⑤": [...]}|null, "선지별설명요약": {"①": string, "②": string, "③": string, "④": string, "⑤": string}|null, "표서식": [{"title": string, "rows": [{"cells": [string]}]}]|null, "보기목록": [{"label": string, "text": string, "isCorrect": boolean, "explanation": [{"type": "text"|"lawBox", "title": string, "content": string}], "explanationSummary": string}]|null}
 - ★지문/선지 분리 규칙 (가장 중요, 반드시 지킬 것):
   - "지문"에는 문제의 발문만 담으세요. 선지 번호(①②③④⑤)와 선지 본문은 "지문"에 절대로 포함하지 마세요
   - 각 선지의 전체 텍스트는 반드시 "선지" 객체에 라벨별("①"~"⑤")로 빠짐없이 채우세요. 값이 빈 문자열이거나 라벨만 있고 내용이 없는 것은 절대 금지입니다
@@ -151,6 +151,19 @@ export async function POST(req: NextRequest) {
     - 모순이 발견되면 **정답 선지 기준을 우선**해서 isCorrect를 다시 맞추세요. 정답 선지는 문제집 원본에 표기된 확정 정답이므로 개별 서술에 대한 자체 판단보다 신뢰도가 높습니다
     - 단, "explanation"은 원문 복사이므로 isCorrect에 맞추려고 **고쳐 쓰지 마세요**. 원본 문장을 그대로 유지하세요
     - 원본의 (O)/(X) 표기는 보조 근거입니다. 정답 선지에서 도출한 결과와 충돌하면 정답 선지 쪽을 따르세요
+- ★"선지정오" — 각 선지(①~⑤) **문장 자체가 법적으로 옳은 서술이면 true, 틀린 서술이면 false**입니다.
+  - "정답에 해당하는 선지인지"가 아닙니다. 발문이 "옳지 않은 것은?"이면 **정답 선지의 값은 false**가 됩니다
+  - 판정은 아래 3단계를 순서대로 수행하세요 ("보기목록"의 isCorrect와 동일한 원칙):
+    [1단계] 발문 유형 판별 — 긍정형("옳은 것은?", "타당한 것은?") / 부정형("옳지 않은 것은?", "틀린 것은?", "아닌 것은?")
+      "옳지 않은", "아닌", "틀린" 같은 부정어를 놓치지 마세요. 이 판별을 틀리면 5개 값이 통째로 뒤집힙니다
+    [2단계] 정답 선지("정답" 필드)를 기준으로 도출
+      - 긍정형: 정답 선지 = true, 나머지 4개 = false
+      - 부정형: 정답 선지 = false, 나머지 4개 = true
+      - 예) 발문이 "옳지 않은 것은?"이고 정답이 "③"이면 → {"①": true, "②": true, "③": false, "④": true, "⑤": true}
+    [3단계] ★자체 검증 — 출력 전에 1·2단계 결과와 실제로 쓴 값이 선지별로 하나하나 일치하는지 대조하세요.
+      모순이 있으면 **정답 선지 기준을 우선**해서 다시 맞추세요 (정답은 문제집 원본에 표기된 확정 정답이므로 더 신뢰할 수 있습니다)
+  - 단, 해설에 특정 선지가 "지문과 무관" 등으로 참/거짓을 따질 수 없다고 적혀 있으면 그 키는 생략하세요
+  - 선지가 없거나 판단 근거가 없으면 "선지정오"는 null
 - "선지별설명"은 원본 PDF에서 각 선지(①~⑤)에 대해 적혀 있는 해설을 **블록 배열**로 담습니다 (키별로 배열 하나씩).
   - 블록 구조는 "보기목록"의 "explanation"과 **완전히 동일**합니다: {"type": "text"|"lawBox", "title": string(생략 가능), "content": string}
   - "text": 일반 서술 문단. "lawBox": 원본에서 **테두리·배경색·음영으로 시각적으로 구분된 조문 인용 블록**
