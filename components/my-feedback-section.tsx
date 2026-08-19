@@ -19,21 +19,25 @@ export function MyFeedbackSection({ userId, onRepliesRead }: Props) {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
+      let mine: Feedback[]
       try {
-        const mine = await getMyFeedback(userId)
-        if (cancelled) return
-        setList(mine)
-
-        const unread = mine.filter((f) => f.adminReply && f.replyReadByUser !== true).map((f) => f.id)
-        if (unread.length > 0) {
-          await markRepliesRead(unread)
-          if (!cancelled) onRepliesRead?.()
-        }
+        mine = await getMyFeedback(userId)
       } catch (e) {
         console.error('[my-feedback] 조회 실패', e)
-        if (!cancelled) setError('피드백을 불러오지 못했습니다.')
-      } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) { setError('피드백을 불러오지 못했습니다.'); setLoading(false) }
+        return
+      }
+      if (cancelled) return
+      setList(mine)
+      setLoading(false)
+
+      // 읽음 처리 실패는 조회 실패와 별개다. 여기서 실패하면 배지가 계속 남으므로 화면에 알린다
+      const unread = mine.filter((f) => f.adminReply && f.replyReadByUser !== true).map((f) => f.id)
+      if (unread.length > 0) {
+        const { failed } = await markRepliesRead(unread)
+        if (cancelled) return
+        if (failed > 0) setError('답글 읽음 처리에 실패했습니다. 알림이 계속 표시될 수 있습니다.')
+        onRepliesRead?.()
       }
     })()
     return () => { cancelled = true }
