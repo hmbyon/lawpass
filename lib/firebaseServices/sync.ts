@@ -27,6 +27,10 @@ export async function pushToFirebase(userId: string) {
   console.log('[pushToFirebase] studySessions uploaded to Firebase')
   if (quizSession) {
     await setDoc(doc(db, 'users', userId, mode, 'quizSession'), quizSession)
+  } else {
+    // 로컬에서 지웠으면 원격 문서도 지운다.
+    // 이 분기가 없으면 다음 pull 때 삭제한 퀴즈 세션이 되살아난다
+    await deleteDoc(doc(db, 'users', userId, mode, 'quizSession')).catch(() => {})
   }
 }
 

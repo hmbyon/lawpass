@@ -188,6 +188,13 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
   function handleDeleteSession(savedAt: number) {
     removeSavedStudySession(savedAt)
     setSavedSessions(getSavedStudySessions())
+    onSync() // 삭제를 Firebase에도 반영하지 않으면 다음 pull 때 되살아난다
+  }
+
+  function handleDeleteQuizSession() {
+    clearSavedSession()
+    setSavedQuiz(null)
+    onSync()
   }
 
   if (phase === 'preview') {
@@ -241,7 +248,7 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
             <button onClick={handleResumeQuiz} className="flex-1 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90">
               이어서 풀기
             </button>
-            <button onClick={() => { clearSavedSession(); setSavedQuiz(null) }} className="flex-1 py-2 bg-muted text-muted-foreground rounded-lg text-sm hover:bg-muted/70">
+            <button onClick={handleDeleteQuizSession} className="flex-1 py-2 bg-muted text-muted-foreground rounded-lg text-sm hover:bg-muted/70">
               삭제
             </button>
           </div>
