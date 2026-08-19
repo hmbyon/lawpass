@@ -144,9 +144,11 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
     onDone()
   }
 
-  function handleResumePreview(session: SavedStudySession) {
+  function handleResumePreview(session: SavedStudySession, startIndex?: number) {
     setAllQuestions(session.allQuestions)
-    setPreviewFrom(Math.min(firstUnlearnedIndex(session), session.allQuestions.length - 1))
+    setPreviewFrom(
+      startIndex ?? Math.min(firstUnlearnedIndex(session), session.allQuestions.length - 1)
+    )
     setPreviewVisited(session.learnedIndices)
     setActiveSession(session)
     setPhase('preview')
@@ -279,14 +281,20 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
                   {' '}({startableQuizIndices(session).length}문제)
                 </button>
               )}
-              {firstUnlearnedIndex(session) < session.allQuestions.length && (
-                <button
-                  onClick={() => handleResumePreview(session)}
-                  className="w-full py-2 bg-purple-700 text-white rounded-lg text-sm font-medium hover:opacity-90"
-                >
-                  📖 {firstUnlearnedIndex(session) + 1}번부터 이어서 학습
-                </button>
-              )}
+              {/* 학습 경로는 퀴즈 진행 여부와 무관하게 항상 열어둔다.
+                  남은 구간이 없으면 처음부터 다시 볼 수 있게 한다 (버튼 없는 카드 방지) */}
+              {(() => {
+                const next = firstUnlearnedIndex(session)
+                const allLearned = next >= session.allQuestions.length
+                return (
+                  <button
+                    onClick={() => handleResumePreview(session, allLearned ? 0 : next)}
+                    className="w-full py-2 bg-purple-700 text-white rounded-lg text-sm font-medium hover:opacity-90"
+                  >
+                    📖 {allLearned ? '처음부터 다시 학습' : `${next + 1}번부터 이어서 학습`}
+                  </button>
+                )
+              })()}
             </div>
           ))}
         </div>
