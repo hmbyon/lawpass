@@ -155,7 +155,7 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
   // 학습은 했지만 아직 풀지 않은 문제를 바로 퀴즈로 시작한다
   function handleResumeQuizFromSession(session: SavedStudySession) {
     setPreviewVisited(session.learnedIndices)
-    if (!startQuizFor(session, unquizzedLearnedIndices(session))) {
+    if (!startQuizFor(session, startableQuizIndices(session))) {
       alert('풀 수 있는 문제가 없습니다.')
     }
   }
@@ -167,6 +167,20 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
     setResumingQuiz(true)
     setPhase('quiz')
     onSync()
+  }
+
+  // 진행 중(중도 이탈)인 퀴즈가 커버하는 문항 id.
+  // 같은 구간이 상단 "풀던 퀴즈 이어서 하기" 카드와 학습 카드에 동시에 뜨지 않도록 한다
+  const pendingQuizIds =
+    savedQuiz?.mode === 'study'
+      ? new Set(savedQuiz.questions.map((q) => q.id))
+      : new Set<string>()
+
+  // 학습 카드에서 새로 시작할 수 있는 문항 = 아직 안 푼 것 중 진행 중인 퀴즈에 없는 것
+  function startableQuizIndices(session: SavedStudySession): number[] {
+    return unquizzedLearnedIndices(session).filter(
+      (i) => !pendingQuizIds.has(session.allQuestions[i]?.id)
+    )
   }
 
   function handleDeleteSession(savedAt: number) {
@@ -256,13 +270,13 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
                 </button>
               </div>
               {/* 상태에 맞는 버튼만 노출한다 (둘 다 남아 있으면 둘 다) */}
-              {unquizzedLearnedIndices(session).length > 0 && (
+              {startableQuizIndices(session).length > 0 && (
                 <button
                   onClick={() => handleResumeQuizFromSession(session)}
                   className="w-full py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
                 >
-                  ▶ {unquizzedLearnedIndices(session)[0] + 1}번부터 퀴즈 풀기
-                  {' '}({unquizzedLearnedIndices(session).length}문제)
+                  ▶ {startableQuizIndices(session)[0] + 1}번부터 퀴즈 풀기
+                  {' '}({startableQuizIndices(session).length}문제)
                 </button>
               )}
               {firstUnlearnedIndex(session) < session.allQuestions.length && (
