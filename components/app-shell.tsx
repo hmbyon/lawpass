@@ -45,6 +45,17 @@ export function AppShell({ user }: Props) {
   // 관리자 계정에서만 안읽은 피드백 수를 조회해 헤더 버튼에 표시한다
   const isAdmin = isAdminEmail(user.email)
   const [unreadFeedback, setUnreadFeedback] = useState(0)
+  // 관리자가 헤더 피드백 버튼으로 들어오면 설정 모달의 관리자 섹션을 바로 연다
+  const [feedbackAdminEntry, setFeedbackAdminEntry] = useState(false)
+
+  function handleFeedbackClick() {
+    if (isAdmin) {
+      setFeedbackAdminEntry(true)
+      setShowSettingsModal(true)
+    } else {
+      setShowFeedbackModal(true)
+    }
+  }
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [showOnboarding, setShowOnboarding] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
@@ -114,7 +125,7 @@ export function AppShell({ user }: Props) {
       .then((count) => { if (!cancelled) setUnreadFeedback(count) })
       .catch((e) => console.error('[app-shell] 안읽은 피드백 조회 실패', e))
     return () => { cancelled = true }
-  }, [isAdmin, showFeedbackModal])
+  }, [isAdmin, showFeedbackModal, showSettingsModal])
 
   function handleLogoClick() {
     setTab('pdf')
@@ -156,7 +167,7 @@ export function AppShell({ user }: Props) {
               ❓<span className="hidden sm:inline"> 가이드</span>
             </button>
             <button
-              onClick={() => setShowFeedbackModal(true)}
+              onClick={handleFeedbackClick}
               title={isAdmin && unreadFeedback > 0 ? `안읽은 피드백 ${unreadFeedback}건` : undefined}
               className={`relative text-xs rounded-full px-2 py-0.5 border transition-colors ${
                 isAdmin && unreadFeedback > 0
@@ -316,7 +327,9 @@ export function AppShell({ user }: Props) {
           onClearAll={handleClearAll}
           mode={mode}
           onModeChange={handleModeChange}
-          onClose={() => setShowSettingsModal(false)}
+          autoOpenFeedback={feedbackAdminEntry}
+          onWriteFeedback={() => { setShowSettingsModal(false); setShowFeedbackModal(true) }}
+          onClose={() => { setShowSettingsModal(false); setFeedbackAdminEntry(false) }}
         />
       )}
     </div>

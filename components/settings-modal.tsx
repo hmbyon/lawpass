@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { logout } from '@/lib/firebaseServices/auth'
 import { clearFirebaseSessions } from '@/lib/firebaseServices/sync'
@@ -24,6 +24,8 @@ interface Props {
   mode: AppMode
   onModeChange: (mode: AppMode) => void
   onClose: () => void
+  autoOpenFeedback?: boolean      // 관리자가 헤더 피드백 버튼으로 진입한 경우
+  onWriteFeedback?: () => void    // 관리자도 피드백을 남길 수 있게 하는 통로
 }
 
 export function SettingsModal({
@@ -35,6 +37,8 @@ export function SettingsModal({
   mode,
   onModeChange,
   onClose,
+  autoOpenFeedback = false,
+  onWriteFeedback,
 }: Props) {
   const [clearing, setClearing] = useState(false)
 
@@ -47,6 +51,7 @@ export function SettingsModal({
   const [replyText, setReplyText] = useState('')
   const [replySaving, setReplySaving] = useState(false)
   const [modeFilter, setModeFilter] = useState<'all' | AppMode>('all')
+  const adminSectionRef = useRef<HTMLDivElement>(null)
 
   function handleLogout() {
     onClose()
@@ -91,6 +96,15 @@ export function SettingsModal({
       setFeedbackList((prev) => prev.map((x) => (x.id === f.id ? { ...x, isRead: f.isRead } : x)))
     }
   }
+
+  // 헤더 피드백 버튼으로 들어온 경우 관리자 섹션을 바로 열어준다
+  useEffect(() => {
+    if (!autoOpenFeedback || !isAdmin) return
+    loadFeedback()
+    adminSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    // loadFeedback은 매 렌더 새로 만들어지므로 의존성에서 제외한다 (1회만 실행)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenFeedback, isAdmin])
 
   async function handleSaveReply(f: Feedback) {
     setReplySaving(true)
@@ -210,9 +224,18 @@ export function SettingsModal({
 
         {/* 관리자 모드 */}
         {isAdmin && (
-          <div className="bg-muted rounded-xl p-4 flex flex-col gap-3">
+          <div ref={adminSectionRef} className="bg-muted rounded-xl p-4 flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold">🔧 관리자 모드</h3>
+              <div className="flex items-center gap-3">
+                {onWriteFeedback && (
+                  <button
+                    onClick={onWriteFeedback}
+                    className="text-xs text-primary hover:opacity-80 transition-opacity"
+                  >
+                    ✍️ 피드백 남기기
+                  </button>
+                )}
               <button
                 onClick={loadFeedback}
                 disabled={loadingAdmin}
@@ -220,6 +243,7 @@ export function SettingsModal({
               >
                 {loadingAdmin ? '불러오는 중...' : '새로고침'}
               </button>
+              </div>
             </div>
 
             <div className="flex gap-2">
