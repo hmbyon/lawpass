@@ -95,7 +95,7 @@ export async function extractQuestionsFromPdf(
     보기정답?: Record<string, boolean> | null
     선지별설명?: Record<string, string> | null
     보기별설명?: Record<string, string> | null
-    보기목록?: { label?: string; text?: string; isCorrect?: boolean; explanation?: string }[] | null
+    보기목록?: { label?: string; text?: string; isCorrect?: boolean; explanation?: string; explanationSummary?: string }[] | null
   }[]
 
   try {
@@ -116,6 +116,7 @@ export async function extractQuestionsFromPdf(
         text: String(it?.text ?? '').trim(),
         isCorrect: Boolean(it?.isCorrect),
         explanation: String(it?.explanation ?? '').trim(),
+        explanationSummary: String(it?.explanationSummary ?? '').trim() || undefined,
       }))
       .filter((it) => it.label && it.text)
     return items.length > 0 ? items : undefined

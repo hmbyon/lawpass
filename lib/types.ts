@@ -22,6 +22,7 @@ export interface SubItem {
   text: string
   isCorrect: boolean
   explanation: string // 원본 PDF에 적힌 해설 그대로. 원본에 없으면 빈 문자열
+  explanationSummary?: string // AI가 생성한 1~2줄 요약 (원문인 explanation과 별개)
 }
 
 export interface Question {

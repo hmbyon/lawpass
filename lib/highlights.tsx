@@ -1,6 +1,22 @@
 import React from 'react'
 
-export type HighlightColor = 'yellow' | 'green' | 'pink'
+export type HighlightColor = 'yellow' | 'green' | 'pink' | 'blue' | 'purple' | 'orange' | 'red'
+
+// 'fill' = 배경 칠하기(기존 형광펜), 'underline' = 밑줄만
+// 옛 데이터에는 이 필드가 없으므로 undefined는 'fill'로 취급한다
+export type HighlightStyle = 'fill' | 'underline'
+
+export const HIGHLIGHT_COLORS: HighlightColor[] = ['yellow', 'green', 'pink', 'blue', 'purple', 'orange', 'red']
+
+export const HIGHLIGHT_COLOR_LABELS: Record<HighlightColor, string> = {
+  yellow: '노랑',
+  green: '초록',
+  pink: '핑크',
+  blue: '파랑',
+  purple: '보라',
+  orange: '주황',
+  red: '빨강',
+}
 
 export interface Highlight {
   id: string
@@ -8,18 +24,39 @@ export interface Highlight {
   start: number
   end: number
   color: HighlightColor
+  style?: HighlightStyle // 없으면 'fill' (기존 데이터 호환)
 }
 
 export const HIGHLIGHT_CLASSES: Record<HighlightColor, string> = {
   yellow: 'bg-yellow-300/70 dark:bg-yellow-500/40',
   green: 'bg-emerald-300/70 dark:bg-emerald-500/40',
   pink: 'bg-pink-300/70 dark:bg-pink-500/40',
+  blue: 'bg-blue-300/70 dark:bg-blue-500/40',
+  purple: 'bg-purple-300/70 dark:bg-purple-500/40',
+  orange: 'bg-orange-300/70 dark:bg-orange-500/40',
+  red: 'bg-red-300/70 dark:bg-red-500/40',
+}
+
+// 밑줄 모드: <mark>의 브라우저 기본 배경을 없애고 아래 테두리만 남긴다.
+// text-decoration 대신 border를 쓰는 이유는 지우개 hover의 line-through/decoration과 충돌하지 않기 위해서다
+export const HIGHLIGHT_UNDERLINE_CLASSES: Record<HighlightColor, string> = {
+  yellow: 'bg-transparent border-b-2 border-yellow-500 dark:border-yellow-400',
+  green: 'bg-transparent border-b-2 border-emerald-500 dark:border-emerald-400',
+  pink: 'bg-transparent border-b-2 border-pink-500 dark:border-pink-400',
+  blue: 'bg-transparent border-b-2 border-blue-500 dark:border-blue-400',
+  purple: 'bg-transparent border-b-2 border-purple-500 dark:border-purple-400',
+  orange: 'bg-transparent border-b-2 border-orange-500 dark:border-orange-400',
+  red: 'bg-transparent border-b-2 border-red-500 dark:border-red-400',
 }
 
 export const HIGHLIGHT_SWATCH_CLASSES: Record<HighlightColor, string> = {
   yellow: 'bg-yellow-400',
   green: 'bg-emerald-400',
   pink: 'bg-pink-400',
+  blue: 'bg-blue-400',
+  purple: 'bg-purple-400',
+  orange: 'bg-orange-400',
+  red: 'bg-red-400',
 }
 
 export function highlightsKey(questionId: string) {
@@ -81,7 +118,9 @@ export function renderHighlighted(
         style={{
           cursor: onRemove ? `url("${ERASER_CURSOR_SVG}") 4 20, pointer` : 'default',
         }}
-        className={`${HIGHLIGHT_CLASSES[h.color]} rounded-sm transition-all ${
+        className={`${
+          h.style === 'underline' ? HIGHLIGHT_UNDERLINE_CLASSES[h.color] : HIGHLIGHT_CLASSES[h.color]
+        } rounded-sm transition-all ${
           onRemove ? 'hover:bg-red-500/30 hover:line-through hover:decoration-red-500 hover:decoration-2' : ''
         }`}
       >

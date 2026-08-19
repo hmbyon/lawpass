@@ -10,8 +10,11 @@ import {
 import type { SavedStudySession } from '@/lib/store'
 import {
   HighlightColor,
+  HighlightStyle,
   Highlight,
   HIGHLIGHT_SWATCH_CLASSES,
+  HIGHLIGHT_COLORS,
+  HIGHLIGHT_COLOR_LABELS,
   loadHighlights,
   saveHighlights,
   withoutOverlaps,
@@ -386,6 +389,7 @@ function StudyBulkPreview({
 
   const [highlights, setHighlights] = useState<Highlight[]>(() => loadHighlights(q.id))
   const [highlightPopup, setHighlightPopup] = useState<{ field: string; start: number; end: number; x: number; y: number } | null>(null)
+  const [highlightStyle, setHighlightStyle] = useState<HighlightStyle>('fill') // 연속 적용 편하도록 선택을 유지
   const fieldRefs = useRef<Record<string, HTMLElement | null>>({})
   const popupRef = useRef<HTMLDivElement>(null)
 
@@ -443,7 +447,7 @@ function StudyBulkPreview({
     if (!highlightPopup) return
     const { field, start, end } = highlightPopup
     const cleaned = withoutOverlaps(highlights, field, start, end)
-    const next = [...cleaned, { id: `h_${Date.now()}`, field, start, end, color }]
+    const next = [...cleaned, { id: `h_${Date.now()}`, field, start, end, color, style: highlightStyle }]
     setHighlights(next)
     saveHighlights(q.id, next)
     setHighlightPopup(null)
@@ -549,6 +553,7 @@ function StudyBulkPreview({
               const subItem = subItemByLabel.get(item.label)
               const subAnswer = subItem ? subItem.isCorrect : q.subChoiceAnswers?.[item.label]
               const subExplanation = subItem?.explanation?.trim() || subExplanations[item.label]
+              const subSummary = subItem?.explanationSummary?.trim()
               const fieldKey = `sub_${item.label}`
               const isOpen = choiceMemoOpen === memoKey
 
@@ -606,14 +611,23 @@ function StudyBulkPreview({
                     </div>
                   )}
 
-                  {subExplanation && (
-                    <div className="ml-5 mt-1 bg-muted rounded-lg p-2.5">
-                      <p
-                        ref={(el) => { fieldRefs.current[`subexp_${item.label}`] = el }}
-                        className="text-xs text-foreground leading-relaxed whitespace-pre-wrap select-text"
-                      >
-                        {renderHighlighted(subExplanation, `subexp_${item.label}`, highlights, removeHighlight)}
-                      </p>
+                  {(subSummary || subExplanation) && (
+                    <div className="ml-5 mt-1 bg-muted rounded-lg p-2.5 space-y-2">
+                      {subSummary && (
+                        <div className="flex gap-1.5 items-start">
+                          <span className="shrink-0 text-[10px] text-primary font-medium mt-0.5">요약</span>
+                          <p className="text-xs font-semibold text-foreground leading-relaxed whitespace-pre-wrap">{subSummary}</p>
+                        </div>
+                      )}
+                      {subSummary && subExplanation && <div className="border-t border-border" />}
+                      {subExplanation && (
+                        <p
+                          ref={(el) => { fieldRefs.current[`subexp_${item.label}`] = el }}
+                          className="text-xs text-foreground leading-relaxed whitespace-pre-wrap select-text"
+                        >
+                          {renderHighlighted(subExplanation, `subexp_${item.label}`, highlights, removeHighlight)}
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -707,22 +721,55 @@ function StudyBulkPreview({
         </div>
       </div>
 
-      {/* 형광펜 색상 팝업 */}
+      {/* 형광펜 스타일·색상 팝업 */}
       {highlightPopup && (
         <div
           ref={popupRef}
-          className="fixed z-50 flex items-center gap-1.5 bg-card border border-border rounded-full shadow-lg px-2 py-1.5"
-          style={{ left: highlightPopup.x, top: Math.max(highlightPopup.y - 44, 8), transform: 'translateX(-50%)' }}
+          className="fixed z-50 flex flex-col gap-1.5 bg-card border border-border rounded-xl shadow-lg px-2 py-2"
+          style={{ left: highlightPopup.x, top: Math.max(highlightPopup.y - 88, 8), transform: 'translateX(-50%)' }}
         >
-          {(['yellow', 'green', 'pink'] as HighlightColor[]).map((color) => (
+          <div className="flex items-center gap-1">
+            {([['fill', '배경'], ['underline', '밑줄']] as [HighlightStyle, string][]).map(([style, label]) => (
+              <button
+                key={style}
+                type="button"
+                onClick={() => setHighlightStyle(style)}
+                className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                  highlightStyle === style
+                    ? 'border-primary text-primary bg-primary/10'
+                    : 'border-border text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
             <button
-              key={color}
-              onClick={() => applyHighlight(color)}
-              className={`w-6 h-6 rounded-full border border-black/10 hover:scale-110 transition-transform ${HIGHLIGHT_SWATCH_CLASSES[color]}`}
-              title={color === 'yellow' ? '노랑' : color === 'green' ? '초록' : '핑크'}
-            />
-          ))}
-          <button onClick={() => setHighlightPopup(null)} className="text-muted-foreground hover:text-foreground text-xs px-1">×</button>
+              type="button"
+              onClick={() => setHighlightPopup(null)}
+              className="ml-auto text-muted-foreground hover:text-foreground text-xs px-1"
+            >
+              ×
+            </button>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {HIGHLIGHT_COLORS.map((color) => (
+              <button
+                key={color}
+                type="button"
+                onClick={() => applyHighlight(color)}
+                title={`${HIGHLIGHT_COLOR_LABELS[color]} ${highlightStyle === 'underline' ? '밑줄' : '형광펜'}`}
+                className={
+                  highlightStyle === 'underline'
+                    ? `w-6 h-6 rounded-full border-2 border-black/10 flex items-end justify-center pb-0.5 hover:scale-110 transition-transform`
+                    : `w-6 h-6 rounded-full border border-black/10 hover:scale-110 transition-transform ${HIGHLIGHT_SWATCH_CLASSES[color]}`
+                }
+              >
+                {highlightStyle === 'underline' && (
+                  <span className={`block w-4 h-1 rounded-full ${HIGHLIGHT_SWATCH_CLASSES[color]}`} />
+                )}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
