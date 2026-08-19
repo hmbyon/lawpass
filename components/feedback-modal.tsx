@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { submitFeedback } from '@/lib/firebaseServices/feedback'
+import { MyFeedbackSection } from '@/components/my-feedback-section'
 import type { FeedbackType } from '@/lib/types'
 import type { AppMode } from '@/lib/appMode'
 
@@ -12,9 +13,10 @@ interface Props {
   userEmail: string | null
   mode: AppMode
   onClose: () => void
+  onRepliesRead?: () => void // 답글을 읽음 처리한 뒤 헤더 알림 갱신
 }
 
-export function FeedbackModal({ userId, userEmail, mode, onClose }: Props) {
+export function FeedbackModal({ userId, userEmail, mode, onClose, onRepliesRead }: Props) {
   const [feedbackType, setFeedbackType] = useState<FeedbackType>('버그 신고')
   const [content, setContent] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -41,7 +43,7 @@ export function FeedbackModal({ userId, userEmail, mode, onClose }: Props) {
       onClick={onClose}
     >
       <div
-        className="bg-card border border-border rounded-2xl w-full max-w-md p-4 space-y-3"
+        className="bg-card border border-border rounded-2xl w-full max-w-md p-4 space-y-3 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
@@ -95,6 +97,9 @@ export function FeedbackModal({ userId, userEmail, mode, onClose }: Props) {
             <p className="text-emerald-700 dark:text-emerald-300 font-medium">피드백이 제출되었습니다. 감사합니다!</p>
           </div>
         )}
+
+        {/* 내가 남긴 피드백과 관리자 답글. 알림 카운트와 무관하게 항상 여기서 볼 수 있다 */}
+        <MyFeedbackSection userId={userId} onRepliesRead={onRepliesRead} />
       </div>
     </div>
   )

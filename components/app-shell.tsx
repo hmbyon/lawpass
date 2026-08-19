@@ -54,7 +54,10 @@ export function AppShell({ user }: Props) {
   const refreshUnreadReplies = useCallback(() => {
     countUnreadReplies(user.uid)
       .then(setUnreadReplies)
-      .catch((e) => console.error('[app-shell] 답글 알림 조회 실패', e))
+      .catch((e) =>
+        // 권한 오류면 배지가 뜨지 않는다. Firestore 규칙에서 본인 피드백 읽기가 허용돼야 한다
+        console.error('[app-shell] 답글 알림 조회 실패 (Firestore 규칙 확인 필요)', e)
+      )
   }, [user.uid])
 
   const refreshUnreadFeedback = useCallback(() => {
@@ -68,9 +71,9 @@ export function AppShell({ user }: Props) {
   const hasFeedbackAlert = isAdmin ? unreadFeedback > 0 : unreadReplies > 0
 
   function handleFeedbackClick() {
+    // 비관리자는 항상 피드백 모달을 연다. 그 안에 "내 피드백 + 답글"이 함께 들어 있어
+    // 알림 카운트가 0이어도(조회 실패 포함) 답글에 도달할 수 있다
     if (isAdmin) setShowAdminFeedback(true)
-    // 새 답글이 있으면 답글을 볼 수 있는 설정 모달(내 피드백 섹션)로 보낸다
-    else if (unreadReplies > 0) setShowSettingsModal(true)
     else setShowFeedbackModal(true)
   }
   const [showSettingsModal, setShowSettingsModal] = useState(false)
@@ -336,7 +339,8 @@ export function AppShell({ user }: Props) {
           userId={user.uid}
           userEmail={user.email}
           mode={mode}
-          onClose={() => setShowFeedbackModal(false)}
+          onRepliesRead={refreshUnreadReplies}
+          onClose={() => { setShowFeedbackModal(false); refreshUnreadReplies() }}
         />
       )}
 
@@ -358,7 +362,6 @@ export function AppShell({ user }: Props) {
           mode={mode}
           onModeChange={handleModeChange}
           onWriteFeedback={() => { setShowSettingsModal(false); setShowFeedbackModal(true) }}
-          onRepliesRead={refreshUnreadReplies}
           onClose={() => setShowSettingsModal(false)}
         />
       )}
