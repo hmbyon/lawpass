@@ -816,7 +816,11 @@ function StudyBulkPreview({
                   </div>
                 )}
 
-                {!subChoices && (explanationSummary || explanationBlocks.length > 0) && (
+                {/* 선지 해설은 있으면 항상 보여준다.
+                    이전에는 !subChoices 조건이 걸려 있었는데, subChoices는 subItems가 없을 때
+                    지문 정규식 파싱으로 폴백하므로 지문에 "가./나." 같은 줄이 있으면 참이 되어
+                    일반 ①~⑤ 문제의 선지 해설이 통째로 렌더되지 않았다 (볼드 미표시의 실제 원인) */}
+                {(explanationSummary || explanationBlocks.length > 0) && (
                   <div className="ml-3 mt-1 bg-muted rounded-lg p-2.5 space-y-2">
                     {explanationSummary && (
                       <div className="flex gap-1.5 items-start">
