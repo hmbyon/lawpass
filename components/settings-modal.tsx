@@ -6,6 +6,7 @@ import { logout } from '@/lib/firebaseServices/auth'
 import { clearFirebaseSessions } from '@/lib/firebaseServices/sync'
 import { ADMIN_EMAIL } from '@/lib/admin'
 import { AdminFeedbackPanel } from '@/components/admin-feedback-panel'
+import { MyFeedbackSection } from '@/components/my-feedback-section'
 import type { AppMode } from '@/lib/appMode'
 
 interface Props {
@@ -18,6 +19,7 @@ interface Props {
   onModeChange: (mode: AppMode) => void
   onClose: () => void
   onWriteFeedback?: () => void    // 관리자도 피드백을 남길 수 있게 하는 통로
+  onRepliesRead?: () => void      // 내 피드백 답글을 읽음 처리한 뒤 헤더 알림 갱신
 }
 
 export function SettingsModal({
@@ -30,6 +32,7 @@ export function SettingsModal({
   onModeChange,
   onClose,
   onWriteFeedback,
+  onRepliesRead,
 }: Props) {
   const [clearing, setClearing] = useState(false)
 
@@ -146,6 +149,9 @@ export function SettingsModal({
             {clearing ? '초기화 중...' : '전체 데이터 초기화'}
           </button>
         </div>
+
+        {/* 내 피드백 (관리자 여부와 무관하게 표시) */}
+        <MyFeedbackSection userId={userId} onRepliesRead={onRepliesRead} />
 
         {/* 관리자 모드 */}
         {isAdmin && (

@@ -9,7 +9,7 @@ import { pullFromFirebase, pushToFirebase } from '@/lib/firebaseServices/sync'
 import { getAppMode, setAppMode, type AppMode } from '@/lib/appMode'
 import { FeedbackModal } from '@/components/feedback-modal'
 import { isAdminEmail } from '@/lib/admin'
-import { countUnreadFeedback } from '@/lib/firebaseServices/feedback'
+import { countUnreadFeedback, countUnreadReplies } from '@/lib/firebaseServices/feedback'
 import { SettingsModal } from '@/components/settings-modal'
 import { AdminFeedbackModal } from '@/components/admin-feedback-modal'
 import { PdfTab } from '@/components/tabs/pdf-tab'
@@ -48,6 +48,14 @@ export function AppShell({ user }: Props) {
   const [unreadFeedback, setUnreadFeedback] = useState(0)
   // 관리자는 헤더 피드백 버튼으로 피드백 전용 관리자 모달을 연다
   const [showAdminFeedback, setShowAdminFeedback] = useState(false)
+  // 내 피드백에 달린 아직 확인하지 않은 답글 수 (로그인한 모든 사용자 대상)
+  const [unreadReplies, setUnreadReplies] = useState(0)
+
+  const refreshUnreadReplies = useCallback(() => {
+    countUnreadReplies(user.uid)
+      .then(setUnreadReplies)
+      .catch((e) => console.error('[app-shell] 답글 알림 조회 실패', e))
+  }, [user.uid])
 
   const refreshUnreadFeedback = useCallback(() => {
     if (!isAdmin) return
@@ -56,8 +64,13 @@ export function AppShell({ user }: Props) {
       .catch((e) => console.error('[app-shell] 안읽은 피드백 조회 실패', e))
   }, [isAdmin])
 
+  // 관리자는 안읽은 피드백, 그 외에는 내 피드백의 새 답글이 알림 대상이다
+  const hasFeedbackAlert = isAdmin ? unreadFeedback > 0 : unreadReplies > 0
+
   function handleFeedbackClick() {
     if (isAdmin) setShowAdminFeedback(true)
+    // 새 답글이 있으면 답글을 볼 수 있는 설정 모달(내 피드백 섹션)로 보낸다
+    else if (unreadReplies > 0) setShowSettingsModal(true)
     else setShowFeedbackModal(true)
   }
   const [showSettingsModal, setShowSettingsModal] = useState(false)
@@ -126,6 +139,10 @@ export function AppShell({ user }: Props) {
     refreshUnreadFeedback()
   }, [refreshUnreadFeedback])
 
+  useEffect(() => {
+    refreshUnreadReplies()
+  }, [refreshUnreadReplies])
+
   function handleLogoClick() {
     setTab('pdf')
     loadFromFirebase()
@@ -167,15 +184,21 @@ export function AppShell({ user }: Props) {
             </button>
             <button
               onClick={handleFeedbackClick}
-              title={isAdmin && unreadFeedback > 0 ? `안읽은 피드백 ${unreadFeedback}건` : undefined}
-              className={`relative text-xs rounded-full px-2 py-0.5 border transition-colors ${
+              title={
                 isAdmin && unreadFeedback > 0
+                  ? `안읽은 피드백 ${unreadFeedback}건`
+                  : unreadReplies > 0
+                    ? `새 답글 ${unreadReplies}건`
+                    : undefined
+              }
+              className={`relative text-xs rounded-full px-2 py-0.5 border transition-colors ${
+                hasFeedbackAlert
                   ? 'text-red-400 border-red-500/40 bg-red-500/10 hover:bg-red-500/20'
                   : 'text-muted-foreground border-border hover:text-foreground hover:border-foreground/30'
               }`}
             >
               <span className="hidden sm:inline">💬 </span>피드백
-              {isAdmin && unreadFeedback > 0 && (
+              {hasFeedbackAlert && (
                 <span className="absolute -top-1 -right-1 flex h-2 w-2">
                   <span className="absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75 animate-ping" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
@@ -335,6 +358,7 @@ export function AppShell({ user }: Props) {
           mode={mode}
           onModeChange={handleModeChange}
           onWriteFeedback={() => { setShowSettingsModal(false); setShowFeedbackModal(true) }}
+          onRepliesRead={refreshUnreadReplies}
           onClose={() => setShowSettingsModal(false)}
         />
       )}

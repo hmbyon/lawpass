@@ -136,4 +136,5 @@ export interface Feedback {
   mode?: import('./appMode').AppMode
   adminReply?: string   // 관리자 답글
   repliedAt?: number    // 답글 등록 시각
+  replyReadByUser?: boolean  // 사용자가 답글을 확인했는지 (미설정이면 안 읽음)
 }
