@@ -375,14 +375,14 @@ function MemoCard({ note, onMemoSaved, isGeneral }: { note: WrongNote; onMemoSav
       )}
 
       {!hidden.has('혼동주의') && (
-        <div className="bg-yellow-100 border border-yellow-400/60 rounded-lg p-3 space-y-0.5 dark:bg-yellow-900/20 dark:border-yellow-700/30">
+        <div className="bg-yellow-500/5 border border-yellow-500/40 rounded-lg p-3 space-y-0.5">
           <p className="text-xs text-yellow-800 font-medium dark:text-yellow-400">⚠ 혼동주의</p>
           <EditableField value={a.혼동주의} onSave={(v) => saveField({ 혼동주의: v })} onDelete={() => hideField('혼동주의')} label="혼동주의" className="text-foreground text-xs leading-relaxed" multiline />
         </div>
       )}
 
       {!hidden.has('체크포인트') && (
-        <div className="bg-emerald-100 border border-emerald-400/60 rounded-lg p-3 space-y-0.5 dark:bg-emerald-900/20 dark:border-emerald-700/30">
+        <div className="bg-emerald-500/5 border border-emerald-500/40 rounded-lg p-3 space-y-0.5">
           <p className="text-xs text-emerald-800 font-medium dark:text-emerald-400">✓ 체크포인트</p>
           <EditableField value={a.체크포인트} onSave={(v) => saveField({ 체크포인트: v })} onDelete={() => hideField('체크포인트')} label="체크포인트" className="text-foreground text-xs leading-relaxed" multiline />
         </div>
