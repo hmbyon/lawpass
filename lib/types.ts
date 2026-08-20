@@ -69,6 +69,7 @@ export interface Question {
 export interface ErrorAnalysis {
   핵심개념: string
   관련조문: string
+  관련판례?: string // 관련 판례가 없거나 불확실하면 비어 있다 (화면에서 섹션 자체가 숨겨짐)
   오답원인: {
     // 새 구조: 가장 유력한 원인 하나만 판정해 깊이 분석한다
     판정?: CauseType

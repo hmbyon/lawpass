@@ -375,15 +375,15 @@ function MemoCard({ note, onMemoSaved, isGeneral }: { note: WrongNote; onMemoSav
       )}
 
       {!hidden.has('혼동주의') && (
-        <div className="bg-yellow-900/20 border border-yellow-700/30 rounded-lg p-3 space-y-0.5">
-          <p className="text-xs text-yellow-400 font-medium">⚠ 혼동주의</p>
+        <div className="bg-yellow-100 border border-yellow-400/60 rounded-lg p-3 space-y-0.5 dark:bg-yellow-900/20 dark:border-yellow-700/30">
+          <p className="text-xs text-yellow-800 font-medium dark:text-yellow-400">⚠ 혼동주의</p>
           <EditableField value={a.혼동주의} onSave={(v) => saveField({ 혼동주의: v })} onDelete={() => hideField('혼동주의')} label="혼동주의" className="text-foreground text-xs leading-relaxed" multiline />
         </div>
       )}
 
       {!hidden.has('체크포인트') && (
-        <div className="bg-emerald-900/20 border border-emerald-700/30 rounded-lg p-3 space-y-0.5">
-          <p className="text-xs text-emerald-400 font-medium">✓ 체크포인트</p>
+        <div className="bg-emerald-100 border border-emerald-400/60 rounded-lg p-3 space-y-0.5 dark:bg-emerald-900/20 dark:border-emerald-700/30">
+          <p className="text-xs text-emerald-800 font-medium dark:text-emerald-400">✓ 체크포인트</p>
           <EditableField value={a.체크포인트} onSave={(v) => saveField({ 체크포인트: v })} onDelete={() => hideField('체크포인트')} label="체크포인트" className="text-foreground text-xs leading-relaxed" multiline />
         </div>
       )}
@@ -401,9 +401,9 @@ function MemoCard({ note, onMemoSaved, isGeneral }: { note: WrongNote; onMemoSav
       {/* 내 메모 */}
       <div className="border-t border-border pt-2 no-print space-y-2">
         {note.memo && !memoOpen && (
-          <div className="bg-blue-900/20 border border-blue-700/30 rounded-lg p-3 space-y-1">
+          <div className="bg-blue-100 border border-blue-400/60 rounded-lg p-3 space-y-1 dark:bg-blue-900/20 dark:border-blue-700/30">
             <div className="flex items-center justify-between">
-              <p className="text-xs text-blue-400 font-medium">📝 내 메모</p>
+              <p className="text-xs text-blue-800 font-medium dark:text-blue-400">📝 내 메모</p>
               <button onClick={() => setMemoOpen(true)} className="text-xs text-muted-foreground hover:text-foreground transition-colors">수정</button>
             </div>
             <p className="text-xs text-foreground whitespace-pre-wrap">{note.memo}</p>

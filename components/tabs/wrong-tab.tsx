@@ -77,9 +77,9 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
               <div key={c.label}>
                 <div
                   className={`flex gap-2 p-2 rounded-lg text-xs border ${c.label === note.question.answer
-                      ? 'border-emerald-600 bg-emerald-900/20 text-emerald-300'
+                      ? 'border-emerald-500 bg-emerald-100 text-emerald-900 dark:border-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300'
                       : c.label === note.userAnswer
-                        ? 'border-red-600 bg-red-900/20 text-red-300'
+                        ? 'border-red-500 bg-red-100 text-red-900 dark:border-red-600 dark:bg-red-900/20 dark:text-red-300'
                         : 'border-border text-muted-foreground'
                     }`}
                 >
@@ -91,7 +91,7 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
                   {c.label === note.userAnswer && c.label !== note.question.answer && <span className="ml-auto shrink-0">✗ 내 답</span>}
                 </div>
                 {note.choiceMemos?.[c.label] && (
-                  <div className="ml-2 mt-0.5 px-2 py-1 bg-yellow-900/20 border-l-2 border-yellow-500/50 rounded-r text-xs text-yellow-300">
+                  <div className="ml-2 mt-0.5 px-2 py-1 bg-yellow-100 text-yellow-900 border-l-2 border-yellow-500/50 rounded-r text-xs dark:bg-yellow-900/20 dark:text-yellow-300">
                     📌 {note.choiceMemos[c.label]}
                   </div>
                 )}
@@ -126,6 +126,8 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
               </div>
               <Section icon="🎯" label="핵심개념" value={a.핵심개념} />
               <Section icon="📖" label="관련조문" value={a.관련조문} />
+              {/* 판례가 없으면 Section이 null을 반환해 섹션 자체가 사라진다 */}
+              <Section icon="⚖️" label="관련판례" value={a.관련판례 ?? ''} />
               <Section icon="🔍" label="오답원인 상세" value={a.원인상세} />
               {(() => {
                 // 신·구 구조를 모두 흡수해 원인 하나만 보여준다
