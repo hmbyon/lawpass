@@ -14,15 +14,44 @@ export function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError'
 }
 
-// 503(모델 과부하) 발생 시 3초 대기 후 최대 3회 재시도.
+// 503(모델 과부하)과 429(rate limit) 발생 시 재시도.
+// 429는 동시 요청이 많을 때 나므로 지수 백오프로 간격을 벌린다.
 // 중단된 경우 fetch가 AbortError를 던지므로 재시도 없이 그대로 전파된다
 async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(url, init)
-    if (res.status !== 503 || attempt >= MAX_RETRIES) return res
+    const retryable = res.status === 503 || res.status === 429
+    if (!retryable || attempt >= MAX_RETRIES) return res
     if (init.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-    await sleep(RETRY_DELAY_MS)
+    // 503은 고정 간격, 429는 2배씩 늘려 한도가 회복될 시간을 준다
+    const delay = res.status === 429 ? RETRY_DELAY_MS * 2 ** attempt : RETRY_DELAY_MS
+    await sleep(delay)
   }
+}
+
+// 동시 실행 수를 제한하며 순서를 보존해 매핑한다.
+// 무제한 Promise.all은 오답이 많을 때 429를 유발하므로 워커 풀로 제한한다
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+  onSettled?: (completed: number, total: number) => void
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let cursor = 0
+  let completed = 0
+
+  async function worker() {
+    while (cursor < items.length) {
+      const index = cursor++
+      results[index] = await fn(items[index], index)
+      completed++
+      onSettled?.(completed, items.length)
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return results
 }
 
 // ── Upload PDF via server proxy ──────────────────────────────────────────────

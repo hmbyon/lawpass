@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import type { Question, QuestionStatus, WrongNote, CauseType } from '@/lib/types'
-import { analyzeWrongAnswer } from '@/lib/gemini'
+import { analyzeWrongAnswer, mapWithConcurrency } from '@/lib/gemini'
 import { addWrongNote, addCorrectNote, saveSession, clearSavedSession, getRiskLevel } from '@/lib/store'
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
@@ -129,10 +129,12 @@ export function QuizEngine({
     setAnalyzing(true)
     setAnalyzeProgress(0)
 
-    const wrongs: WrongNote[] = []
-
-    for (let i = 0; i < wrongItems.length; i++) {
-      const item = wrongItems[i]
+    // 오답을 동시에 분석한다. 무제한 병렬은 Gemini rate limit(429)을 유발하므로 3개로 제한
+    const ANALYSIS_CONCURRENCY = 3
+    const wrongs = await mapWithConcurrency(
+      wrongItems,
+      ANALYSIS_CONCURRENCY,
+      async (item) => {
       try {
         const analysis = await analyzeWrongAnswer(
           apiKey,
@@ -157,7 +159,7 @@ export function QuizEngine({
           isBookmarked: false,
         }
         addWrongNote(note)
-        wrongs.push(note)
+        return note
       } catch (err) {
         console.error('[v0] Analysis failed for question', item.question.id, err)
         const failNote: WrongNote = {
@@ -176,10 +178,12 @@ export function QuizEngine({
           isBookmarked: false,
         }
         addWrongNote(failNote)
-        wrongs.push(failNote)
+        return failNote
       }
-      setAnalyzeProgress(Math.round(((i + 1) / wrongItems.length) * 100))
-    }
+      },
+      // 완료 순서와 무관하게 끝난 개수만큼 올린다
+      (completed, total) => setAnalyzeProgress(Math.round((completed / total) * 100))
+    )
 
     setAnalyzing(false)
     setResults({ correct: correctItems.length, wrong: wrongs })
