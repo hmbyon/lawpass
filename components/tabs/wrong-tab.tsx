@@ -124,29 +124,32 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
                   )}
                 </div>
               </div>
-              <Section label="핵심개념" value={a.핵심개념} />
-              <Section label="관련조문" value={a.관련조문} />
-              <Section label="오답원인 상세" value={a.원인상세} />
+              <Section icon="🎯" label="핵심개념" value={a.핵심개념} />
+              <Section icon="📖" label="관련조문" value={a.관련조문} />
+              <Section icon="🔍" label="오답원인 상세" value={a.원인상세} />
               {(() => {
                 // 신·구 구조를 모두 흡수해 원인 하나만 보여준다
                 const cause = resolveErrorCause(a, note.dominantCause)
                 if (!cause) return null
                 return (
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <p className="text-xs text-muted-foreground font-medium">오답 원인</p>
+                  <div className="border border-primary/30 bg-primary/5 rounded-lg p-3 space-y-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-[11px] font-semibold text-primary flex items-center gap-1.5">
+                        <span aria-hidden>⚠️</span>
+                        오답 원인
+                      </p>
                       <CauseBadge cause={cause.cause} />
                       <span className="text-xs font-medium text-foreground">{cause.원인명}</span>
                     </div>
-                    <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap">
+                    <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">
                       {cause.상세분석}
                     </p>
                   </div>
                 )
               })()}
-              <Section label="개념요약" value={a.개념요약} />
-              <Section label="혼동주의" value={a.혼동주의} />
-              <Section label="D-1 체크포인트" value={a.체크포인트} />
+              <Section icon="📝" label="개념요약" value={a.개념요약} />
+              <Section icon="🔀" label="혼동주의" value={a.혼동주의} />
+              <Section icon="✅" label="D-1 체크포인트" value={a.체크포인트} />
 
               {/* 오답 히스토리 */}
               {note.analysisHistory && note.analysisHistory.length > 1 && (
@@ -194,11 +197,16 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
   )
 }
 
-function Section({ label, value }: { label: string; value: string }) {
+// 분석 항목을 독립된 카드로 렌더한다. 색은 전부 시맨틱 토큰이라 3개 테마 모두 대응된다
+function Section({ label, value, icon }: { label: string; value: string; icon?: string }) {
+  if (!value?.trim()) return null
   return (
-    <div>
-      <p className="text-xs text-muted-foreground font-medium mb-0.5">{label}</p>
-      <p className="text-foreground leading-relaxed">{value}</p>
+    <div className="bg-muted rounded-lg p-3 space-y-1.5">
+      <p className="text-[11px] font-semibold text-primary flex items-center gap-1.5">
+        {icon && <span aria-hidden>{icon}</span>}
+        {label}
+      </p>
+      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">{value}</p>
     </div>
   )
 }
