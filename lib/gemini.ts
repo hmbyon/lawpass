@@ -304,6 +304,7 @@ export interface PdfParseProgress {
   // 새로고침 후 재개 UI를 복원하기 위한 정보 (옛 기록에는 없을 수 있어 전부 optional)
   fileName?: string // 원본 PDF 파일명 (재선택 시 대조용)
   pageCount?: number
+  chunkSize?: number // 이 파일에 적용된 청크 페이지 수. 재개 시 같은 값을 써야 청크 번호가 가리키는 페이지가 어긋나지 않는다
   subjects?: string[] // 중단 시점에 선택돼 있던 과목 — 복원하지 않으면 재개가 0문제로 헛돈다
   examTypes?: string[]
   updatedAt?: number

@@ -19,6 +19,51 @@ const CHUNK_SIZE = 5
 // 청크 개수(=API 호출 횟수)는 그대로이고 청크당 페이지만 늘어난다
 const CHUNK_OVERLAP = 1
 
+// Vercel 서버리스 함수의 요청 본문 한도는 4.5MB이고 설정으로 늘릴 수 없다.
+// 413은 함수가 실행되기도 전에 플랫폼이 반환하므로 서버 코드로는 막을 수 없다.
+// multipart 경계·apiKey 필드 오버헤드를 감안해 여유를 두고 잡는다
+const MAX_UPLOAD_BYTES = 4_000_000 // 업로드 직전 차단선
+const CHUNK_BUDGET_BYTES = 3_200_000 // 청크 페이지 수를 정할 때의 목표치
+
+function mb(bytes: number): string {
+  return (bytes / 1_000_000).toFixed(1)
+}
+
+// 청크가 담을 페이지 범위. 첫 청크는 그대로, 이후 청크는 시작점을 당겨 직전 청크의 마지막 페이지를 포함시킨다
+function chunkRange(chunkIndex: number, chunkSize: number, totalPages: number) {
+  return {
+    startPage: Math.max(0, chunkIndex * chunkSize - (chunkIndex > 0 ? CHUNK_OVERLAP : 0)),
+    endPage: Math.min(chunkIndex * chunkSize + chunkSize, totalPages),
+  }
+}
+
+async function buildChunkBytes(sourcePdf: PDFDocument, startPage: number, endPage: number) {
+  const chunkPdf = await PDFDocument.create()
+  const pages = await chunkPdf.copyPages(
+    sourcePdf,
+    Array.from({ length: endPage - startPage }, (_, p) => startPage + p)
+  )
+  pages.forEach((page) => chunkPdf.addPage(page))
+  return chunkPdf.save()
+}
+
+// 스캔본처럼 페이지당 용량이 크면 5페이지 청크가 4.5MB를 넘어 413이 난다.
+// 페이지 수만 세고 바이트를 안 보면 알 수 없으므로, 첫 청크를 실제로 만들어 재고
+// 한도를 넘으면 페이지 수를 줄여 다시 만든다. 업로드 전에 끝나므로 API 호출은 낭비되지 않는다
+async function calibrateChunkSize(sourcePdf: PDFDocument, totalPages: number): Promise<number> {
+  let size = CHUNK_SIZE
+  for (let attempt = 0; attempt < 4 && size > 1; attempt++) {
+    // 첫 청크는 겹침 페이지가 없어 이후 청크보다 작다. 그걸로 재면 과소평가하므로
+    // 겹침까지 포함한 최악 케이스(size + CHUNK_OVERLAP 페이지)로 잰다
+    const endPage = Math.min(size + CHUNK_OVERLAP, totalPages)
+    const bytes = await buildChunkBytes(sourcePdf, 0, endPage)
+    if (bytes.byteLength <= CHUNK_BUDGET_BYTES) break
+    const fit = Math.floor(size * (CHUNK_BUDGET_BYTES / bytes.byteLength))
+    size = Math.max(1, Math.min(size - 1, fit)) // 최소 1페이지는 보장하고, 최소 1페이지씩은 줄인다
+  }
+  return size
+}
+
 // 파일 카드/재개 항목이 공통으로 쓰는 표시 상태
 interface JobView {
   progress: number
@@ -28,6 +73,7 @@ interface JobView {
   pageCount?: number
   chunkIndex?: number
   chunkTotal?: number
+  chunkSize?: number // 자동 조정된 청크 페이지 수 (기본값보다 작아졌을 때만 안내한다)
   resumable?: boolean
 }
 
@@ -69,6 +115,7 @@ function resumeJobView(progress: PdfParseProgress): JobView {
     pageCount: progress.pageCount,
     chunkIndex: progress.chunkIndex + 1,
     chunkTotal: progress.chunkTotal,
+    chunkSize: progress.chunkSize,
     resumable: true,
   }
 }
@@ -363,6 +410,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     let lastCompletedChunk = startChunk - 1 // 이번 실행에서 아직 끝낸 청크 없음
     let chunkTotal = 0
     let totalPages = 0
+    let chunkSize = CHUNK_SIZE
 
     // 새로고침 후에도 재개할 수 있도록 파일명/과목까지 함께 남긴다
     const saveProgress = (chunkIndexDone: number) => {
@@ -374,6 +422,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
         fileQuestionCount,
         fileName: entry.file.name,
         pageCount: totalPages,
+        chunkSize,
         subjects: meta.subjects,
         examTypes: meta.examTypes,
       })
@@ -382,11 +431,18 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     try {
       const sourcePdf = await PDFDocument.load(await entry.file.arrayBuffer())
       totalPages = sourcePdf.getPageCount()
-      chunkTotal = Math.ceil(totalPages / CHUNK_SIZE)
+      // 재개 중이면 중단 시점의 청크 크기를 그대로 쓴다.
+      // 여기서 값이 달라지면 저장된 청크 번호가 가리키는 페이지가 통째로 어긋난다
+      chunkSize =
+        startChunk > 0
+          ? (savedProgress?.chunkSize ?? CHUNK_SIZE)
+          : await calibrateChunkSize(sourcePdf, totalPages)
+      chunkTotal = Math.ceil(totalPages / chunkSize)
       update({
         status: 'uploading',
         progress: (startChunk / chunkTotal) * 100,
         pageCount: totalPages,
+        chunkSize,
         chunkIndex: startChunk,
         chunkTotal,
         error: undefined,
@@ -394,16 +450,19 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       })
 
       for (let chunkIndex = startChunk; chunkIndex < chunkTotal; chunkIndex++) {
-        const chunkPdf = await PDFDocument.create()
-        // 첫 청크는 그대로, 이후 청크는 시작점만 앞으로 당겨 직전 청크의 마지막 페이지를 포함시킨다
-        const startPage = Math.max(0, chunkIndex * CHUNK_SIZE - (chunkIndex > 0 ? CHUNK_OVERLAP : 0))
-        const endPage = Math.min(chunkIndex * CHUNK_SIZE + CHUNK_SIZE, totalPages)
-        const pages = await chunkPdf.copyPages(
-          sourcePdf,
-          Array.from({ length: endPage - startPage }, (_, p) => startPage + p)
-        )
-        pages.forEach((page) => chunkPdf.addPage(page))
-        const chunkBytes = await chunkPdf.save()
+        const { startPage, endPage } = chunkRange(chunkIndex, chunkSize, totalPages)
+        const chunkBytes = await buildChunkBytes(sourcePdf, startPage, endPage)
+        // 평균으로 고른 청크 크기가 유독 무거운 페이지에서 빗나갈 수 있다.
+        // 413은 서버에서 못 막으므로 보내기 전에 여기서 걸러 원인을 분명히 알린다
+        if (chunkBytes.byteLength > MAX_UPLOAD_BYTES) {
+          throw new Error(
+            `${chunkIndex + 1}번째 청크가 ${mb(chunkBytes.byteLength)}MB로 업로드 한도(4.5MB)를 넘습니다. ` +
+              (chunkSize > 1
+                ? `이 PDF는 페이지당 용량이 커서 청크를 ${chunkSize}페이지보다 더 잘게 나눠야 합니다. ` +
+                  '기록을 삭제하고 다시 시작해주세요.'
+                : '한 페이지만으로도 한도를 넘습니다. PDF를 압축하거나 해상도를 낮춰 다시 올려주세요.')
+          )
+        }
         const chunkFile = new File(
           [chunkBytes.buffer as ArrayBuffer],
           `${entry.file.name.replace(/\.pdf$/i, '')}-chunk-${chunkIndex + 1}.pdf`,
@@ -1245,6 +1304,12 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
                           style={{ width: `${f.progress}%` }}
                         />
                       </div>
+                    )}
+                    {f.chunkSize !== undefined && f.chunkSize < CHUNK_SIZE && (
+                      <p className="text-xs text-muted-foreground">
+                        페이지당 용량이 커서 청크를 {f.chunkSize}페이지로 자동 조정했습니다
+                        (기본 {CHUNK_SIZE}페이지)
+                      </p>
                     )}
                     {f.status === 'uploading' && f.chunkTotal && (
                       <p className="text-xs text-primary animate-pulse">
