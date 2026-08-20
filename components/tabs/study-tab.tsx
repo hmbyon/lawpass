@@ -570,9 +570,13 @@ function StudyBulkPreview({
   useEffect(() => {
     if (!highlightPopup) return
     function handleClickOutside(e: MouseEvent | TouchEvent) {
-      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
-        setHighlightPopup(null)
-      }
+      const target = e.target as Node | null
+      if (!target) return
+      if (popupRef.current?.contains(target)) return
+      // 선택 핸들을 잡으려고 지문/선지 텍스트를 누르는 것은 "바깥 클릭"이 아니다.
+      // 여기서 닫아버리면 범위를 넓히는 동안 팝업이 사라진다
+      if (Object.values(fieldRefs.current).some((el) => el?.contains(target))) return
+      setHighlightPopup(null)
     }
     document.addEventListener('mousedown', handleClickOutside)
     // preventDefault를 부르지 않으므로 passive로 등록한다 (스크롤 성능 경고 방지)
@@ -612,12 +616,18 @@ function StudyBulkPreview({
     touchStartPosRef.current = t ? { x: t.clientX, y: t.clientY } : null
   }
 
-  // 손가락이 많이 움직였으면 스크롤 제스처다. 선택 처리로 보지 않는다
+  // 선택이 남아 있는지 (핸들 드래그와 순수 스크롤을 가르는 기준)
+  function hasLiveSelection() {
+    const sel = window.getSelection()
+    return !!sel && !sel.isCollapsed && !!sel.toString().trim()
+  }
+
   function handleTouchEnd(e: React.TouchEvent) {
     const start = touchStartPosRef.current
     const t = e.changedTouches[0]
     touchStartPosRef.current = null
-    if (start && t) {
+    // 많이 움직였더라도 선택이 살아 있으면 핸들 드래그다. 선택이 없을 때만 스크롤로 본다
+    if (start && t && !hasLiveSelection()) {
       const moved = Math.hypot(t.clientX - start.x, t.clientY - start.y)
       if (moved > 10) return
     }
@@ -629,9 +639,9 @@ function StudyBulkPreview({
     function onSelectionChange() {
       // 마우스 환경은 mouseup으로 충분하다. 터치일 때만 보조로 동작시킨다
       if (!touchModeRef.current) return
-      // 손가락이 화면에 닿아 움직이는 중(스크롤 가능성)에는 반응하지 않는다
-      if (touchStartPosRef.current) return
-      scheduleSelectionCheck(400)
+      // 선택이 없으면(스크롤·탭) 무시하고, 있으면 드래그 중에도 계속 갱신한다
+      if (!hasLiveSelection()) return
+      scheduleSelectionCheck(300)
     }
     document.addEventListener('selectionchange', onSelectionChange)
     return () => {
@@ -693,6 +703,12 @@ function StudyBulkPreview({
 
   function applyHighlight(color: HighlightColor) {
     if (!highlightPopup) return
+    // 적용 순간에는 갱신을 멈춘다. 대기 중인 타이머가 남아 있으면
+    // 적용 직후 팝업이 다시 열리거나 범위가 덮어써질 수 있다
+    if (selectionTimerRef.current !== null) {
+      window.clearTimeout(selectionTimerRef.current)
+      selectionTimerRef.current = null
+    }
     const { field, start, end } = highlightPopup
     const cleaned = withoutOverlaps(highlights, field, start, end)
     const next = [...cleaned, { id: `h_${Date.now()}`, field, start, end, color, style: highlightStyle }]
