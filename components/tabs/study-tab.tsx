@@ -604,8 +604,24 @@ function StudyBulkPreview({
     }, delay)
   }
 
-  function handleTouchStart() {
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null)
+
+  function handleTouchStart(e: React.TouchEvent) {
     touchModeRef.current = true
+    const t = e.touches[0]
+    touchStartPosRef.current = t ? { x: t.clientX, y: t.clientY } : null
+  }
+
+  // 손가락이 많이 움직였으면 스크롤 제스처다. 선택 처리로 보지 않는다
+  function handleTouchEnd(e: React.TouchEvent) {
+    const start = touchStartPosRef.current
+    const t = e.changedTouches[0]
+    touchStartPosRef.current = null
+    if (start && t) {
+      const moved = Math.hypot(t.clientX - start.x, t.clientY - start.y)
+      if (moved > 10) return
+    }
+    scheduleSelectionCheck(80)
   }
 
   useEffect(() => {
@@ -613,6 +629,8 @@ function StudyBulkPreview({
     function onSelectionChange() {
       // 마우스 환경은 mouseup으로 충분하다. 터치일 때만 보조로 동작시킨다
       if (!touchModeRef.current) return
+      // 손가락이 화면에 닿아 움직이는 중(스크롤 가능성)에는 반응하지 않는다
+      if (touchStartPosRef.current) return
       scheduleSelectionCheck(400)
     }
     document.addEventListener('selectionchange', onSelectionChange)
@@ -748,7 +766,13 @@ function StudyBulkPreview({
         <span className="text-xs text-muted-foreground">{q.subject} · {q.year}년</span>
       </div>
 
-      <div className="bg-card border border-border rounded-xl p-5 space-y-4" onMouseUp={handleTextMouseUp} onTouchStart={handleTouchStart} onTouchEnd={() => scheduleSelectionCheck(80)}>
+      {/* touch-action: 세로 스크롤과 확대는 브라우저에 맡긴다 (스크롤이 막히지 않도록 명시) */}
+      <div
+        className="bg-card border border-border rounded-xl p-5 space-y-4 [touch-action:pan-y_pinch-zoom]"
+        onMouseUp={handleTextMouseUp}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         <div className="flex justify-end">
           <button
             onClick={toggleBookmark}
