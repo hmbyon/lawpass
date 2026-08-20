@@ -6,6 +6,7 @@ import { saveWrongNotes, updateWrongNoteMemo, updateWrongNoteAnalysis, updateWro
 import { StarRating } from '@/components/star-rating'
 import { CauseBadge } from '@/components/cause-badge'
 import { FilterChips } from '@/components/filter-chips'
+import { SORT_OPTIONS, sortNotes, type SortOption } from '@/lib/noteSort'
 import { getAppMode } from '@/lib/appMode'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
@@ -26,6 +27,7 @@ export function MemoTab({
   const [filterSubjects, setFilterSubjects] = useState<Subject[]>([])
   const [filterGeneralSubjects, setFilterGeneralSubjects] = useState<string[]>([])
   const [filterRisks, setFilterRisks] = useState<string[]>([])
+  const [sort, setSort] = useState<SortOption>('날짜순')
 
   const highNotes = useMemo(() => {
     return notes.filter(isInMemoList)
@@ -38,7 +40,7 @@ export function MemoTab({
   }, [highNotes])
 
   const filtered = useMemo(() => {
-    return highNotes.filter((n) => {
+    const list = highNotes.filter((n) => {
       if (activeFilterSubjects.length && !activeFilterSubjects.includes(n.question.subject)) return false
       if (filterRisks.length) {
         const levels = filterRisks.map((r) => Number(r.replace('★', '')))
@@ -47,7 +49,8 @@ export function MemoTab({
       }
       return true
     })
-  }, [highNotes, activeFilterSubjects, filterRisks])
+    return sortNotes(list, sort)
+  }, [highNotes, activeFilterSubjects, filterRisks, sort])
 
   const grouped = useMemo(() => {
     const map = new Map<string, WrongNote[]>()
@@ -141,6 +144,12 @@ export function MemoTab({
           <FilterChips options={SUBJECTS} selected={filterSubjects} onChange={setFilterSubjects} />
         )}
         <FilterChips options={RISKS} selected={filterRisks} onChange={setFilterRisks} />
+        <FilterChips
+          options={[...SORT_OPTIONS]}
+          selected={[sort]}
+          onChange={(v) => setSort((v[0] as SortOption) ?? sort)}
+          single
+        />
         <div className="flex items-center justify-end gap-3 pt-1 border-t border-border">
           <button
             onClick={toggleSelectMode}

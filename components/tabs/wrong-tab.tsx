@@ -7,12 +7,12 @@ import { deleteWrongNote, saveWrongNotes, updateWrongNoteMemo, getRiskLevel , up
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
 import { FilterChips } from '@/components/filter-chips'
+import { SORT_OPTIONS, sortNotes, type SortOption } from '@/lib/noteSort'
 import { getAppMode } from '@/lib/appMode'
 import { loadHighlights, renderHighlighted, saveHighlights } from '@/lib/highlights'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const RISKS = ['★1', '★2', '★3', '★4', '★5']
-const SORTS = ['날짜순', '위험도순'] as const
 
 interface DetailModalProps {
   note: WrongNote
@@ -268,7 +268,7 @@ export function WrongTab({
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [generalSubjects, setGeneralSubjects] = useState<string[]>([])
   const [risks, setRisks] = useState<string[]>([])
-  const [sort, setSort] = useState<'날짜순' | '위험도순'>('날짜순')
+  const [sort, setSort] = useState<SortOption>('날짜순')
   const [selected, setSelected] = useState<WrongNote | null>(null)
 
   // 선택삭제 관련 상태
@@ -288,9 +288,7 @@ export function WrongTab({
       const levels = risks.map((r) => Number(r.replace('★', '')))
       list = list.filter((n) => levels.includes(getRiskLevel(n)))
     }
-    if (sort === '날짜순') list.sort((a, b) => b.createdAt - a.createdAt)
-    else list.sort((a, b) => getRiskLevel(b) - getRiskLevel(a))
-    return list
+    return sortNotes(list, sort)
   }, [notes, activeSubjects, risks, sort])
 
   function del(id: string) {
@@ -348,7 +346,7 @@ export function WrongTab({
         )}
         <FilterChips options={RISKS} selected={risks} onChange={setRisks} />
         <div className="flex items-center justify-between">
-          <FilterChips options={[...SORTS]} selected={[sort]} onChange={(v) => setSort((v[0] as typeof sort) ?? sort)} single />
+          <FilterChips options={[...SORT_OPTIONS]} selected={[sort]} onChange={(v) => setSort((v[0] as SortOption) ?? sort)} single />
           {notes.length > 0 && (
             <div className="flex flex-col items-end gap-1">
               <button
