@@ -970,38 +970,42 @@ function StudyBulkPreview({
 
             return (
               <div key={c.label}>
-                <div className={`flex gap-3 items-start p-3 rounded-lg border text-sm ${
+                <div className={`flex gap-2 sm:gap-3 items-start p-3 rounded-lg border text-sm ${
                   isCorrect ? 'border-emerald-600 bg-emerald-900/20' : 'border-border'
                 }`}>
-                  <span className={`font-semibold shrink-0 ${isCorrect ? 'text-emerald-400' : 'text-primary'}`}>
-                    {c.label}
-                  </span>
+                  {/* 모바일: 번호·O/X·메모를 세로로 쌓아 텍스트가 넓은 폭을 쓰게 한다
+                      데스크톱: 아래 sm:contents 로 기존 가로 배치를 그대로 유지 */}
+                  <div className="flex flex-col items-center gap-1 shrink-0 sm:contents">
+                    <span className={`font-semibold shrink-0 ${isCorrect ? 'text-emerald-400' : 'text-primary'}`}>
+                      {c.label}
+                    </span>
+                    {/* 선지 문장 자체의 참/거짓 (정답 여부와 별개). 옛 데이터에는 없으므로 그때는 표시하지 않는다 */}
+                    {statementIsTrue !== undefined && (
+                      <span className={`shrink-0 text-xs font-bold sm:order-2 ${statementIsTrue ? 'text-blue-400' : 'text-red-400'}`}>
+                        {statementIsTrue ? 'O' : 'X'}
+                      </span>
+                    )}
+                    {isCorrect && (
+                      <span className="shrink-0 text-emerald-400 text-[10px] sm:text-xs font-medium sm:order-3">✓ 정답</span>
+                    )}
+                    <button
+                      onClick={() => {
+                        if (isOpen) { setChoiceMemoOpen(null); setChoiceMemoText('') }
+                        else { setChoiceMemoOpen(memoKey); setChoiceMemoText(existingMemo ?? '') }
+                      }}
+                      className={`shrink-0 text-xs px-1.5 py-0.5 rounded transition-colors sm:order-4 ${
+                        existingMemo ? 'text-yellow-400 hover:text-yellow-300' : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {existingMemo ? '📌' : '🖊️'}
+                    </button>
+                  </div>
                   <span
                     ref={(el) => { fieldRefs.current[fieldKey] = el }}
-                    className="text-foreground flex-1 select-text"
+                    className="text-foreground flex-1 select-text sm:order-1"
                   >
                     {renderHighlighted(c.text, fieldKey, highlights, removeHighlight)}
                   </span>
-                  {/* 선지 문장 자체의 참/거짓 (정답 여부와 별개). 옛 데이터에는 없으므로 그때는 표시하지 않는다 */}
-                  {statementIsTrue !== undefined && (
-                    <span className={`shrink-0 text-xs font-bold ${statementIsTrue ? 'text-blue-400' : 'text-red-400'}`}>
-                      {statementIsTrue ? 'O' : 'X'}
-                    </span>
-                  )}
-                  {isCorrect && (
-                    <span className="shrink-0 text-emerald-400 text-xs font-medium">✓ 정답</span>
-                  )}
-                  <button
-                    onClick={() => {
-                      if (isOpen) { setChoiceMemoOpen(null); setChoiceMemoText('') }
-                      else { setChoiceMemoOpen(memoKey); setChoiceMemoText(existingMemo ?? '') }
-                    }}
-                    className={`shrink-0 text-xs px-1.5 py-0.5 rounded transition-colors ${
-                      existingMemo ? 'text-yellow-400 hover:text-yellow-300' : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {existingMemo ? '📌' : '🖊️'}
-                  </button>
                 </div>
 
                 {existingMemo && !isOpen && (

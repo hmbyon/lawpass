@@ -168,7 +168,7 @@ export function AppShell({ user }: Props) {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <header className="sticky top-0 z-40 bg-background/90 backdrop-blur-sm border-b border-border">
-        <div className="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
+        <div className="max-w-3xl mx-auto px-4 py-2 sm:py-0 sm:h-14 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <button
               onClick={handleLogoClick}
@@ -179,12 +179,8 @@ export function AppShell({ user }: Props) {
             <span className="hidden sm:inline text-xs text-muted-foreground">
               {appBadge}
             </span>
-            <button
-              onClick={() => setShowOnboarding(true)}
-              className="text-xs text-muted-foreground border border-border rounded-full px-2 py-0.5 hover:text-foreground hover:border-foreground/30 transition-colors"
-            >
-              ❓<span className="hidden sm:inline"> 가이드</span>
-            </button>
+            {/* 모바일에서는 피드백/가이드를 세로 2줄로 쌓아 가로 폭을 줄인다 */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-1 sm:gap-2">
             <button
               onClick={handleFeedbackClick}
               title={
@@ -208,16 +204,24 @@ export function AppShell({ user }: Props) {
                 </span>
               )}
             </button>
+            <button
+              onClick={() => setShowOnboarding(true)}
+              className="text-xs text-muted-foreground border border-border rounded-full px-2 py-0.5 hover:text-foreground hover:border-foreground/30 transition-colors"
+            >
+              ❓<span className="hidden sm:inline"> 가이드</span>
+            </button>
+            </div>
           </div>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 sm:gap-3 text-xs text-muted-foreground shrink-0">
             {syncing && <span className="text-primary animate-pulse">동기화 중...</span>}
             
-            <div className="flex items-center gap-3 leading-none">
-              <div className="flex items-center gap-1">
+            {/* 모바일에서는 라벨과 숫자를 세로 2줄로 (문제 / N개) */}
+            <div className="flex items-center gap-2 sm:gap-3 leading-none">
+              <div className="flex flex-col sm:flex-row items-center gap-0.5 sm:gap-1">
                 <span>문제</span>
                 <span className="tabular-nums font-semibold text-foreground">{questions.length}개</span>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex flex-col sm:flex-row items-center gap-0.5 sm:gap-1">
                 <span>오답</span>
                 <span className="tabular-nums font-semibold text-foreground">{wrongNotes.length}개</span>
               </div>
