@@ -206,7 +206,27 @@ export function mergeSourceFiles(sourceFileNames: string[], newName: string) {
   saveQuestions([...others, ...Array.from(byPassage.values())])
 }
 
+// 저장된 위험도를 현재 calcRisk 기준으로 맞춘다.
+// 1회성 플래그로는 안 된다 — pullFromFirebase가 원격의 옛 위험도로 로컬을 덮어쓰므로
+// (sync.ts의 saveWrongNotes), 플래그가 소모된 뒤 덮이면 복구 기회가 없다.
+// 그래서 매번 검사하되 값이 실제로 다를 때만 저장한다 (멱등, 정상 상태에서는 쓰기 없음)
+function ensureRiskLevelsRecalculated() {
+  if (typeof window === 'undefined') return
+
+  const notes = safeGet<WrongNote[]>(modeKey(BASE_KEYS.wrongNotes), [])
+  let changed = false
+  const next = notes.map((n) => {
+    if (!n.analysis) return n
+    const 위험도 = calcRisk(n.wrongCount ?? 0, n.totalCount ?? 0)
+    if (n.analysis.위험도 === 위험도) return n
+    changed = true
+    return { ...n, analysis: { ...n.analysis, 위험도 } }
+  })
+  if (changed) safeSet(modeKey(BASE_KEYS.wrongNotes), next)
+}
+
 export function getWrongNotes(): WrongNote[] {
+  ensureRiskLevelsRecalculated()
   return safeGet<WrongNote[]>(modeKey(BASE_KEYS.wrongNotes), [])
 }
 
@@ -358,14 +378,16 @@ export function getRiskLevel(note: WrongNote): number {
   return calcRisk(wrongCount, totalCount)
 }
 
+// 오답률만 보면 연속 오답이 전부 100%가 되어 위험도가 5로 수렴한다.
+// 그래서 "몇 번 틀렸는지"로 기준선을 잡고, 오답률은 완화 보정으로만 쓴다
 function calcRisk(wrongCount: number, totalCount: number): number {
   if (totalCount === 0 || wrongCount === 0) return 1
   const rate = wrongCount / totalCount
-  if (rate <= 0.2) return 1
-  if (rate <= 0.4) return 2
-  if (rate <= 0.6) return 3
-  if (rate <= 0.8) return 4
-  return 5
+  // 반복 오답이 곧 위험 (1회→2, 2회→3, 3회→4, 4회 이상→5)
+  const base = Math.min(5, wrongCount + 1)
+  // 대부분 맞히는데 가끔 틀리는 문제만 한 단계 낮춘다
+  const adjusted = rate <= 0.34 ? base - 1 : base
+  return Math.min(5, Math.max(1, adjusted))
 }
 
 export function deleteWrongNote(id: string) {
