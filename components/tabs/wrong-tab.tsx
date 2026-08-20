@@ -64,7 +64,7 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
 
         <div className="p-4 space-y-4 text-sm">
           {/* 문제 지문 */}
-          <div className="bg-muted rounded-lg p-3">
+          <div className="bg-muted/40 border border-border/60 rounded-lg p-3">
             <p className="text-xs text-muted-foreground mb-1">문제 지문</p>
             <p className="text-foreground leading-relaxed text-xs whitespace-pre-wrap">
               {renderHighlighted(note.question.passage, 'passage', highlights, removeHighlight)}
@@ -101,9 +101,9 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
 
           {/* 해설 */}
           {note.question.explanation && (
-            <div className="bg-muted rounded-lg p-3">
+            <div className="bg-muted/40 border border-border/60 rounded-lg p-3">
               <p className="text-xs text-muted-foreground mb-1 font-medium">해설</p>
-              <p className="text-foreground text-xs leading-relaxed">{note.question.explanation}</p>
+              <p className="text-foreground text-xs leading-relaxed whitespace-pre-wrap break-words">{note.question.explanation}</p>
             </div>
           )}
 
@@ -173,7 +173,7 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
                 <div className="border-t border-border pt-3 space-y-2">
                   <p className="text-xs font-semibold text-muted-foreground">오답 히스토리</p>
                   {note.analysisHistory.map((h, idx) => (
-                    <div key={idx} className="bg-muted rounded-lg p-2.5 space-y-1">
+                    <div key={idx} className="bg-muted/40 border border-border/60 rounded-lg p-2.5 space-y-1">
                       <p className="text-[10px] text-muted-foreground font-medium">{idx + 1}회차</p>
                       <div className="flex gap-2 flex-wrap">
                         {(() => {
