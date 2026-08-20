@@ -415,6 +415,23 @@ export function updateWrongNoteAnalysis(id: string, patch: Partial<import('./typ
 }
 
 // 숨긴 필드 저장
+// D-1 암기장에 노출할 노트인지. 자동 조건(위험도 3 이상)과 수동 추가를 OR로 결합한다.
+// 목록 추출과 일괄 삭제가 같은 판정을 쓰도록 여기 한 곳에 둔다
+export function isInMemoList(note: WrongNote): boolean {
+  if (note.manuallyAddedToMemo) return true
+  return (note.analysis?.위험도 ?? 0) >= 3
+}
+
+// 암기장 수동 추가/제거 토글
+export function updateWrongNoteMemoInclusion(id: string, included: boolean) {
+  const notes = getWrongNotes()
+  const idx = notes.findIndex((n) => n.id === id)
+  if (idx >= 0) {
+    notes[idx] = { ...notes[idx], manuallyAddedToMemo: included }
+    saveWrongNotes(notes)
+  }
+}
+
 export function updateWrongNoteHiddenFields(id: string, hiddenFields: string[]) {
   const notes = getWrongNotes()
   const idx = notes.findIndex((n) => n.id === id)

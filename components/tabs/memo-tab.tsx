@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import type { WrongNote, Subject } from '@/lib/types'
-import { saveWrongNotes, updateWrongNoteMemo, updateWrongNoteAnalysis, updateWrongNoteHiddenFields, getRiskLevel } from '@/lib/store'
+import { saveWrongNotes, updateWrongNoteMemo, updateWrongNoteAnalysis, updateWrongNoteHiddenFields, getRiskLevel, isInMemoList } from '@/lib/store'
 import { StarRating } from '@/components/star-rating'
 import { CauseBadge } from '@/components/cause-badge'
 import { FilterChips } from '@/components/filter-chips'
@@ -28,7 +28,7 @@ export function MemoTab({
   const [filterRisks, setFilterRisks] = useState<string[]>([])
 
   const highNotes = useMemo(() => {
-    return notes.filter((n) => (n.analysis?.위험도 ?? 0) >= 3)
+    return notes.filter(isInMemoList)
   }, [notes])
 
   const activeFilterSubjects: string[] = isGeneral ? filterGeneralSubjects : filterSubjects
@@ -96,7 +96,7 @@ export function MemoTab({
 
   function delAll() {
     if (!confirm(`암기장 항목 ${highNotes.length}개를 모두 삭제할까요?`)) return
-    const remaining = notes.filter((n) => (n.analysis?.위험도 ?? 0) < 3)
+    const remaining = notes.filter((n) => !isInMemoList(n))
     saveWrongNotes(remaining)
     setCheckedIds(new Set())
     setSelectMode(false)

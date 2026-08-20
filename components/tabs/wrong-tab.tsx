@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import type { WrongNote, Subject } from '@/lib/types'
 import { resolveErrorCause, CAUSE_LABELS } from '@/lib/types'
-import { deleteWrongNote, saveWrongNotes, updateWrongNoteMemo, getRiskLevel } from '@/lib/store'
+import { deleteWrongNote, saveWrongNotes, updateWrongNoteMemo, getRiskLevel , updateWrongNoteMemoInclusion } from '@/lib/store'
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
 import { FilterChips } from '@/components/filter-chips'
@@ -25,6 +25,15 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
   const a = note.analysis
   const [memo, setMemo] = useState(note.memo ?? '')
   const [memoSaved, setMemoSaved] = useState(false)
+  const [inMemoList, setInMemoList] = useState(note.manuallyAddedToMemo ?? false)
+
+  // 북마크(표시 전용 배지)와는 별개 기능이다. 자동 조건과 무관하게 암기장에 넣고 뺀다
+  function toggleMemoInclusion() {
+    const next = !inMemoList
+    setInMemoList(next)
+    updateWrongNoteMemoInclusion(note.id, next)
+    onMemoSaved()
+  }
   const [highlights, setHighlights] = useState(() => loadHighlights(note.question.id))
 
   function saveMemo() {
@@ -193,6 +202,20 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
           ) : (
             <p className="text-muted-foreground text-xs">분석 데이터 없음</p>
           )}
+
+          {/* D-1 암기장 수동 추가 (상단 📌 북마크 배지와는 다른 기능) */}
+          <div className="border-t border-border pt-3">
+            <button
+              onClick={toggleMemoInclusion}
+              className={`w-full py-2 rounded-lg text-xs font-medium border transition-colors ${
+                inMemoList
+                  ? 'border-primary text-primary bg-primary/10 hover:bg-primary/20'
+                  : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+              }`}
+            >
+              {inMemoList ? '✓ D-1 암기장에 추가됨 (누르면 제외)' : '📕 D-1 암기장에 추가'}
+            </button>
+          </div>
 
           {/* 내 메모 */}
           <div className="border-t border-border pt-3 space-y-2">

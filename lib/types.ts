@@ -148,6 +148,7 @@ export interface WrongNote {
   wrongCount: number
   totalCount: number
   isBookmarked: boolean
+  manuallyAddedToMemo?: boolean // 자동 조건과 무관하게 사용자가 직접 D-1 암기장에 넣은 문제
   choiceMemos?: Record<string, string>  // 선지별 메모 (키: ①②③④⑤)
 }
 
