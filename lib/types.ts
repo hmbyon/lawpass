@@ -70,9 +70,14 @@ export interface ErrorAnalysis {
   핵심개념: string
   관련조문: string
   오답원인: {
-    가설A: string
-    가설B: string
-    가설C: string
+    // 새 구조: 가장 유력한 원인 하나만 판정해 깊이 분석한다
+    판정?: CauseType
+    원인명?: string
+    상세분석?: string
+    // 구버전 구조 (읽기 호환용). 새로 분석하면 채워지지 않는다
+    가설A?: string
+    가설B?: string
+    가설C?: string
     선학습적용실패?: string
   }
   원인상세: string
@@ -83,6 +88,48 @@ export interface ErrorAnalysis {
 }
 
 export type CauseType = 'A' | 'B' | 'C' | 'study'
+
+export const CAUSE_LABELS: Record<CauseType, string> = {
+  A: '개념부족',
+  B: '암기혼동',
+  C: '지문오독',
+  study: '선학습 적용 실패',
+}
+
+// 신·구 구조를 모두 흡수해 "원인 하나"로 정규화한다.
+// 옛 데이터는 dominantCause(또는 가장 긴 가설)를 골라 그 텍스트만 보여준다
+export function resolveErrorCause(
+  analysis: ErrorAnalysis,
+  dominantCause?: CauseType | null
+): { cause: CauseType; 원인명: string; 상세분석: string } | null {
+  const 원인 = analysis.오답원인
+  if (!원인) return null
+
+  if (원인.판정) {
+    return {
+      cause: 원인.판정,
+      원인명: 원인.원인명?.trim() || CAUSE_LABELS[원인.판정],
+      상세분석: 원인.상세분석?.trim() || analysis.원인상세 || '',
+    }
+  }
+
+  // ── 구버전 데이터 ──
+  const 후보: { cause: CauseType; text: string }[] = [
+    { cause: 'A', text: 원인.가설A ?? '' },
+    { cause: 'B', text: 원인.가설B ?? '' },
+    { cause: 'C', text: 원인.가설C ?? '' },
+  ]
+  if (원인.선학습적용실패 && 원인.선학습적용실패 !== 'null' && 원인.선학습적용실패 !== '-') {
+    후보.push({ cause: 'study', text: 원인.선학습적용실패 })
+  }
+
+  const picked =
+    후보.find((c) => c.cause === dominantCause) ??
+    후보.reduce((a, b) => (a.text.length >= b.text.length ? a : b), 후보[0])
+
+  if (!picked || !picked.text.trim()) return null
+  return { cause: picked.cause, 원인명: CAUSE_LABELS[picked.cause], 상세분석: picked.text }
+}
 
 export interface WrongNote {
   id: string

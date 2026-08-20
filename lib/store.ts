@@ -307,7 +307,11 @@ function calcDominantCause(history: import('./types').ErrorAnalysis[], isStudyMo
   if (history.length === 0) return null
   const counts: Record<string, number> = { A: 0, B: 0, C: 0, study: 0 }
   for (const a of history) {
-    const { 가설A, 가설B, 가설C, 선학습적용실패 } = a.오답원인
+    if (a.오답원인?.판정) {
+      counts[a.오답원인.판정]++
+      continue
+    }
+    const { 가설A = '', 가설B = '', 가설C = '', 선학습적용실패 } = a.오답원인 ?? {}
     if (isStudyMode && 선학습적용실패 && 선학습적용실패 !== 'null' && 선학습적용실패 !== '-') {
       counts.study++
     } else {

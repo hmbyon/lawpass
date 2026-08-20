@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import type { WrongNote, Subject } from '@/lib/types'
+import { resolveErrorCause } from '@/lib/types'
 import { deleteWrongNote, saveWrongNotes, updateWrongNoteMemo, getRiskLevel } from '@/lib/store'
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
@@ -126,17 +127,23 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
               <Section label="핵심개념" value={a.핵심개념} />
               <Section label="관련조문" value={a.관련조문} />
               <Section label="오답원인 상세" value={a.원인상세} />
-              <div>
-                <p className="text-xs text-muted-foreground font-medium mb-1">오답 가설</p>
-                <div className="space-y-1">
-                  <p className="text-xs"><span className="text-red-300">가설A(개념부족):</span> {a.오답원인.가설A}</p>
-                  <p className="text-xs"><span className="text-yellow-300">가설B(암기혼동):</span> {a.오답원인.가설B}</p>
-                  <p className="text-xs"><span className="text-emerald-300">가설C(지문오독):</span> {a.오답원인.가설C}</p>
-                  {a.오답원인.선학습적용실패 && (
-                    <p className="text-xs"><span className="text-purple-300">선학습실패:</span> {a.오답원인.선학습적용실패}</p>
-                  )}
-                </div>
-              </div>
+              {(() => {
+                // 신·구 구조를 모두 흡수해 원인 하나만 보여준다
+                const cause = resolveErrorCause(a, note.dominantCause)
+                if (!cause) return null
+                return (
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <p className="text-xs text-muted-foreground font-medium">오답 원인</p>
+                      <CauseBadge cause={cause.cause} />
+                      <span className="text-xs font-medium text-foreground">{cause.원인명}</span>
+                    </div>
+                    <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap">
+                      {cause.상세분석}
+                    </p>
+                  </div>
+                )
+              })()}
               <Section label="개념요약" value={a.개념요약} />
               <Section label="혼동주의" value={a.혼동주의} />
               <Section label="D-1 체크포인트" value={a.체크포인트} />
@@ -149,15 +156,10 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
                     <div key={idx} className="bg-muted rounded-lg p-2.5 space-y-1">
                       <p className="text-[10px] text-muted-foreground font-medium">{idx + 1}회차</p>
                       <div className="flex gap-2 flex-wrap">
-                        {h.오답원인.가설A.length > h.오답원인.가설B.length && h.오답원인.가설A.length > h.오답원인.가설C.length && (
-                          <span className="text-[10px] text-red-300 bg-red-900/20 px-1.5 py-0.5 rounded">개념부족</span>
-                        )}
-                        {h.오답원인.가설B.length > h.오답원인.가설A.length && h.오답원인.가설B.length > h.오답원인.가설C.length && (
-                          <span className="text-[10px] text-yellow-300 bg-yellow-900/20 px-1.5 py-0.5 rounded">암기혼동</span>
-                        )}
-                        {h.오답원인.가설C.length >= h.오답원인.가설A.length && h.오답원인.가설C.length >= h.오답원인.가설B.length && (
-                          <span className="text-[10px] text-emerald-300 bg-emerald-900/20 px-1.5 py-0.5 rounded">지문오독</span>
-                        )}
+                        {(() => {
+                          const c = resolveErrorCause(h)
+                          return c ? <CauseBadge cause={c.cause} /> : null
+                        })()}
                       </div>
                       <p className="text-[10px] text-muted-foreground">{h.원인상세}</p>
                     </div>

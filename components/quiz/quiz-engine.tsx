@@ -28,14 +28,13 @@ interface QuizEngineProps {
 
 function getDominantCause(analysis: WrongNote['analysis'], isStudyMode: boolean): CauseType | null {
   if (!analysis) return null
-  const { 가설A, 가설B, 가설C, 선학습적용실패 } = analysis.오답원인
+  // 새 구조는 AI가 원인 하나를 이미 판정해 준다
+  if (analysis.오답원인?.판정) return analysis.오답원인.판정
+  // 구버전: 선학습 실패가 있으면 우선, 아니면 가장 길게 서술된 가설
+  const { 가설A = '', 가설B = '', 가설C = '', 선학습적용실패 } = analysis.오답원인 ?? {}
   if (isStudyMode && 선학습적용실패 && 선학습적용실패 !== 'null' && 선학습적용실패 !== '-') return 'study'
-  const scores: Record<CauseType, number> = { A: 0, B: 0, C: 0, study: 0 }
-  scores.A = 가설A.length
-  scores.B = 가설B.length
-  scores.C = 가설C.length
-  const best = (['A', 'B', 'C'] as CauseType[]).reduce((a, b) => (scores[a] > scores[b] ? a : b))
-  return best
+  const scores: Record<CauseType, number> = { A: 가설A.length, B: 가설B.length, C: 가설C.length, study: 0 }
+  return (['A', 'B', 'C'] as CauseType[]).reduce((a, b) => (scores[a] > scores[b] ? a : b))
 }
 
 export function QuizEngine({
