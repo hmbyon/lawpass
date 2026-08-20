@@ -17,7 +17,7 @@ interface Props {
   mode: AppMode
   onModeChange: (mode: AppMode) => void
   onClose: () => void
-  onWriteFeedback?: () => void    // 관리자도 피드백을 남길 수 있게 하는 통로
+  onWriteFeedback?: () => void
 }
 
 export function SettingsModal({
@@ -51,15 +51,36 @@ export function SettingsModal({
   async function handleConfirmReset() {
     if (resetInput !== TARGET_TEXT) return
     setClearing(true)
-    onClearAll()
+
     try {
-      await clearFirebaseSessions(userId)
-    } catch (e) {
-      console.error('[settings-modal] Firebase 세션 삭제 실패', e)
-    } finally {
-      setClearing(false)
+      // 1. 상위 컴포넌트 State 초기화 함수 실행
+      onClearAll()
+
+      // 2. Firebase 세션 동기화 데이터 삭제
+      if (userId) {
+        await clearFirebaseSessions(userId)
+      }
+
+      // 3. 로컬 스토리지에 남아있는 모드별 데이터 완벽 제거
+      localStorage.removeItem('lawpass_questions_law')
+      localStorage.removeItem('lawpass_wrong_notes_law')
+      localStorage.removeItem('lawpass_study_sessions_law')
+      localStorage.removeItem('lawpass_quiz_session_law')
+      localStorage.removeItem('lawpass_questions_general')
+      localStorage.removeItem('lawpass_wrong_notes_general')
+      localStorage.removeItem('lawpass_study_sessions_general')
+      localStorage.removeItem('lawpass_quiz_session_general')
+
       setShowResetModal(false)
       setResetInput('')
+
+      // 4. 강제 새로고침으로 메모리 잔여 데이터 리셋
+      window.location.reload()
+    } catch (e) {
+      console.error('[settings-modal] 전체 데이터 초기화 실패', e)
+      alert('초기화 도중 오류가 발생했습니다.')
+    } finally {
+      setClearing(false)
     }
   }
 
@@ -141,7 +162,7 @@ export function SettingsModal({
             </button>
           </div>
 
-          {/* 데이터 초기화 (위험 구역) */}
+          {/* 위험 구역 */}
           <div className="bg-muted rounded-xl p-4 flex flex-col gap-3">
             <h3 className="text-sm font-semibold text-red-400">위험 구역</h3>
             <p className="text-xs text-muted-foreground">모든 문제와 오답노트, Firebase에 저장된 임시저장 데이터가 삭제됩니다. 되돌릴 수 없습니다.</p>
@@ -163,7 +184,7 @@ export function SettingsModal({
         </div>
       </div>
 
-      {/* Vercel 스타일 2차 확인 입력 모달 */}
+      {/* 2차 확인 문구 입력 팝업 모달 */}
       {showResetModal && (
         <div
           className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs"
@@ -176,7 +197,7 @@ export function SettingsModal({
             <div className="space-y-1">
               <h3 className="text-base font-bold text-foreground">전체 데이터 초기화</h3>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                모든 문제, 오답노트, 세션 데이터가 삭제됩니다. 이 작업은 되돌릴 수 없습니다.
+                모든 문제, 오답노트, 세션 데이터가 완전히 삭제됩니다. 이 작업은 되돌릴 수 없습니다.
               </p>
             </div>
 
