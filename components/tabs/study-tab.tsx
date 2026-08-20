@@ -15,6 +15,7 @@ import {
   Highlight,
   HIGHLIGHT_SWATCH_CLASSES,
   HIGHLIGHT_COLORS,
+  UNDERLINE_COLORS,
   HIGHLIGHT_COLOR_LABELS,
   loadHighlights,
   saveHighlights,
@@ -568,13 +569,18 @@ function StudyBulkPreview({
 
   useEffect(() => {
     if (!highlightPopup) return
-    function handleClickOutside(e: MouseEvent) {
+    function handleClickOutside(e: MouseEvent | TouchEvent) {
       if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
         setHighlightPopup(null)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    // preventDefault를 부르지 않으므로 passive로 등록한다 (스크롤 성능 경고 방지)
+    document.addEventListener('touchstart', handleClickOutside, { passive: true })
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('touchstart', handleClickOutside)
+    }
   }, [highlightPopup])
 
   function ensureBookmarked() {
@@ -584,6 +590,38 @@ function StudyBulkPreview({
     }
     onDone()
   }
+
+  // 터치 기기에서는 touchend 시점에 선택이 확정되지 않고 핸들 조정이 이어진다.
+  // 짧은 지연 후 검사하고, selectionchange로 조정까지 따라간다
+  const selectionTimerRef = useRef<number | null>(null)
+  const touchModeRef = useRef(false)
+
+  function scheduleSelectionCheck(delay: number) {
+    if (selectionTimerRef.current !== null) window.clearTimeout(selectionTimerRef.current)
+    selectionTimerRef.current = window.setTimeout(() => {
+      selectionTimerRef.current = null
+      handleTextMouseUp()
+    }, delay)
+  }
+
+  function handleTouchStart() {
+    touchModeRef.current = true
+  }
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    function onSelectionChange() {
+      // 마우스 환경은 mouseup으로 충분하다. 터치일 때만 보조로 동작시킨다
+      if (!touchModeRef.current) return
+      scheduleSelectionCheck(400)
+    }
+    document.addEventListener('selectionchange', onSelectionChange)
+    return () => {
+      document.removeEventListener('selectionchange', onSelectionChange)
+      if (selectionTimerRef.current !== null) window.clearTimeout(selectionTimerRef.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function handleTextMouseUp() {
     const sel = window.getSelection()
@@ -607,7 +645,32 @@ function StudyBulkPreview({
     if (end <= start) return
 
     const rect = range.getBoundingClientRect()
-    setHighlightPopup({ field: matchedField, start, end, x: rect.left + rect.width / 2, y: rect.top })
+    const HALF_WIDTH = 140
+    const POPUP_HEIGHT = 88
+    const GAP = 8
+
+    // 좌우는 화면 안으로 클램프
+    const centerX = rect.left + rect.width / 2
+    const x = Math.min(Math.max(centerX, HALF_WIDTH + GAP), window.innerWidth - HALF_WIDTH - GAP)
+
+    // iOS 콜아웃과 안드로이드 플로팅 툴바는 둘 다 선택 영역 "위"에 뜬다.
+    // 그래서 터치 환경에서는 아래쪽을 기본으로 두어 네이티브 메뉴와 겹치지 않게 하고,
+    // 마우스 환경에서는 기존처럼 위쪽을 기본으로 유지한다
+    const aboveY = rect.top - POPUP_HEIGHT - GAP
+    const belowY = rect.bottom + GAP
+    const fitsAbove = aboveY >= GAP
+    const fitsBelow = belowY + POPUP_HEIGHT + GAP <= window.innerHeight
+
+    let y: number
+    if (touchModeRef.current) {
+      y = fitsBelow ? belowY : fitsAbove ? aboveY : belowY
+    } else {
+      y = fitsAbove ? aboveY : belowY
+    }
+    // 어느 쪽도 충분치 않은 경우를 대비해 세로도 화면 안으로 클램프
+    y = Math.min(Math.max(y, GAP), Math.max(GAP, window.innerHeight - POPUP_HEIGHT - GAP))
+
+    setHighlightPopup({ field: matchedField, start, end, x, y })
   }
 
   function applyHighlight(color: HighlightColor) {
@@ -685,7 +748,7 @@ function StudyBulkPreview({
         <span className="text-xs text-muted-foreground">{q.subject} · {q.year}년</span>
       </div>
 
-      <div className="bg-card border border-border rounded-xl p-5 space-y-4" onMouseUp={handleTextMouseUp}>
+      <div className="bg-card border border-border rounded-xl p-5 space-y-4" onMouseUp={handleTextMouseUp} onTouchStart={handleTouchStart} onTouchEnd={() => scheduleSelectionCheck(80)}>
         <div className="flex justify-end">
           <button
             onClick={toggleBookmark}
@@ -986,7 +1049,7 @@ function StudyBulkPreview({
         <div
           ref={popupRef}
           className="fixed z-50 flex flex-col gap-1.5 bg-card border border-border rounded-xl shadow-lg px-2 py-2"
-          style={{ left: highlightPopup.x, top: Math.max(highlightPopup.y - 88, 8), transform: 'translateX(-50%)' }}
+          style={{ left: highlightPopup.x, top: Math.max(highlightPopup.y, 8), transform: 'translateX(-50%)' }}
         >
           <div className="flex items-center gap-1">
             {([['fill', '배경'], ['underline', '밑줄']] as [HighlightStyle, string][]).map(([style, label]) => (
@@ -1012,7 +1075,7 @@ function StudyBulkPreview({
             </button>
           </div>
           <div className="flex items-center gap-1.5">
-            {HIGHLIGHT_COLORS.map((color) => (
+            {(highlightStyle === 'underline' ? UNDERLINE_COLORS : HIGHLIGHT_COLORS).map((color) => (
               <button
                 key={color}
                 type="button"

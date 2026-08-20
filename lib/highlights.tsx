@@ -1,12 +1,15 @@
 import React from 'react'
 
-export type HighlightColor = 'yellow' | 'green' | 'pink' | 'blue' | 'purple' | 'orange' | 'red'
+export type HighlightColor = 'yellow' | 'green' | 'pink' | 'blue' | 'purple' | 'orange' | 'red' | 'gray'
 
 // 'fill' = 배경 칠하기(기존 형광펜), 'underline' = 밑줄만
 // 옛 데이터에는 이 필드가 없으므로 undefined는 'fill'로 취급한다
 export type HighlightStyle = 'fill' | 'underline'
 
 export const HIGHLIGHT_COLORS: HighlightColor[] = ['yellow', 'green', 'pink', 'blue', 'purple', 'orange', 'red']
+
+// 밑줄 스타일에서만 회색을 추가로 제공한다 (배경 채우기로는 잘 보이지 않는 색)
+export const UNDERLINE_COLORS: HighlightColor[] = [...HIGHLIGHT_COLORS, 'gray']
 
 export const HIGHLIGHT_COLOR_LABELS: Record<HighlightColor, string> = {
   yellow: '노랑',
@@ -16,6 +19,7 @@ export const HIGHLIGHT_COLOR_LABELS: Record<HighlightColor, string> = {
   purple: '보라',
   orange: '주황',
   red: '빨강',
+  gray: '회색',
 }
 
 export interface Highlight {
@@ -35,6 +39,7 @@ export const HIGHLIGHT_CLASSES: Record<HighlightColor, string> = {
   purple: 'bg-purple-300/70 dark:bg-purple-500/40',
   orange: 'bg-orange-300/70 dark:bg-orange-500/40',
   red: 'bg-red-300/70 dark:bg-red-500/40',
+  gray: 'bg-gray-300/70 dark:bg-gray-500/40',
 }
 
 // 밑줄 모드: <mark>의 브라우저 기본 배경을 없애고 아래 테두리만 남긴다.
@@ -47,6 +52,7 @@ export const HIGHLIGHT_UNDERLINE_CLASSES: Record<HighlightColor, string> = {
   purple: 'bg-transparent border-b-2 border-purple-500 dark:border-purple-400',
   orange: 'bg-transparent border-b-2 border-orange-500 dark:border-orange-400',
   red: 'bg-transparent border-b-2 border-red-500 dark:border-red-400',
+  gray: 'bg-transparent border-b-2 border-gray-500 dark:border-gray-400',
 }
 
 export const HIGHLIGHT_SWATCH_CLASSES: Record<HighlightColor, string> = {
@@ -57,6 +63,7 @@ export const HIGHLIGHT_SWATCH_CLASSES: Record<HighlightColor, string> = {
   purple: 'bg-purple-400',
   orange: 'bg-orange-400',
   red: 'bg-red-400',
+  gray: 'bg-gray-400',
 }
 
 export function highlightsKey(questionId: string) {
