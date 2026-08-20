@@ -47,6 +47,13 @@ interface ResumeJob {
 
 type UploadMode = 'file' | 'uri'
 
+// 파싱에 쓰이는 선택 메타데이터. 폼 상태를 클로저로 읽지 않고 명시적으로 넘긴다
+// (재개 항목은 중단 시점의 값으로 처리해야 하므로 둘이 다를 수 있다)
+interface ParseMeta {
+  subjects: Subject[]
+  examTypes: ExamType[]
+}
+
 // 문제집 이름은 진행상황/PDF 캐시의 공통 키다
 function sourceFileNameOf(f: { file: File; displayName: string }) {
   return f.displayName.trim() || f.file.name.replace(/\.pdf$/i, '')
@@ -212,13 +219,27 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       }
       if (cancelled) return
       setResumeJobs(restored)
-      // 중단 시점의 과목/시험 구분도 복원해야 재개가 0문제로 헛돌지 않는다
-      const withMeta = jobs.find((j) => j.progress.subjects?.length || j.progress.examTypes?.length)
-      if (withMeta?.progress.subjects?.length) {
-        if (getAppMode() === 'general') setGeneralSubjectText(withMeta.progress.subjects[0])
-        else setSubjects(withMeta.progress.subjects as Subject[])
+      // 중단 시점의 과목/시험 구분을 폼에도 되살린다.
+      // 각 재개 항목은 자기 저장값으로 처리되므로(resolveMeta) 이건 화면 표시용이다.
+      // 항목마다 과목이 다르면 아무거나 하나를 골라 보여주는 게 오히려 오해를 부르므로 그때는 비워 둔다
+      const metas = jobs
+        .map((j) => j.progress)
+        .filter((pg) => pg.subjects?.length || pg.examTypes?.length)
+      const sameMeta =
+        metas.length > 0 &&
+        metas.every(
+          (pg) =>
+            JSON.stringify(pg.subjects ?? []) === JSON.stringify(metas[0].subjects ?? []) &&
+            JSON.stringify(pg.examTypes ?? []) === JSON.stringify(metas[0].examTypes ?? [])
+        )
+      if (sameMeta) {
+        const [first] = metas
+        if (first.subjects?.length) {
+          if (getAppMode() === 'general') setGeneralSubjectText(first.subjects[0])
+          else setSubjects(first.subjects as Subject[])
+        }
+        if (first.examTypes?.length) setExamTypes(first.examTypes as ExamType[])
       }
-      if (withMeta?.progress.examTypes?.length) setExamTypes(withMeta.progress.examTypes as ExamType[])
       setHydrated(true)
     })()
     return () => { cancelled = true }
@@ -297,6 +318,22 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     setActionError(null)
   }
 
+  // 다음 문제집을 위해 문제집 정보 선택을 초기 상태로 되돌린다.
+  // 재개 대기 항목은 각자 저장된 과목으로 처리되므로(resolveMeta) 여기서 비워도 영향이 없다
+  function resetBookForm() {
+    setSubjects([])
+    setGeneralSubjectText('')
+    setExamTypes(isGeneral ? ['모의고사'] : [])
+  }
+
+  // 큐를 비우면 문제집 정보도 함께 초기화한다 (다음 파일은 새로 고르게)
+  function clearQueue() {
+    setFiles([])
+    resetBookForm()
+    setSummary(null)
+    setActionError(null)
+  }
+
   function updateDisplayName(i: number, name: string) {
     setFiles((prev) => {
       const next = [...prev]
@@ -311,6 +348,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     entry: { file: File; displayName: string },
     startChunk: number,
     update: (patch: Partial<JobView>) => void,
+    meta: ParseMeta,
     signal?: AbortSignal
   ): Promise<{ added: number; merged: number; aborted: boolean }> {
     const sourceFile = sourceFileNameOf(entry)
@@ -336,8 +374,8 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
         fileQuestionCount,
         fileName: entry.file.name,
         pageCount: totalPages,
-        subjects: activeSubjects,
-        examTypes,
+        subjects: meta.subjects,
+        examTypes: meta.examTypes,
       })
     }
 
@@ -385,8 +423,8 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
             chunkIndex: chunkIndex + 1,
           })
           await waitForFileActive(apiKey, uri)
-          for (const s of activeSubjects) {
-            for (const et of examTypes) {
+          for (const s of meta.subjects) {
+            for (const et of meta.examTypes) {
               const questions = await extractQuestionsFromPdf(apiKey, uri, s, et, new Date().getFullYear(), signal)
               const result = addQuestions(questions, sourceFile)
               deltaAdded += result.added
@@ -437,6 +475,24 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     return saved.chunkIndex + 1
   }
 
+  // 재개 항목은 중단 시점에 선택돼 있던 과목/시험 구분으로 처리한다.
+  // 폼의 현재값을 쓰면 대기열을 비웠거나 다른 문제집을 고른 뒤 재개할 때 엉뚱한 과목으로 저장된다
+  function resolveMeta(saved: PdfParseProgress | null | undefined): ParseMeta {
+    return {
+      subjects: saved?.subjects?.length ? (saved.subjects as Subject[]) : activeSubjects,
+      examTypes: saved?.examTypes?.length ? (saved.examTypes as ExamType[]) : examTypes,
+    }
+  }
+
+  // 실제로 쓰이는 값을 폼에도 반영해 사용자가 무엇으로 처리되는지 볼 수 있게 한다
+  function applyMetaToForm(meta: ParseMeta) {
+    if (meta.subjects.length) {
+      if (isGeneral) setGeneralSubjectText(meta.subjects[0])
+      else setSubjects(meta.subjects)
+    }
+    if (meta.examTypes.length) setExamTypes(meta.examTypes)
+  }
+
   async function startAnalysis() {
     if (!apiKey || files.length === 0 || examTypes.length === 0 || activeSubjects.length === 0) return
     const controller = new AbortController()
@@ -454,6 +510,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
         entry,
         resolveStartChunk(entry),
         (patch) => updateFile(i, patch),
+        { subjects: activeSubjects, examTypes },
         controller.signal
       )
       totalAdded += result.added
@@ -465,6 +522,12 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     abortRef.current = null
     setSummary({ added: totalAdded, merged: totalMerged })
     setIsRunning(false)
+    // 끝까지 처리된 파일만 큐에서 뺀다. 중단·오류 항목은 이어서 처리할 수 있게 남긴다
+    setFiles((prev) => {
+      const rest = prev.filter((f) => f.status !== 'done')
+      if (rest.length === 0) resetBookForm()
+      return rest
+    })
     refreshSourceFiles()
     onQuestionsAdded()
   }
@@ -481,10 +544,13 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       setActionError('Gemini API 키를 먼저 입력해주세요.')
       return
     }
-    if (activeSubjects.length === 0 || examTypes.length === 0) {
+    // 저장된 진행상황이 있으면 그때 고른 과목으로 이어간다 (폼을 다시 고를 필요 없음)
+    const meta = resolveMeta(getPdfProgress(sourceFileNameOf(entry)))
+    if (meta.subjects.length === 0 || meta.examTypes.length === 0) {
       setActionError('과목과 시험 구분을 먼저 선택해주세요. 선택하지 않으면 문제가 추출되지 않은 채 청크만 소모됩니다.')
       return
     }
+    applyMetaToForm(meta)
     setActionError(null)
 
     const controller = new AbortController()
@@ -495,6 +561,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       entry,
       resolveStartChunk(entry),
       (patch) => updateFile(i, patch),
+      meta,
       controller.signal
     )
     setRunningKey(null)
@@ -525,10 +592,13 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       setActionError('Gemini API 키를 먼저 입력해주세요.')
       return
     }
-    if (activeSubjects.length === 0 || examTypes.length === 0) {
+    // 중단 시점의 과목/시험 구분으로 이어간다. 폼이 비어 있어도 재개가 막히지 않는다
+    const meta = resolveMeta(job.saved)
+    if (meta.subjects.length === 0 || meta.examTypes.length === 0) {
       setActionError('과목과 시험 구분을 먼저 선택해주세요. 선택하지 않으면 문제가 추출되지 않은 채 청크만 소모됩니다.')
       return
     }
+    applyMetaToForm(meta)
     setActionError(null)
 
     const entry = { file: job.file, displayName: sourceFile }
@@ -540,6 +610,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       entry,
       resolveStartChunk(entry),
       (patch) => updateResumeJob(sourceFile, patch),
+      meta,
       controller.signal
     )
     setRunningKey(null)
@@ -583,11 +654,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     ) return
 
     // 중단 시점의 과목/시험 구분 복원 (없으면 현재 선택값 유지)
-    if (job.saved.subjects?.length) {
-      if (isGeneral) setGeneralSubjectText(job.saved.subjects[0])
-      else setSubjects(job.saved.subjects as Subject[])
-    }
-    if (job.saved.examTypes?.length) setExamTypes(job.saved.examTypes as ExamType[])
+    applyMetaToForm(resolveMeta(job.saved))
 
     // 다음 새로고침 때 다시 고르지 않도록 원본을 캐시에 넣어둔다
     void savePdfFile(sourceFile, picked)
@@ -1069,6 +1136,13 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
                       보관된 원본이 없습니다. 같은 PDF를 다시 선택해주세요.
                     </p>
                   )}
+                  {(j.saved.subjects?.length || j.saved.examTypes?.length) && (
+                    <p className="text-xs text-muted-foreground">
+                      중단 시점 선택: {[j.saved.subjects?.join(', '), j.saved.examTypes?.join(', ')]
+                        .filter(Boolean)
+                        .join(' · ')} (그대로 이어서 처리됩니다)
+                    </p>
+                  )}
 
                   <div className="flex gap-2 items-center">
                     {j.file ? (
@@ -1212,6 +1286,18 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+
+            {files.length > 0 && !isRunning && (
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={clearQueue}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  대기열 비우기
+                </button>
               </div>
             )}
 
