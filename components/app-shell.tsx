@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { User } from 'firebase/auth'
 import type { Question, WrongNote } from '@/lib/types'
-import { getQuestions, getWrongNotes, clearAll } from '@/lib/store'
+import { getQuestions, getWrongNotes, clearAll , isInMemoList } from '@/lib/store'
 import { logout } from '@/lib/firebaseServices/auth'
 import { pullFromFirebase, pushToFirebase } from '@/lib/firebaseServices/sync'
 import { getAppMode, setAppMode, type AppMode } from '@/lib/appMode'
@@ -69,6 +69,8 @@ export function AppShell({ user }: Props) {
 
   // 관리자는 안읽은 피드백, 그 외에는 내 피드백의 새 답글이 알림 대상이다
   const hasFeedbackAlert = isAdmin ? unreadFeedback > 0 : unreadReplies > 0
+  // 암기장 목록·일괄삭제와 같은 판정을 써야 수동 추가분이 배지에도 반영된다
+  const memoCount = wrongNotes.filter(isInMemoList).length
 
   function handleFeedbackClick() {
     // 비관리자는 항상 피드백 모달을 연다. 그 안에 "내 피드백 + 답글"이 함께 들어 있어
@@ -313,9 +315,9 @@ export function AppShell({ user }: Props) {
                     {wrongNotes.length}
                   </span>
                 )}
-                {t.id === 'memo' && wrongNotes.filter((n) => (n.analysis?.위험도 ?? 0) >= 3).length > 0 && (
-                  <span className="bg-yellow-500/20 text-yellow-400 rounded-full px-1.5 py-0.5 text-[10px] leading-none">
-                    {wrongNotes.filter((n) => (n.analysis?.위험도 ?? 0) >= 3).length}
+                {t.id === 'memo' && memoCount > 0 && (
+                  <span className="bg-primary/20 text-primary rounded-full px-1.5 py-0.5 text-[10px] leading-none">
+                    {memoCount}
                   </span>
                 )}
               </button>
