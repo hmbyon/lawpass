@@ -7,6 +7,8 @@ import { clearFirebaseSessions } from '@/lib/firebaseServices/sync'
 import { ADMIN_EMAIL } from '@/lib/admin'
 import { AdminFeedbackPanel } from '@/components/admin-feedback-panel'
 import type { AppMode } from '@/lib/appMode'
+import { db } from '@/lib/firebase'
+import { collection, getDocs, writeBatch } from 'firebase/firestore'
 
 interface Props {
   questionCount: number
@@ -53,15 +55,38 @@ export function SettingsModal({
     setClearing(true)
 
     try {
-      // 1. 상위 컴포넌트 State 초기화 함수 실행
-      onClearAll()
+      // 1. Firebase Firestore 클라우드 DB 상의 문제/오답노트/세션 데이터 완전 삭제
+      if (userId && db) {
+        const modes = ['law', 'general']
+        const subCollections = ['questions', 'wrongNotes', 'studySessions', 'quizSession']
 
-      // 2. Firebase 세션 동기화 데이터 삭제
+        for (const m of modes) {
+          for (const sub of subCollections) {
+            try {
+              const colRef = collection(db, 'users', userId, m, sub)
+              const snapshot = await getDocs(colRef)
+              if (!snapshot.empty) {
+                const batch = writeBatch(db)
+                snapshot.docs.forEach((docSnap) => {
+                  batch.delete(docSnap.ref)
+                })
+                await batch.commit()
+              }
+            } catch (err) {
+              console.error(`[Firebase Delete Error] ${m}/${sub}:`, err)
+            }
+          }
+        }
+      }
+
+      // 2. 세션 삭제 함수 실행
       if (userId) {
         await clearFirebaseSessions(userId)
       }
 
-      // 3. 로컬 스토리지에 남아있는 모드별 데이터 완벽 제거
+      // 3. 로컬 State 및 LocalStorage 데이터 전체 제거
+      onClearAll()
+
       localStorage.removeItem('lawpass_questions_law')
       localStorage.removeItem('lawpass_wrong_notes_law')
       localStorage.removeItem('lawpass_study_sessions_law')
@@ -74,7 +99,7 @@ export function SettingsModal({
       setShowResetModal(false)
       setResetInput('')
 
-      // 4. 강제 새로고침으로 메모리 잔여 데이터 리셋
+      // 4. 강제 페이지 새로고침으로 깔끔하게 리셋
       window.location.reload()
     } catch (e) {
       console.error('[settings-modal] 전체 데이터 초기화 실패', e)
@@ -197,7 +222,7 @@ export function SettingsModal({
             <div className="space-y-1">
               <h3 className="text-base font-bold text-foreground">전체 데이터 초기화</h3>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                모든 문제, 오답노트, 세션 데이터가 완전히 삭제됩니다. 이 작업은 되돌릴 수 없습니다.
+                모든 문제, 오답노트, 세션 데이터가 서버에서 완전히 삭제됩니다. 이 작업은 되돌릴 수 없습니다.
               </p>
             </div>
 
@@ -229,7 +254,7 @@ export function SettingsModal({
                 disabled={resetInput !== TARGET_TEXT || clearing}
                 className="flex-1 py-2 rounded-xl bg-red-600 text-white text-xs font-bold hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm"
               >
-                {clearing ? '초기화 중...' : '삭제 진행'}
+                {clearing ? '초기화 중...' : '서버까지 전체 삭제'}
               </button>
             </div>
           </div>
