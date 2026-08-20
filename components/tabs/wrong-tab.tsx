@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import type { WrongNote, Subject } from '@/lib/types'
-import { resolveErrorCause } from '@/lib/types'
+import { resolveErrorCause, CAUSE_LABELS } from '@/lib/types'
 import { deleteWrongNote, saveWrongNotes, updateWrongNoteMemo, getRiskLevel } from '@/lib/store'
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
@@ -141,7 +141,10 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
                             오답 원인
                           </p>
                           <CauseBadge cause={cause.cause} />
-                          <span className="text-xs font-medium text-foreground">{cause.원인명}</span>
+                          {/* 원인명이 배지 라벨과 같으면 같은 말이 두 번 찍히므로, 다를 때만 덧붙인다 */}
+                          {cause.원인명 !== CAUSE_LABELS[cause.cause] && (
+                            <span className="text-xs font-medium text-foreground">{cause.원인명}</span>
+                          )}
                         </div>
                         <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">
                           {cause.상세분석}
