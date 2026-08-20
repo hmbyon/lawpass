@@ -124,34 +124,49 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
                   )}
                 </div>
               </div>
-              <Section icon="🎯" label="핵심개념" value={a.핵심개념} />
-              <Section icon="📖" label="관련조문" value={a.관련조문} />
-              {/* 판례가 없으면 Section이 null을 반환해 섹션 자체가 사라진다 */}
-              <Section icon="⚖️" label="관련판례" value={a.관련판례 ?? ''} />
-              <Section icon="🔍" label="오답원인 상세" value={a.원인상세} />
-              {(() => {
-                // 신·구 구조를 모두 흡수해 원인 하나만 보여준다
-                const cause = resolveErrorCause(a, note.dominantCause)
-                if (!cause) return null
-                return (
-                  <div className="border border-primary/30 bg-primary/5 rounded-lg p-3 space-y-1.5">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-[11px] font-semibold text-primary flex items-center gap-1.5">
-                        <span aria-hidden>⚠️</span>
-                        오답 원인
-                      </p>
-                      <CauseBadge cause={cause.cause} />
-                      <span className="text-xs font-medium text-foreground">{cause.원인명}</span>
-                    </div>
-                    <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">
-                      {cause.상세분석}
-                    </p>
-                  </div>
-                )
-              })()}
-              <Section icon="📝" label="개념요약" value={a.개념요약} />
-              <Section icon="🔀" label="혼동주의" value={a.혼동주의} />
-              <Section icon="✅" label="D-1 체크포인트" value={a.체크포인트} />
+              {/* 학습 흐름: 결론(왜 틀렸나) → 근거(개념·조문·판례) → 암기(요약·주의·체크포인트).
+                  카드로 가두지 않고 얇은 구분선으로만 묶어 하나의 리포트처럼 읽히게 한다 */}
+              <div className="divide-y divide-border">
+                {/* ① 결론 — 왜 틀렸는지 */}
+                <div className="space-y-3 pb-4">
+                  {(() => {
+                    // 신·구 구조를 모두 흡수해 원인 하나만 보여준다
+                    const cause = resolveErrorCause(a, note.dominantCause)
+                    if (!cause) return null
+                    return (
+                      <div className="border-l-2 border-primary pl-3 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-[11px] font-semibold text-primary flex items-center gap-1.5">
+                            <span aria-hidden>⚠️</span>
+                            오답 원인
+                          </p>
+                          <CauseBadge cause={cause.cause} />
+                          <span className="text-xs font-medium text-foreground">{cause.원인명}</span>
+                        </div>
+                        <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap break-words">
+                          {cause.상세분석}
+                        </p>
+                      </div>
+                    )
+                  })()}
+                  <Section icon="🔍" label="오답원인 상세" value={a.원인상세} />
+                </div>
+
+                {/* ② 근거 — 무엇을 알아야 했나 */}
+                <div className="space-y-3 py-4">
+                  <Section icon="🎯" label="핵심개념" value={a.핵심개념} />
+                  <Section icon="📖" label="관련조문" value={a.관련조문} />
+                  {/* 판례가 없으면 Section이 null을 반환해 항목 자체가 사라진다 */}
+                  <Section icon="⚖️" label="관련판례" value={a.관련판례 ?? ''} />
+                </div>
+
+                {/* ③ 암기 — 어떻게 기억할까 */}
+                <div className="space-y-3 pt-4">
+                  <Section icon="📝" label="개념요약" value={a.개념요약} />
+                  <Section icon="🔀" label="혼동주의" value={a.혼동주의} />
+                  <Section icon="✅" label="D-1 체크포인트" value={a.체크포인트} />
+                </div>
+              </div>
 
               {/* 오답 히스토리 */}
               {note.analysisHistory && note.analysisHistory.length > 1 && (
@@ -199,11 +214,12 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
   )
 }
 
-// 분석 항목을 독립된 카드로 렌더한다. 색은 전부 시맨틱 토큰이라 3개 테마 모두 대응된다
+// 분석 항목. 카드로 가두지 않고 소제목만으로 구분해 하나의 리포트처럼 이어 읽히게 한다.
+// 색은 전부 시맨틱 토큰이라 3개 테마 모두 대응된다
 function Section({ label, value, icon }: { label: string; value: string; icon?: string }) {
   if (!value?.trim()) return null
   return (
-    <div className="bg-muted rounded-lg p-3 space-y-1.5">
+    <div className="space-y-1">
       <p className="text-[11px] font-semibold text-primary flex items-center gap-1.5">
         {icon && <span aria-hidden>{icon}</span>}
         {label}
