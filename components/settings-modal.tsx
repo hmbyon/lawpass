@@ -8,7 +8,7 @@ import { ADMIN_EMAIL } from '@/lib/admin'
 import { AdminFeedbackPanel } from '@/components/admin-feedback-panel'
 import type { AppMode } from '@/lib/appMode'
 import { db } from '@/lib/firebase'
-import { collection, getDocs, writeBatch } from 'firebase/firestore'
+import { collection, doc, deleteDoc, getDocs, writeBatch } from 'firebase/firestore'
 
 interface Props {
   questionCount: number
@@ -55,51 +55,70 @@ export function SettingsModal({
     setClearing(true)
 
     try {
-      // 1. Firebase Firestore 클라우드 DB 상의 문제/오답노트/세션 데이터 완전 삭제
+      // 1. Firebase Firestore 클라우드 DB 상의 모든 문제/오답/세션 데이터 완전 삭제
       if (userId && db) {
         const modes = ['law', 'general']
-        const subCollections = ['questions', 'wrongNotes', 'studySessions', 'quizSession']
+        const subKeys = ['questions', 'wrongNotes', 'studySessions', 'quizSession']
 
         for (const m of modes) {
-          for (const sub of subCollections) {
+          // (1) users/{userId}/{mode} 컬렉션 내부 문서 일괄 삭제 (questions, wrongNotes 등)
+          try {
+            const modeColRef = collection(db, 'users', userId, m)
+            const snapshot = await getDocs(modeColRef)
+            if (!snapshot.empty) {
+              const batch = writeBatch(db)
+              snapshot.docs.forEach((docSnap) => {
+                batch.delete(docSnap.ref)
+              })
+              await batch.commit()
+            }
+          } catch (err) {
+            console.error(`[Firebase Delete Mode Error] ${m}:`, err)
+          }
+
+          // (2) 단일 문서 형태인 경우 개별 deleteDoc 실행
+          for (const sub of subKeys) {
             try {
-              const colRef = collection(db, 'users', userId, m, sub)
-              const snapshot = await getDocs(colRef)
-              if (!snapshot.empty) {
+              await deleteDoc(doc(db, 'users', userId, m, sub))
+            } catch (err) {}
+          }
+
+          // (3) users/{userId}/{mode}_questions 형태 컬렉션인 경우 대응
+          for (const sub of subKeys) {
+            try {
+              const altColRef = collection(db, 'users', userId, `${m}_${sub}`)
+              const altSnap = await getDocs(altColRef)
+              if (!altSnap.empty) {
                 const batch = writeBatch(db)
-                snapshot.docs.forEach((docSnap) => {
+                altSnap.docs.forEach((docSnap) => {
                   batch.delete(docSnap.ref)
                 })
                 await batch.commit()
               }
-            } catch (err) {
-              console.error(`[Firebase Delete Error] ${m}/${sub}:`, err)
-            }
+            } catch (err) {}
           }
         }
       }
 
-      // 2. 세션 삭제 함수 실행
+      // 2. Firebase 세션 초기화
       if (userId) {
         await clearFirebaseSessions(userId)
       }
 
-      // 3. 로컬 State 및 LocalStorage 데이터 전체 제거
-      onClearAll()
+      // 3. 로컬 스토리지에 남아있는 lawpass 관련 모든 키 삭제
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith('lawpass')) {
+          localStorage.removeItem(key)
+        }
+      })
 
-      localStorage.removeItem('lawpass_questions_law')
-      localStorage.removeItem('lawpass_wrong_notes_law')
-      localStorage.removeItem('lawpass_study_sessions_law')
-      localStorage.removeItem('lawpass_quiz_session_law')
-      localStorage.removeItem('lawpass_questions_general')
-      localStorage.removeItem('lawpass_wrong_notes_general')
-      localStorage.removeItem('lawpass_study_sessions_general')
-      localStorage.removeItem('lawpass_quiz_session_general')
+      // 4. React State 초기화
+      onClearAll()
 
       setShowResetModal(false)
       setResetInput('')
 
-      // 4. 강제 페이지 새로고침으로 깔끔하게 리셋
+      // 5. 새로고침으로 완벽 리셋 반영
       window.location.reload()
     } catch (e) {
       console.error('[settings-modal] 전체 데이터 초기화 실패', e)
