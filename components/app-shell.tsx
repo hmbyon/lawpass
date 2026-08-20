@@ -179,8 +179,15 @@ export function AppShell({ user }: Props) {
             <span className="hidden sm:inline text-xs text-muted-foreground">
               {appBadge}
             </span>
-            {/* 모바일에서는 피드백/가이드를 세로 2줄로 쌓아 가로 폭을 줄인다 */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-1 sm:gap-2">
+            {/* 모바일에서는 아이콘만 보여 한 줄에 나란히 들어가게 한다 */}
+            <div className="flex items-center gap-1 sm:gap-2">
+            <button
+              onClick={() => setShowOnboarding(true)}
+              title="가이드"
+              className="text-xs text-muted-foreground border border-border rounded-full px-2 py-0.5 hover:text-foreground hover:border-foreground/30 transition-colors"
+            >
+              🔍<span className="hidden sm:inline"> 가이드</span>
+            </button>
             <button
               onClick={handleFeedbackClick}
               title={
@@ -196,19 +203,13 @@ export function AppShell({ user }: Props) {
                   : 'text-muted-foreground border-border hover:text-foreground hover:border-foreground/30'
               }`}
             >
-              <span className="hidden sm:inline">💬 </span>피드백
+              💬<span className="hidden sm:inline"> 피드백</span>
               {hasFeedbackAlert && (
                 <span className="absolute -top-1 -right-1 flex h-2 w-2">
                   <span className="absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75 animate-ping" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
                 </span>
               )}
-            </button>
-            <button
-              onClick={() => setShowOnboarding(true)}
-              className="text-xs text-muted-foreground border border-border rounded-full px-2 py-0.5 hover:text-foreground hover:border-foreground/30 transition-colors"
-            >
-              ❓<span className="hidden sm:inline"> 가이드</span>
             </button>
             </div>
           </div>
@@ -235,7 +236,7 @@ export function AppShell({ user }: Props) {
                   : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-accent'
               }`}
             >
-              <span className="hidden sm:inline">⚙️ </span>설정
+              ⚙️<span className="hidden sm:inline"> 설정</span>
             </button>
             <div className="relative" ref={userMenuRef}>
               <button
