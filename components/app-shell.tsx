@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { User } from 'firebase/auth'
 import type { Question, WrongNote } from '@/lib/types'
-import { getQuestions, getWrongNotes, clearAll , isInMemoList } from '@/lib/store'
+import { getQuestions, getWrongNotes, clearAll , isInMemoList, hasPendingSync } from '@/lib/store'
 import { logout } from '@/lib/firebaseServices/auth'
 import { pullFromFirebase, pushToFirebase } from '@/lib/firebaseServices/sync'
 import { getAppMode, setAppMode, type AppMode } from '@/lib/appMode'
@@ -42,6 +42,9 @@ export function AppShell({ user }: Props) {
   // 동기화 실패는 반드시 화면에 남긴다. 예전에는 console.error로만 삼켜서
   // 클라우드 저장이 계속 실패하는 줄 모른 채 쓰다가 데이터가 로컬에만 남는 사고가 났다
   const [syncError, setSyncError] = useState<string | null>(null)
+  // 아직 클라우드에 올리지 못한 로컬 변경이 있는지. 예외가 난 적이 없어도(=push를 아예 안 돌린 상태)
+  // 미동기화일 수 있으므로 syncError와 별개로 플래그를 직접 읽는다
+  const [pendingSync, setPendingSync] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [avatarError, setAvatarError] = useState(false)
   const [mode, setMode] = useState<AppMode>(() => getAppMode())
@@ -124,17 +127,22 @@ export function AppShell({ user }: Props) {
   const refresh = useCallback(() => {
     setQuestions(getQuestions())
     setWrongNotes(getWrongNotes())
+    setPendingSync(hasPendingSync())
   }, [])
 
   const loadFromFirebase = useCallback(async () => {
     setSyncing(true)
     try {
       await pullFromFirebase(user.uid)
+      // pull만으로는 미동기화 플래그가 풀리지 않는다. 로그인 시점에 올리지 못한 로컬 변경이 있으면
+      // 여기서 올려야 한다 — 예전에는 push 호출부가 탭 콜백뿐이라 로그인만으로는 영영 동기화되지 않았다.
+      // pull이 성공한 뒤에만 올린다 (불러오기 실패 상태에서 올리면 빈 로컬로 원격을 덮어쓴다)
+      if (hasPendingSync()) await pushToFirebase(user.uid)
       setSyncError(null)
     } catch (e) {
-      // 불러오기가 실패해도 로컬 데이터는 그대로다 (pullFromFirebase가 로컬을 건드리기 전에 던진다)
-      console.error('Firebase 불러오기 실패 (오프라인?)', e)
-      setSyncError('클라우드에서 불러오지 못했습니다. 이 기기의 데이터로 계속 사용합니다.')
+      // 실패해도 로컬 데이터는 그대로다 (pullFromFirebase가 로컬을 건드리기 전에 던진다)
+      console.error('Firebase 동기화 실패 (오프라인?)', e)
+      setSyncError(`동기화에 실패했습니다. 이 기기에는 저장돼 있어 데이터는 사라지지 않습니다. (${String(e)})`)
     } finally {
       refresh()
       setSyncing(false)
@@ -161,12 +169,16 @@ export function AppShell({ user }: Props) {
 
   const refreshAndSync = useCallback(async () => {
     refresh()
+    setSyncing(true)
     try {
       await pushToFirebase(user.uid)
       setSyncError(null)
     } catch (e) {
       console.error('Firebase 저장 실패 (오프라인?)', e)
-      setSyncError('클라우드 저장에 실패했습니다. 이 기기에는 저장돼 있으니 데이터는 사라지지 않습니다.')
+      setSyncError(`클라우드 저장에 실패했습니다. 이 기기에는 저장돼 있으니 데이터는 사라지지 않습니다. (${String(e)})`)
+    } finally {
+      setSyncing(false)
+      setPendingSync(hasPendingSync())
     }
   }, [user.uid, refresh])
 
@@ -225,6 +237,8 @@ export function AppShell({ user }: Props) {
           </div>
           <div className="flex items-center gap-2 sm:gap-3 text-xs text-muted-foreground shrink-0">
             {syncing && <span className="text-primary animate-pulse">동기화 중...</span>}
+            {/* 실패(예외)와 미동기화(아직 안 올라감)는 다른 상태다. 예전에는 실패만 표시해서
+                push가 한 번도 안 돌아간 경우엔 아무 표시도 뜨지 않았다 */}
             {!syncing && syncError && (
               <button
                 onClick={loadFromFirebase}
@@ -232,6 +246,15 @@ export function AppShell({ user }: Props) {
                 className="text-red-400 border border-red-500/40 bg-red-500/10 rounded-full px-2 py-0.5 hover:bg-red-500/20 transition-colors"
               >
                 ⚠️<span className="hidden sm:inline"> 동기화 실패</span>
+              </button>
+            )}
+            {!syncing && !syncError && pendingSync && (
+              <button
+                onClick={refreshAndSync}
+                title="이 기기에만 저장된 변경이 있습니다. 눌러서 클라우드에 올립니다."
+                className="text-amber-400 border border-amber-500/40 bg-amber-500/10 rounded-full px-2 py-0.5 hover:bg-amber-500/20 transition-colors"
+              >
+                ☁️<span className="hidden sm:inline"> 미동기화</span>
               </button>
             )}
             

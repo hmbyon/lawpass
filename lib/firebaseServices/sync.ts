@@ -17,6 +17,11 @@ import type { Question, WrongNote } from '@/lib/types'
 // 그래서 목록은 한 문서에 몰아넣지 않고 여러 조각(shard) 문서로 나눠 저장한다
 const SHARD_BUDGET_BYTES = 700_000
 
+// 동기화 단계 추적용 임시 로그. 원인 규명이 끝나면 이 함수와 호출부만 지우면 된다
+function syncLog(...args: unknown[]) {
+  console.log('[sync]', ...args)
+}
+
 type ListName = 'questions' | 'wrongNotes' | 'studySessions' | 'quizSession'
 
 function byteLength(value: unknown): number {
@@ -56,9 +61,16 @@ function shardsRef(userId: string, mode: string, name: ListName) {
 async function writeList<T>(userId: string, mode: string, name: ListName, list: T[]) {
   const shards = shardList(list)
   const version = Date.now().toString(36)
+  syncLog(
+    `조각 분할 ${name}:`,
+    `${list.length}개 항목 → 조각 ${shards.length}개`,
+    `(전체 ${(byteLength(list) / 1024).toFixed(0)}KB,`,
+    `가장 큰 조각 ${(Math.max(0, ...shards.map(byteLength)) / 1024).toFixed(0)}KB)`
+  )
 
   for (let i = 0; i < shards.length; i++) {
     await setDoc(doc(shardsRef(userId, mode, name), `${version}_${i}`), { list: shards[i] })
+    syncLog(`업로드 ${name} 조각 ${i + 1}/${shards.length} 완료`)
   }
   await setDoc(rootRef(userId, mode, name), {
     sharded: true,
@@ -111,6 +123,7 @@ function resolveList<T extends { id: string }>(remote: T[] | null, local: T[], p
 export async function pushToFirebase(userId: string) {
   const mode = getAppMode()
   const quizSession = getSavedSession()
+  syncLog('push 시작', { userId, mode, 문제: getQuestions().length, 오답: getWrongNotes().length })
 
   // 하나가 실패해도 나머지는 계속 시도한다.
   // 순차 await만 쓰면 첫 실패(예전의 questions 한도 초과) 때문에 오답노트까지 영영 안 올라간다
@@ -119,6 +132,7 @@ export async function pushToFirebase(userId: string) {
     try {
       await fn()
     } catch (e) {
+      syncLog('❌ 업로드 실패:', e)
       errors.push(e)
     }
   }
@@ -130,8 +144,12 @@ export async function pushToFirebase(userId: string) {
   // 로컬에서 지웠으면 빈 목록을 올려야 다음 pull 때 되살아나지 않는다
   await attempt(() => writeList<SavedSession>(userId, mode, 'quizSession', quizSession ? [quizSession] : []))
 
-  if (errors.length > 0) throw errors[0]
+  if (errors.length > 0) {
+    syncLog(`push 실패 (${errors.length}건) — 미동기화 상태 유지`)
+    throw errors[0]
+  }
   clearPendingSync()
+  syncLog('push 완료 — 동기화됨')
 }
 
 // Firebase의 임시저장(studySessions) / 진행중인 퀴즈(quizSession) 문서 삭제
@@ -145,6 +163,7 @@ export async function clearFirebaseSessions(userId: string) {
 export async function pullFromFirebase(userId: string): Promise<{ questions: Question[], wrongNotes: WrongNote[] }> {
   const mode = getAppMode()
   const pending = hasPendingSync()
+  syncLog('pull 시작', { userId, mode, 미동기화: pending })
 
   // 로컬을 건드리기 전에 원격을 모두 읽는다. 중간에 읽기가 실패하면 여기서 던지고
   // 로컬은 손대지 않은 채로 남는다
@@ -182,6 +201,11 @@ export async function pullFromFirebase(userId: string): Promise<{ questions: Que
   // 병합했다면 로컬에만 있는 변경이 그대로 남아 있으니 여전히 '대기 중'이다
   if (pending) markPendingSync()
   else clearPendingSync()
+  syncLog('pull 완료', {
+    원격: remoteQuestions === null ? '문서 없음' : `${remoteQuestions.length}개`,
+    로컬결과: questions.length,
+    미동기화: hasPendingSync(),
+  })
 
   return { questions, wrongNotes }
 }
