@@ -215,12 +215,20 @@ export async function extractQuestionsFromPdf(
     return items.length > 0 ? items : undefined
   }
 
+  // AI가 연도를 확인하지 못하면 null을 준다. 이때 '오늘 연도'로 채우면
+  // 존재하지도 않는 회차의 기출이 만들어지고, 그 값이 특정 한 해로 쏠린다.
+  // 0(연도 미상)으로 남겨 파싱 검토 화면에서 눈에 띄게 하고 사람이 고치게 한다
+  const resolveYear = (raw: number | null | undefined): number =>
+    typeof raw === 'number' && raw >= 1900 && raw <= 2100 ? raw : 0
+
   return parsed.map((item) => ({
-    id: `${subject}_${examType}_${year}_${item.문제번호}_${Date.now()}`,
+    // id에는 실제 판정된 연도를 쓴다. 폴백 연도(호출 시점의 올해)를 박으면
+    // year 필드가 2023인데 id에는 2026이 들어가 데이터가 어긋난다
+    id: `${subject}_${examType}_${resolveYear(item.연도)}_${item.문제번호}_${Date.now()}`,
     no: item.문제번호,
     subject,
     examType,
-    year: item.연도 ?? year,  // AI가 추출한 연도 우선, 없으면 fallback
+    year: resolveYear(item.연도),
     unit: item.단원 ?? undefined,
     passage: item.지문,
     choices: LABELS.map((l) => ({ label: l, text: item.선지?.[l] ?? '' })),

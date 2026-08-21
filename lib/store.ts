@@ -204,6 +204,17 @@ export function updateQuestionUnit(questionId: string, unit: string) {
   saveQuestions(questions)
 }
 
+// 파싱 검토 화면에서 잘못 판정된 출제연도를 사람이 고칠 때 쓴다.
+// updateQuestionUnit과 마찬가지로 id는 그대로 둔다
+export function updateQuestionYear(questionId: string, year: number) {
+  if (!Number.isFinite(year) || year < 0) return
+  const questions = getQuestions()
+  const target = questions.find((q) => q.id === questionId)
+  if (!target) return
+  target.year = year
+  saveQuestions(questions)
+}
+
 // 파일별 문제 삭제
 export function deleteQuestionsBySource(sourceFile: string) {
   saveQuestions(getQuestions().filter((q) => q.sourceFile !== sourceFile))

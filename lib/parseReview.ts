@@ -28,10 +28,27 @@ export interface UnitCount {
   questions: Question[]
 }
 
+// 연도를 확인하지 못한 문제는 year가 0으로 저장된다 (gemini.ts의 resolveYear)
+export const UNKNOWN_YEAR = 0
+// 한 연도가 이 비율을 넘으면 "쏠림"으로 본다. 여러 회차 기출 모음이라면 파싱 오류 신호다
+const YEAR_DOMINANT_RATIO = 0.7
+// 변호사시험 제1회가 2012년. 그 이전 연도는 기출로 존재하지 않는다
+const EARLIEST_YEAR = 2010
+
+export interface YearCount {
+  year: number // 0이면 연도 미상
+  count: number
+  ratio: number
+  questions: Question[]
+  problem: 'unknown' | 'future' | 'tooOld' | null
+}
+
 export interface ParseReview {
   total: number
   gaps: NumberGap[]
   units: UnitCount[]
+  years: YearCount[]
+  yearDominant: YearCount | null // 70% 이상을 차지하는 연도 (있을 때만)
   hasWarning: boolean
 }
 
@@ -102,12 +119,52 @@ export function buildParseReview(questions: Question[]): ParseReview {
     (a, b) => b.count - a.count || a.unit.localeCompare(b.unit, 'ko')
   )
 
+  // 연도 분포
+  const thisYear = new Date().getFullYear()
+  const byYear = new Map<number, YearCount>()
+  for (const q of questions) {
+    const year = Number.isFinite(q.year) ? q.year : UNKNOWN_YEAR
+    const row = byYear.get(year)
+    if (row) {
+      row.count++
+      row.questions.push(q)
+    } else {
+      byYear.set(year, {
+        year,
+        count: 1,
+        ratio: 0,
+        questions: [q],
+        problem:
+          year === UNKNOWN_YEAR ? 'unknown' : year > thisYear ? 'future' : year < EARLIEST_YEAR ? 'tooOld' : null,
+      })
+    }
+  }
+  const years = Array.from(byYear.values()).sort((a, b) => b.year - a.year)
+  for (const row of years) row.ratio = questions.length > 0 ? row.count / questions.length : 0
+  // 미상은 "쏠림" 판정에서 제외한다. 그건 별도 문제로 이미 표시된다
+  const yearDominant =
+    years.find((y) => y.year !== UNKNOWN_YEAR && y.ratio >= YEAR_DOMINANT_RATIO) ?? null
+
   return {
     total: questions.length,
     gaps,
     units,
-    hasWarning: gaps.length > 0 || units.some((u) => !u.valid),
+    years,
+    yearDominant,
+    hasWarning:
+      gaps.length > 0 ||
+      units.some((u) => !u.valid) ||
+      years.some((y) => y.problem !== null) ||
+      yearDominant !== null,
   }
+}
+
+// 연도 수정 드롭다운에 넣을 후보. 최신 연도가 위로 오게 한다
+export function yearOptions(): number[] {
+  const thisYear = new Date().getFullYear()
+  const out: number[] = []
+  for (let y = thisYear; y >= EARLIEST_YEAR; y--) out.push(y)
+  return out
 }
 
 // 특정 단원이 "소수라 의심스러운지". 전체의 20% 미만이면서 최다 단원이 따로 있을 때만 표시한다.
