@@ -11,6 +11,7 @@ const BASE_KEYS = {
   savedSession: 'lawpass_saved_session',
   savedStudySession: 'lawpass_saved_study_session',
   savedStudySessions: 'lawpass_saved_study_sessions',
+  pendingSync: 'lawpass_pending_sync',
 } as const
 
 const MODE_SCOPED_BASE_KEYS: string[] = [
@@ -60,6 +61,35 @@ function safeSet(key: string, value: unknown) {
   }
 }
 
+// ── 동기화 대기 플래그 ──
+// 로컬 저장은 됐지만 아직 Firebase에 올리지 못한 변경이 있는지 표시한다.
+// 이 플래그가 없으면 push 실패(문서 한도 초과·오프라인·권한 등)를 아무도 모르는 채로
+// 다음 pull이 옛 원격 값으로 로컬을 덮어써서 방금 파싱한 문제가 통째로 사라진다
+export function markPendingSync() {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(modeKey(BASE_KEYS.pendingSync), '1')
+  } catch {
+    // 저장에 실패해도 데이터 자체에는 영향이 없다
+  }
+}
+
+export function clearPendingSync() {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(modeKey(BASE_KEYS.pendingSync), '0')
+  } catch {
+    // 무시
+  }
+}
+
+export function hasPendingSync(): boolean {
+  if (typeof window === 'undefined') return true
+  // 플래그가 아예 없는 기존 사용자는 동기화 여부를 알 수 없다.
+  // 이때 '동기화됨'으로 단정하면 첫 pull이 로컬을 날리므로 보수적으로 '대기 중'으로 본다
+  return localStorage.getItem(modeKey(BASE_KEYS.pendingSync)) !== '0'
+}
+
 export function getApiKey(): string {
   if (typeof window === 'undefined') return ''
   return localStorage.getItem(BASE_KEYS.apiKey) ?? ''
@@ -76,6 +106,7 @@ export function getQuestions(): Question[] {
 
 export function saveQuestions(questions: Question[]) {
   safeSet(modeKey(BASE_KEYS.questions), questions)
+  markPendingSync()
 }
 
 // 지문 비교용 정규화 (줄바꿈·공백 차이로 같은 문제가 다르게 보이지 않도록)
@@ -232,6 +263,7 @@ export function getWrongNotes(): WrongNote[] {
 
 export function saveWrongNotes(notes: WrongNote[]) {
   safeSet(modeKey(BASE_KEYS.wrongNotes), notes)
+  markPendingSync()
 }
 
 export function addWrongNote(note: WrongNote) {

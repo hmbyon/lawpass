@@ -39,6 +39,9 @@ export function AppShell({ user }: Props) {
   const [wrongNotes, setWrongNotes] = useState<WrongNote[]>([])
   const [syncing, setSyncing] = useState(false)
   const [syncedAt, setSyncedAt] = useState(0)
+  // 동기화 실패는 반드시 화면에 남긴다. 예전에는 console.error로만 삼켜서
+  // 클라우드 저장이 계속 실패하는 줄 모른 채 쓰다가 데이터가 로컬에만 남는 사고가 났다
+  const [syncError, setSyncError] = useState<string | null>(null)
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [avatarError, setAvatarError] = useState(false)
   const [mode, setMode] = useState<AppMode>(() => getAppMode())
@@ -127,8 +130,11 @@ export function AppShell({ user }: Props) {
     setSyncing(true)
     try {
       await pullFromFirebase(user.uid)
+      setSyncError(null)
     } catch (e) {
+      // 불러오기가 실패해도 로컬 데이터는 그대로다 (pullFromFirebase가 로컬을 건드리기 전에 던진다)
       console.error('Firebase 불러오기 실패 (오프라인?)', e)
+      setSyncError('클라우드에서 불러오지 못했습니다. 이 기기의 데이터로 계속 사용합니다.')
     } finally {
       refresh()
       setSyncing(false)
@@ -157,8 +163,10 @@ export function AppShell({ user }: Props) {
     refresh()
     try {
       await pushToFirebase(user.uid)
+      setSyncError(null)
     } catch (e) {
       console.error('Firebase 저장 실패 (오프라인?)', e)
+      setSyncError('클라우드 저장에 실패했습니다. 이 기기에는 저장돼 있으니 데이터는 사라지지 않습니다.')
     }
   }, [user.uid, refresh])
 
@@ -217,6 +225,15 @@ export function AppShell({ user }: Props) {
           </div>
           <div className="flex items-center gap-2 sm:gap-3 text-xs text-muted-foreground shrink-0">
             {syncing && <span className="text-primary animate-pulse">동기화 중...</span>}
+            {!syncing && syncError && (
+              <button
+                onClick={loadFromFirebase}
+                title={`${syncError} 눌러서 다시 시도합니다.`}
+                className="text-red-400 border border-red-500/40 bg-red-500/10 rounded-full px-2 py-0.5 hover:bg-red-500/20 transition-colors"
+              >
+                ⚠️<span className="hidden sm:inline"> 동기화 실패</span>
+              </button>
+            )}
             
             {/* 모바일에서는 라벨과 숫자를 세로 2줄로 (문제 / N개) */}
             <div className="flex items-center gap-2 sm:gap-3 leading-none">
