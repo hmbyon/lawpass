@@ -550,6 +550,11 @@ function StudyBulkPreview({
   const choiceTruth = subChoices ? q.choiceIsCorrectStatement : (deriveChoiceTruth(q) ?? q.choiceIsCorrectStatement)
   // subItems가 있으면 O/X·해설을 거기서 직접 읽는다 (라벨 키로 조회)
   const subItemByLabel = new Map((q.subItems ?? []).map((it) => [it.label, it]))
+  // ①~⑤가 "ㄱ,ㄷ,ㄹ" 같은 하위지문 조합인 문제. 선지 자체는 참/거짓 판단 대상이 아니라
+  // 어느 조합이 정답인지만 중요하므로 O/X·메모를 붙이지 않는다.
+  // 판별에 subChoices를 쓰면 안 된다 — 그쪽은 subItems가 없을 때 지문 정규식으로 폴백하므로
+  // 지문에 "가./나." 같은 줄이 있는 일반 문제까지 참이 되어 O/X가 잘못 사라진다
+  const isCombinationChoice = (q.subItems?.length ?? 0) > 0
   // 옛 데이터 폴백: 전용 필드를 우선하고, 없는 항목만 정규식 파싱 결과로 채운다
   const subExplanations = subChoices
     ? { ...parseSubExplanations(q.explanation), ...(q.subChoiceExplanations ?? {}) }
@@ -586,14 +591,6 @@ function StudyBulkPreview({
       document.removeEventListener('touchstart', handleClickOutside)
     }
   }, [highlightPopup])
-
-  function ensureBookmarked() {
-    if (!bookmarked.has(q.id)) {
-      addBookmark(q)
-      setBookmarked((prev) => new Set([...prev, q.id]))
-    }
-    onDone()
-  }
 
   // 터치 기기에서는 touchend 시점에 선택이 확정되지 않고 핸들 조정이 이어진다.
   // 짧은 지연 후 검사하고, selectionchange로 조정까지 따라간다
@@ -716,7 +713,8 @@ function StudyBulkPreview({
     saveHighlights(q.id, next)
     setHighlightPopup(null)
     window.getSelection()?.removeAllRanges()
-    ensureBookmarked()
+    // 오답노트 추가는 "☆ 오답노트에 추가" 버튼으로만 한다.
+    // 형광펜을 칠했다는 이유로 자동으로 켜지 않는다
   }
 
   // 형광펜/선지메모가 모두 사라지면 자동으로 북마크 해제 (수동 추가분도 동일하게 처리)
@@ -738,7 +736,8 @@ function StudyBulkPreview({
     const next = highlights.filter((h) => h.id !== id)
     setHighlights(next)
     saveHighlights(q.id, next)
-    unbookmarkIfEmpty(next)
+    // 형광펜은 더 이상 북마크를 켜지 않으므로 끄지도 않는다.
+    // 여기서 해제하면 버튼으로 직접 추가한 오답노트가 형광펜을 지웠다는 이유로 사라진다
   }
 
   function toggleBookmark() {
@@ -849,29 +848,34 @@ function StudyBulkPreview({
               return (
                 <div key={item.label}>
                   <div className="flex gap-2 items-start text-sm">
-                    {subAnswer !== undefined && (
-                      <span className={`shrink-0 font-bold ${subAnswer ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {subAnswer ? 'O' : 'X'}
-                      </span>
-                    )}
-                    <span className="font-semibold text-primary shrink-0">{item.label}.</span>
+                    {/* 모바일: 라벨·O/X·메모를 세로로 쌓아 본문이 넓은 폭을 쓰게 한다.
+                        데스크톱: sm:contents 로 부모 flex에 그대로 참여시키고
+                        sm:order 로 기존 가로 배치(O/X → 라벨 → 본문 → 메모)를 유지한다 */}
+                    <div className="flex flex-col items-center gap-1 shrink-0 sm:contents">
+                      <span className="font-semibold text-primary shrink-0 sm:order-2">{item.label}.</span>
+                      {subAnswer !== undefined && (
+                        <span className={`shrink-0 font-bold sm:order-1 ${subAnswer ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {subAnswer ? 'O' : 'X'}
+                        </span>
+                      )}
+                      <button
+                        onClick={() => {
+                          if (isOpen) { setChoiceMemoOpen(null); setChoiceMemoText('') }
+                          else { setChoiceMemoOpen(memoKey); setChoiceMemoText(existingMemo ?? '') }
+                        }}
+                        className={`shrink-0 text-xs px-1.5 py-0.5 rounded transition-colors sm:order-4 ${
+                          existingMemo ? 'text-yellow-400 hover:text-yellow-300' : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {existingMemo ? '📌' : '🖊️'}
+                      </button>
+                    </div>
                     <span
                       ref={(el) => { fieldRefs.current[fieldKey] = el }}
-                      className="text-foreground flex-1 select-text"
+                      className="text-foreground flex-1 select-text sm:order-3"
                     >
                       {renderHighlighted(item.text, fieldKey, highlights, removeHighlight)}
                     </span>
-                    <button
-                      onClick={() => {
-                        if (isOpen) { setChoiceMemoOpen(null); setChoiceMemoText('') }
-                        else { setChoiceMemoOpen(memoKey); setChoiceMemoText(existingMemo ?? '') }
-                      }}
-                      className={`shrink-0 text-xs px-1.5 py-0.5 rounded transition-colors ${
-                        existingMemo ? 'text-yellow-400 hover:text-yellow-300' : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      {existingMemo ? '📌' : '🖊️'}
-                    </button>
                   </div>
 
                   {existingMemo && !isOpen && (
@@ -905,10 +909,13 @@ function StudyBulkPreview({
                       {subSummary && (
                         <div className="flex gap-1.5 items-start">
                           <span className="shrink-0 text-[10px] text-primary font-medium mt-0.5">요약</span>
-                          <p className="text-xs font-semibold text-foreground leading-relaxed whitespace-pre-wrap">
+                          <p
+                            ref={(el) => { fieldRefs.current[`subsum_${item.label}`] = el }}
+                            className="text-xs font-semibold text-foreground leading-relaxed whitespace-pre-wrap select-text"
+                          >
                             {(() => {
                               const { text, bolds } = parseBoldMarks(subSummary)
-                              return renderHighlighted(text, `subsum_${item.label}`, [], undefined, bolds)
+                              return renderHighlighted(text, `subsum_${item.label}`, highlights, removeHighlight, bolds)
                             })()}
                           </p>
                         </div>
@@ -980,7 +987,7 @@ function StudyBulkPreview({
                       {c.label}
                     </span>
                     {/* 선지 문장 자체의 참/거짓 (정답 여부와 별개). 옛 데이터에는 없으므로 그때는 표시하지 않는다 */}
-                    {statementIsTrue !== undefined && (
+                    {!isCombinationChoice && statementIsTrue !== undefined && (
                       <span className={`shrink-0 text-xs font-bold sm:order-2 ${statementIsTrue ? 'text-blue-400' : 'text-red-400'}`}>
                         {statementIsTrue ? 'O' : 'X'}
                       </span>
@@ -988,17 +995,21 @@ function StudyBulkPreview({
                     {isCorrect && (
                       <span className="shrink-0 text-emerald-400 text-[10px] sm:text-xs font-medium sm:order-3">✓ 정답</span>
                     )}
-                    <button
-                      onClick={() => {
-                        if (isOpen) { setChoiceMemoOpen(null); setChoiceMemoText('') }
-                        else { setChoiceMemoOpen(memoKey); setChoiceMemoText(existingMemo ?? '') }
-                      }}
-                      className={`shrink-0 text-xs px-1.5 py-0.5 rounded transition-colors sm:order-4 ${
-                        existingMemo ? 'text-yellow-400 hover:text-yellow-300' : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      {existingMemo ? '📌' : '🖊️'}
-                    </button>
+                    {/* 조합형에서는 메모 버튼을 숨기지만, 이미 써둔 메모가 있으면 남긴다.
+                        버튼까지 사라지면 그 메모를 고치거나 지울 방법이 없어진다 */}
+                    {(!isCombinationChoice || existingMemo) && (
+                      <button
+                        onClick={() => {
+                          if (isOpen) { setChoiceMemoOpen(null); setChoiceMemoText('') }
+                          else { setChoiceMemoOpen(memoKey); setChoiceMemoText(existingMemo ?? '') }
+                        }}
+                        className={`shrink-0 text-xs px-1.5 py-0.5 rounded transition-colors sm:order-4 ${
+                          existingMemo ? 'text-yellow-400 hover:text-yellow-300' : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        {existingMemo ? '📌' : '🖊️'}
+                      </button>
+                    )}
                   </div>
                   <span
                     ref={(el) => { fieldRefs.current[fieldKey] = el }}
@@ -1043,10 +1054,13 @@ function StudyBulkPreview({
                     {explanationSummary && (
                       <div className="flex gap-1.5 items-start">
                         <span className="shrink-0 text-[10px] text-primary font-medium mt-0.5">요약</span>
-                        <p className="text-xs font-semibold text-foreground leading-relaxed whitespace-pre-wrap">
+                        <p
+                          ref={(el) => { fieldRefs.current[`choicesum_${c.label}`] = el }}
+                          className="text-xs font-semibold text-foreground leading-relaxed whitespace-pre-wrap select-text"
+                        >
                           {(() => {
                             const { text, bolds } = parseBoldMarks(explanationSummary)
-                            return renderHighlighted(text, `choicesum_${c.label}`, [], undefined, bolds)
+                            return renderHighlighted(text, `choicesum_${c.label}`, highlights, removeHighlight, bolds)
                           })()}
                         </p>
                       </div>
