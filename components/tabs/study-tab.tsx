@@ -853,8 +853,9 @@ function StudyBulkPreview({
                         sm:order 로 기존 가로 배치(O/X → 라벨 → 본문 → 메모)를 유지한다 */}
                     <div className="flex flex-col items-center gap-1 shrink-0 sm:contents">
                       <span className="font-semibold text-primary shrink-0 sm:order-2">{item.label}.</span>
+                      {/* O/X 색상은 일반 선지(①~⑤)와 동일하게 파랑/빨강으로 맞춘다 */}
                       {subAnswer !== undefined && (
-                        <span className={`shrink-0 font-bold sm:order-1 ${subAnswer ? 'text-emerald-400' : 'text-red-400'}`}>
+                        <span className={`shrink-0 font-bold sm:order-1 ${subAnswer ? 'text-blue-400' : 'text-red-400'}`}>
                           {subAnswer ? 'O' : 'X'}
                         </span>
                       )}
@@ -1045,11 +1046,12 @@ function StudyBulkPreview({
                   </div>
                 )}
 
-                {/* 선지 해설은 있으면 항상 보여준다.
-                    이전에는 !subChoices 조건이 걸려 있었는데, subChoices는 subItems가 없을 때
-                    지문 정규식 파싱으로 폴백하므로 지문에 "가./나." 같은 줄이 있으면 참이 되어
-                    일반 ①~⑤ 문제의 선지 해설이 통째로 렌더되지 않았다 (볼드 미표시의 실제 원인) */}
-                {(explanationSummary || explanationBlocks.length > 0) && (
+                {/* 조합형(ㄱㄴㄷ 하위지문) 문제의 ①~⑤는 조합 결과일 뿐이라 선지별 해설이 필요 없다.
+                    해설은 각 하위지문 아래(subItems[].explanation)에 이미 붙는다.
+                    판별에 subChoices를 쓰면 안 된다 — 그쪽은 subItems가 없을 때 지문 정규식으로
+                    폴백하므로 지문에 "가./나." 같은 줄이 있는 일반 문제의 선지 해설까지 사라진다
+                    (예전에 !subChoices 조건이 걸려 있다가 바로 그 이유로 제거된 자리다) */}
+                {!isCombinationChoice && (explanationSummary || explanationBlocks.length > 0) && (
                   <div className="ml-3 mt-1 bg-muted rounded-lg p-2.5 space-y-2">
                     {explanationSummary && (
                       <div className="flex gap-1.5 items-start">
