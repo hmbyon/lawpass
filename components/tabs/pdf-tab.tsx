@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { PDFDocument } from 'pdf-lib'
 import { getApiKey, setApiKey, addQuestions, getSourceFiles, deleteQuestionsBySource, mergeSourceFiles, getQuestions, getWrongNotes } from '@/lib/store'
+import { ParseReview } from '@/components/parse-review'
 import {
   uploadPdfToFileApi, waitForFileActive, extractQuestionsFromPdf, deleteFile,
   savePdfProgress, getPdfProgress, clearPdfProgress, listPdfProgress, isAbortError,
@@ -255,6 +256,17 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   const resumeInputRef = useRef<HTMLInputElement>(null)
   const resumeTargetRef = useRef<string | null>(null)
   const [summary, setSummary] = useState<{ added: number; merged: number } | null>(null)
+  // 이번 실행에서 파싱한 파일들. 검토 패널은 저장된 문제에서 이 파일들 것만 추려 본다
+  // (청크 겹침 중복은 addQuestions가 이미 병합했으므로 여기서 다시 다루지 않는다)
+  const [reviewFiles, setReviewFiles] = useState<string[]>([])
+  const [reviewRefresh, setReviewRefresh] = useState(0)
+  // key로 리마운트시키면 단원을 고칠 때마다 펼쳐둔 목록이 닫힌다. 값만 새로 읽어 넘긴다
+  const reviewQuestions = useMemo(
+    () => (reviewFiles.length === 0 ? [] : getQuestions().filter((q) => q.sourceFile && reviewFiles.includes(q.sourceFile))),
+    // reviewRefresh는 저장소가 바뀌었음을 알리는 신호라 의존성에 필요하다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [reviewFiles, reviewRefresh]
+  )
   const [uriStatus, setUriStatus] = useState<'idle' | 'analyzing' | 'done' | 'error'>('idle')
   const [uriError, setUriError] = useState('')
   const [sourceFiles, setSourceFiles] = useState<{ name: string; count: number }[]>([])
@@ -380,6 +392,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       }))
     )
     setSummary(null)
+    setReviewFiles([])
     setActionError(null)
   }
 
@@ -396,6 +409,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     setFiles([])
     resetBookForm()
     setSummary(null)
+    setReviewFiles([])
     setActionError(null)
   }
 
@@ -579,10 +593,12 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     setSummary(null)
     let totalAdded = 0
     let totalMerged = 0
+    const processedFiles: string[] = []
 
     // 재개 대기 큐(resumeJobs)는 여기서 절대 건드리지 않는다. 각 항목의 "이어서 처리하기"로만 시작된다
     for (let i = 0; i < files.length; i++) {
       const entry = files[i]
+      processedFiles.push(sourceFileNameOf(entry))
       setRunningKey(sourceFileNameOf(entry))
       const result = await processEntry(
         entry,
@@ -599,6 +615,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     setRunningKey(null)
     abortRef.current = null
     setSummary({ added: totalAdded, merged: totalMerged })
+    setReviewFiles(processedFiles)
     setIsRunning(false)
     // 끝까지 처리된 파일만 큐에서 뺀다. 중단·오류 항목은 이어서 처리할 수 있게 남긴다
     setFiles((prev) => {
@@ -648,6 +665,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       added: (prev?.added ?? 0) + result.added,
       merged: (prev?.merged ?? 0) + result.merged,
     }))
+    setReviewFiles((prev) => (prev.includes(sourceFileNameOf(entry)) ? prev : [...prev, sourceFileNameOf(entry)]))
     setIsRunning(false)
     refreshSourceFiles()
     onQuestionsAdded()
@@ -698,6 +716,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       added: (prev?.added ?? 0) + result.added,
       merged: (prev?.merged ?? 0) + result.merged,
     }))
+    setReviewFiles((prev) => (prev.includes(sourceFile) ? prev : [...prev, sourceFile]))
     // 끝까지 처리된 항목은 진행상황 기록이 지워지므로 목록에서도 제거한다
     if (!getPdfProgress(sourceFile)) {
       setResumeJobs((prev) => prev.filter((j) => j.sourceFile !== sourceFile))
@@ -1486,6 +1505,16 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
               <span className="font-bold">{summary.merged}문제</span> 병합
             </p>
           </div>
+        )}
+
+        {reviewFiles.length > 0 && (
+          <ParseReview
+            questions={reviewQuestions}
+            onUnitChanged={() => {
+              setReviewRefresh((v) => v + 1)
+              onQuestionsAdded()
+            }}
+          />
         )}
       </div>
     </div>

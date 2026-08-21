@@ -194,6 +194,16 @@ export function addQuestions(incoming: Question[], sourceFile?: string): { added
   return { added, merged }
 }
 
+// 파싱 검토 화면에서 AI가 잘못 분류한 단원을 사람이 고칠 때 쓴다.
+// 단원만 바꾸고 id는 그대로 두므로 오답노트·형광펜 연결이 끊기지 않는다
+export function updateQuestionUnit(questionId: string, unit: string) {
+  const questions = getQuestions()
+  const target = questions.find((q) => q.id === questionId)
+  if (!target) return
+  target.unit = unit.trim() || undefined
+  saveQuestions(questions)
+}
+
 // 파일별 문제 삭제
 export function deleteQuestionsBySource(sourceFile: string) {
   saveQuestions(getQuestions().filter((q) => q.sourceFile !== sourceFile))
