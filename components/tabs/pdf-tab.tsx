@@ -23,7 +23,10 @@ const CHUNK_OVERLAP = 1
 // 413은 함수가 실행되기도 전에 플랫폼이 반환하므로 서버 코드로는 막을 수 없다.
 // multipart 경계·apiKey 필드 오버헤드를 감안해 여유를 두고 잡는다
 const MAX_UPLOAD_BYTES = 4_000_000 // 업로드 직전 차단선
-const CHUNK_BUDGET_BYTES = 3_200_000 // 청크 페이지 수를 정할 때의 목표치
+// 청크 페이지 수를 정할 때의 목표치. 차단선보다 10% 낮게 두어
+// 측정값과 실제 청크 사이의 오차를 흡수한다.
+// 이보다 더 낮추면 4.5MB 한도에 여유가 있는 PDF까지 불필요하게 잘게 쪼개진다
+const CHUNK_BUDGET_BYTES = 3_600_000
 
 function mb(bytes: number): string {
   return (bytes / 1_000_000).toFixed(1)
@@ -50,15 +53,30 @@ async function buildChunkBytes(sourcePdf: PDFDocument, startPage: number, endPag
 // 스캔본처럼 페이지당 용량이 크면 5페이지 청크가 4.5MB를 넘어 413이 난다.
 // 페이지 수만 세고 바이트를 안 보면 알 수 없으므로, 첫 청크를 실제로 만들어 재고
 // 한도를 넘으면 페이지 수를 줄여 다시 만든다. 업로드 전에 끝나므로 API 호출은 낭비되지 않는다
-async function calibrateChunkSize(sourcePdf: PDFDocument, totalPages: number): Promise<number> {
+async function calibrateChunkSize(
+  sourcePdf: PDFDocument,
+  totalPages: number,
+  sourceBytes: number
+): Promise<number> {
+  // 원본 전체의 페이지당 평균. 문서 중간이 가장 무거운 드문 경우까지 덮는 보조 지표로,
+  // 추가 측정 비용이 없어 그냥 함께 본다.
+  // 실측은 공유 자원(임베드 폰트 등 청크마다 복사되는 고정 비용)을 잡고,
+  // 평균은 페이지 무게가 문서 안에서 고르지 않은 경우를 잡는다
+  const avgPerPage = totalPages > 0 && sourceBytes > 0 ? sourceBytes / totalPages : 0
+
   let size = CHUNK_SIZE
-  for (let attempt = 0; attempt < 4 && size > 1; attempt++) {
+  for (let attempt = 0; attempt < 5 && size > 1; attempt++) {
     // 첫 청크는 겹침 페이지가 없어 이후 청크보다 작다. 그걸로 재면 과소평가하므로
     // 겹침까지 포함한 최악 케이스(size + CHUNK_OVERLAP 페이지)로 잰다
-    const endPage = Math.min(size + CHUNK_OVERLAP, totalPages)
-    const bytes = await buildChunkBytes(sourcePdf, 0, endPage)
-    if (bytes.byteLength <= CHUNK_BUDGET_BYTES) break
-    const fit = Math.floor(size * (CHUNK_BUDGET_BYTES / bytes.byteLength))
+    const pagesInWorstChunk = Math.min(size + CHUNK_OVERLAP, totalPages)
+    const head = (await buildChunkBytes(sourcePdf, 0, pagesInWorstChunk)).byteLength
+    // 앞부분만 재면 "앞은 텍스트, 뒤는 스캔"인 PDF에서 통째로 과소평가한다.
+    // 문서 끝도 같은 크기로 재서 둘 중 무거운 쪽을 기준으로 삼는다 (업로드 전 로컬 연산이라 낭비되는 API 호출이 없다)
+    const tailStart = Math.max(0, totalPages - pagesInWorstChunk)
+    const tail = tailStart > 0 ? (await buildChunkBytes(sourcePdf, tailStart, totalPages)).byteLength : 0
+    const worst = Math.max(head, tail, avgPerPage * pagesInWorstChunk)
+    if (worst <= CHUNK_BUDGET_BYTES) break
+    const fit = Math.floor(size * (CHUNK_BUDGET_BYTES / worst))
     size = Math.max(1, Math.min(size - 1, fit)) // 최소 1페이지는 보장하고, 최소 1페이지씩은 줄인다
   }
   return size
@@ -429,14 +447,15 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     }
 
     try {
-      const sourcePdf = await PDFDocument.load(await entry.file.arrayBuffer())
+      const sourceBuffer = await entry.file.arrayBuffer()
+      const sourcePdf = await PDFDocument.load(sourceBuffer)
       totalPages = sourcePdf.getPageCount()
       // 재개 중이면 중단 시점의 청크 크기를 그대로 쓴다.
       // 여기서 값이 달라지면 저장된 청크 번호가 가리키는 페이지가 통째로 어긋난다
       chunkSize =
         startChunk > 0
           ? (savedProgress?.chunkSize ?? CHUNK_SIZE)
-          : await calibrateChunkSize(sourcePdf, totalPages)
+          : await calibrateChunkSize(sourcePdf, totalPages, sourceBuffer.byteLength)
       chunkTotal = Math.ceil(totalPages / chunkSize)
       update({
         status: 'uploading',
