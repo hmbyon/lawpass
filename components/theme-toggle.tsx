@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react'
 
 type Theme = 'dark' | 'light' | 'eye'
 
+// layout.tsx의 theme-init 스크립트와 반드시 같은 값이어야 한다
+const DEFAULT_THEME: Theme = 'light'
+
 const THEMES: { id: Theme; icon: string; label: string }[] = [
   { id: 'dark', icon: '🌙', label: '다크' },
   { id: 'light', icon: '☀️', label: '라이트' },
@@ -11,11 +14,15 @@ const THEMES: { id: Theme; icon: string; label: string }[] = [
 ]
 
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>('dark')
+  const [theme, setTheme] = useState<Theme>(DEFAULT_THEME)
 
   useEffect(() => {
-    const saved = localStorage.getItem('lawpass_theme') as Theme || 'dark'
-    setTheme(saved)
+    // 저장값이 아니라 '실제로 적용된' 클래스를 읽는다.
+    // layout.tsx의 초기화 스크립트와 여기가 서로 다른 기본값을 쓰면
+    // (예전엔 light vs dark) 라이트모드인데 다크가 체크된 것처럼 보인다
+    const el = document.documentElement
+    const applied = THEMES.find((t) => el.classList.contains(t.id))?.id
+    setTheme(applied ?? (localStorage.getItem('lawpass_theme') as Theme | null) ?? DEFAULT_THEME)
   }, [])
 
   function changeTheme(t: Theme) {

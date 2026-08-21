@@ -169,6 +169,19 @@ html.mode-general {
   * {
     @apply border-border outline-ring/50;
   }
+  /* Tailwind v3의 preflight에는 `button, [role="button"] { cursor: pointer }`가 있었지만
+     v4가 이를 제거해 브라우저 기본값(cursor: default)으로 돌아갔다.
+     그 결과 프로젝트 전체 버튼에서 손가락 커서가 한꺼번에 사라졌으므로 여기서 복원한다 */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  label[for],
+  summary {
+    cursor: pointer;
+  }
+  button:disabled,
+  [role='button'][aria-disabled='true'] {
+    cursor: default;
+  }
   body {
     @apply bg-background text-foreground font-sans;
   }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { getAllFeedback, setFeedbackRead, setFeedbackReply } from '@/lib/firebaseServices/feedback'
+import { getAllFeedback, setFeedbackRead, setFeedbackReply, deleteFeedback } from '@/lib/firebaseServices/feedback'
 import type { Feedback } from '@/lib/types'
 import type { AppMode } from '@/lib/appMode'
 
@@ -27,6 +27,7 @@ export function AdminFeedbackPanel({ autoLoad = false, onWriteFeedback, onUnread
   const [replyText, setReplyText] = useState('')
   const [replySaving, setReplySaving] = useState(false)
   const [modeFilter, setModeFilter] = useState<'all' | AppMode>('all')
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   async function loadFeedback() {
     setLoadingAdmin(true)
@@ -74,6 +75,24 @@ export function AdminFeedbackPanel({ autoLoad = false, onWriteFeedback, onUnread
       setReplySaving(false)
     }
   }
+  async function handleDelete(f: Feedback) {
+    const preview = f.content.trim().slice(0, 30)
+    if (!confirm(`이 피드백을 삭제할까요? 되돌릴 수 없습니다.\n\n"${preview}${f.content.trim().length > 30 ? '…' : ''}"`)) return
+    setDeletingId(f.id)
+    setAdminError('')
+    try {
+      await deleteFeedback(f.id)
+      setFeedbackList((prev) => prev.filter((x) => x.id !== f.id))
+      // 안읽은 피드백이었다면 헤더 배지도 줄어야 한다
+      if (!f.isRead) onUnreadChange?.()
+    } catch (e) {
+      console.error('[admin-feedback] 피드백 삭제 실패', e)
+      setAdminError('피드백을 삭제하지 못했습니다. Firestore 규칙에서 관리자 삭제가 허용돼야 합니다.')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   // 마운트 직후 1회 자동 로드
   useEffect(() => {
     if (!autoLoad) return
@@ -217,13 +236,23 @@ export function AdminFeedbackPanel({ autoLoad = false, onWriteFeedback, onUnread
                     </div>
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => { setReplyOpen(f.id); setReplyText(f.adminReply ?? '') }}
-                    className="text-xs text-primary border border-primary/30 rounded-lg px-2.5 py-1 hover:bg-primary/10 transition-colors"
-                  >
-                    {f.adminReply ? '답글 수정' : '답글 달기'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setReplyOpen(f.id); setReplyText(f.adminReply ?? '') }}
+                      className="text-xs text-primary border border-primary/30 rounded-lg px-2.5 py-1 hover:bg-primary/10 transition-colors"
+                    >
+                      {f.adminReply ? '답글 수정' : '답글 달기'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(f)}
+                      disabled={deletingId === f.id}
+                      className="text-xs text-red-400 border border-red-500/30 rounded-lg px-2.5 py-1 hover:bg-red-500/10 disabled:opacity-40 transition-colors"
+                    >
+                      {deletingId === f.id ? '삭제 중...' : '🗑 삭제'}
+                    </button>
+                  </div>
                 )}
               </div>
             )

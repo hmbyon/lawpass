@@ -153,11 +153,11 @@ export function MemoTab({
         <div className="flex items-center justify-end gap-3 pt-1 border-t border-border">
           <button
             onClick={toggleSelectMode}
-            className={`text-xs transition-colors ${selectMode ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+            className={`text-xs whitespace-nowrap transition-colors ${selectMode ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
           >
             {selectMode ? '선택 취소' : '선택 삭제'}
           </button>
-          <button onClick={delAll} className="text-xs text-red-400 hover:text-red-300 transition-colors">
+          <button onClick={delAll} className="text-xs whitespace-nowrap text-red-400 hover:text-red-300 transition-colors">
             전체 삭제
           </button>
         </div>
@@ -166,14 +166,14 @@ export function MemoTab({
           <div className="flex items-center justify-end gap-3 pt-2 border-t border-border">
             <button
               onClick={toggleAll}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              className="text-xs whitespace-nowrap text-muted-foreground hover:text-foreground transition-colors"
             >
               {checkedIds.size === filtered.length ? '전체 해제' : '전체 선택'}
             </button>
             <button
               onClick={delSelected}
               disabled={checkedIds.size === 0}
-              className="text-xs text-red-400 hover:text-red-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="text-xs whitespace-nowrap text-red-400 hover:text-red-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               선택 삭제 ({checkedIds.size})
             </button>
@@ -413,7 +413,7 @@ function MemoCard({ note, onMemoSaved, isGeneral }: { note: WrongNote; onMemoSav
           <div className="bg-blue-100 border border-blue-400/60 rounded-lg p-3 space-y-1 dark:bg-blue-900/20 dark:border-blue-700/30">
             <div className="flex items-center justify-between">
               <p className="text-xs text-blue-800 font-medium dark:text-blue-400">📝 내 메모</p>
-              <button onClick={() => setMemoOpen(true)} className="text-xs text-muted-foreground hover:text-foreground transition-colors">수정</button>
+              <button onClick={() => setMemoOpen(true)} className="text-xs whitespace-nowrap text-muted-foreground hover:text-foreground transition-colors">수정</button>
             </div>
             <p className="text-xs text-foreground whitespace-pre-wrap">{note.memo}</p>
           </div>
@@ -427,7 +427,7 @@ function MemoCard({ note, onMemoSaved, isGeneral }: { note: WrongNote; onMemoSav
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground font-medium">📝 내 메모</p>
-              <button onClick={() => setMemoOpen(false)} className="text-xs text-muted-foreground hover:text-foreground transition-colors">닫기 ▲</button>
+              <button onClick={() => setMemoOpen(false)} className="text-xs whitespace-nowrap text-muted-foreground hover:text-foreground transition-colors">닫기 ▲</button>
             </div>
             <textarea
               value={memo}

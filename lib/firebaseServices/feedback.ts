@@ -1,5 +1,5 @@
 import { db } from '@/lib/firebase'
-import { collection, addDoc, getDocs, doc, updateDoc, deleteField, query, orderBy, where } from 'firebase/firestore'
+import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, deleteField, query, orderBy, where } from 'firebase/firestore'
 import type { Feedback, FeedbackType } from '@/lib/types'
 import type { AppMode } from '@/lib/appMode'
 
@@ -25,6 +25,11 @@ export async function getAllFeedback(): Promise<Feedback[]> {
   const q = query(collection(db, 'feedback'), orderBy('createdAt', 'desc'))
   const snap = await getDocs(q)
   return snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Feedback, 'id'>) }))
+}
+
+// 피드백 문서를 완전히 삭제한다 (관리자 전용). 되돌릴 수 없으므로 호출부에서 확인을 받는다
+export async function deleteFeedback(feedbackId: string) {
+  await deleteDoc(doc(db, 'feedback', feedbackId))
 }
 
 export async function setFeedbackRead(feedbackId: string, isRead: boolean) {

@@ -347,15 +347,17 @@ export function WrongTab({
         <FilterChips options={RISKS} selected={risks} onChange={setRisks} />
         <div className="flex items-center justify-between">
           <FilterChips options={[...SORT_OPTIONS]} selected={[sort]} onChange={(v) => setSort((v[0] as SortOption) ?? sort)} single />
+          {/* shrink-0: 필터 칩과 폭을 다투다 눌리면 한글이 글자 단위로 쪼개진다("선택 삭"/"제")
+              whitespace-nowrap: 각 버튼 문구를 한 덩어리로 유지 */}
           {notes.length > 0 && (
-            <div className="flex flex-col items-end gap-1">
+            <div className="flex flex-col items-end gap-1 shrink-0">
               <button
                 onClick={toggleSelectMode}
-                className={`text-xs transition-colors ${selectMode ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+                className={`text-xs whitespace-nowrap transition-colors ${selectMode ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
               >
                 {selectMode ? '선택 취소' : '선택 삭제'}
               </button>
-              <button onClick={delAll} className="text-xs text-red-400 hover:text-red-300 transition-colors">
+              <button onClick={delAll} className="text-xs whitespace-nowrap text-red-400 hover:text-red-300 transition-colors">
                 전체 삭제
               </button>
             </div>
@@ -367,14 +369,14 @@ export function WrongTab({
           <div className="flex items-center justify-end gap-3 pt-1 border-t border-border">
             <button
               onClick={toggleAll}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              className="text-xs whitespace-nowrap text-muted-foreground hover:text-foreground transition-colors"
             >
               {checkedIds.size === filtered.length ? '전체 해제' : '전체 선택'}
             </button>
             <button
               onClick={delSelected}
               disabled={checkedIds.size === 0}
-              className="text-xs text-red-400 hover:text-red-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="text-xs whitespace-nowrap text-red-400 hover:text-red-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               선택 삭제 ({checkedIds.size})
             </button>
