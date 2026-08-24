@@ -17,24 +17,15 @@ import type { Subject, ExamType } from '@/lib/types'
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const EXAM_TYPES: ExamType[] = ['변호사시험', '모의고사']
 const CHUNK_SIZE = 5
-// 청크 경계에 걸친 문제가 최소 한 청크에는 온전히 들어가도록 이전 청크의 마지막 페이지를 겹쳐 담는다.
-// 청크 개수(=API 호출 횟수)는 그대로이고 청크당 페이지만 늘어난다
 const CHUNK_OVERLAP = 1
 
-// Vercel 서버리스 함수의 요청 본문 한도는 4.5MB이고 설정으로 늘릴 수 없다.
-// 413은 함수가 실행되기도 전에 플랫폼이 반환하므로 서버 코드로는 막을 수 없다.
-// multipart 경계·apiKey 필드 오버헤드를 감안해 여유를 두고 잡는다
-const MAX_UPLOAD_BYTES = 4_000_000 // 업로드 직전 차단선
-// 청크 페이지 수를 정할 때의 목표치. 차단선보다 10% 낮게 두어
-// 측정값과 실제 청크 사이의 오차를 흡수한다.
-// 이보다 더 낮추면 4.5MB 한도에 여유가 있는 PDF까지 불필요하게 잘게 쪼개진다
+const MAX_UPLOAD_BYTES = 4_000_000
 const CHUNK_BUDGET_BYTES = 3_600_000
 
 function mb(bytes: number): string {
   return (bytes / 1_000_000).toFixed(1)
 }
 
-// 청크가 담을 페이지 범위. 첫 청크는 그대로, 이후 청크는 시작점을 당겨 직전 청크의 마지막 페이지를 포함시킨다
 function chunkRange(chunkIndex: number, chunkSize: number, totalPages: number) {
   return {
     startPage: Math.max(0, chunkIndex * chunkSize - (chunkIndex > 0 ? CHUNK_OVERLAP : 0)),
@@ -52,42 +43,27 @@ async function buildChunkBytes(sourcePdf: PDFDocument, startPage: number, endPag
   return chunkPdf.save()
 }
 
-// 스캔본처럼 페이지당 용량이 크면 5페이지 청크가 4.5MB를 넘어 413이 난다.
-// 페이지 수만 세고 바이트를 안 보면 알 수 없으므로, 첫 청크를 실제로 만들어 재고
-// 한도를 넘으면 페이지 수를 줄여 다시 만든다. 업로드 전에 끝나므로 API 호출은 낭비되지 않는다
 async function calibrateChunkSize(
   sourcePdf: PDFDocument,
   totalPages: number,
   sourceBytes: number
 ): Promise<number> {
-  // 원본 전체의 페이지당 평균. 문서 중간이 가장 무거운 드문 경우까지 덮는 보조 지표로,
-  // 추가 측정 비용이 없어 그냥 함께 본다.
-  // 실측은 공유 자원(임베드 폰트 등 청크마다 복사되는 고정 비용)을 잡고,
-  // 평균은 페이지 무게가 문서 안에서 고르지 않은 경우를 잡는다
   const avgPerPage = totalPages > 0 && sourceBytes > 0 ? sourceBytes / totalPages : 0
 
   let size = CHUNK_SIZE
   for (let attempt = 0; attempt < 5 && size > 1; attempt++) {
-    // 첫 청크는 겹침 페이지가 없어 이후 청크보다 작다. 그걸로 재면 과소평가하므로
-    // 겹침까지 포함한 최악 케이스(size + CHUNK_OVERLAP 페이지)로 잰다
     const pagesInWorstChunk = Math.min(size + CHUNK_OVERLAP, totalPages)
     const head = (await buildChunkBytes(sourcePdf, 0, pagesInWorstChunk)).byteLength
-    // 앞부분만 재면 "앞은 텍스트, 뒤는 스캔"인 PDF에서 통째로 과소평가한다.
-    // 문서 끝도 같은 크기로 재서 둘 중 무거운 쪽을 기준으로 삼는다 (업로드 전 로컬 연산이라 낭비되는 API 호출이 없다)
     const tailStart = Math.max(0, totalPages - pagesInWorstChunk)
     const tail = tailStart > 0 ? (await buildChunkBytes(sourcePdf, tailStart, totalPages)).byteLength : 0
     const worst = Math.max(head, tail, avgPerPage * pagesInWorstChunk)
     if (worst <= CHUNK_BUDGET_BYTES) break
     const fit = Math.floor(size * (CHUNK_BUDGET_BYTES / worst))
-    size = Math.max(1, Math.min(size - 1, fit)) // 최소 1페이지는 보장하고, 최소 1페이지씩은 줄인다
+    size = Math.max(1, Math.min(size - 1, fit))
   }
   return size
 }
 
-// 결번 재파싱에서 "몇 페이지를 다시 볼지" 초기값을 정한다.
-// 문제 번호와 페이지는 1:1이 아니므로 정확히는 알 수 없다. 같은 회차의 문제들이 페이지에
-// 고르게 실려 있다고 보고, 빠진 번호 앞에 실제로 몇 문제가 있었는지의 비율로 위치를 잡은 뒤
-// 여유를 붙인다. 어디까지나 초기값이고 사용자가 화면에서 고칠 수 있다
 export function estimatePageRange(
   nos: number[],
   missing: number[],
@@ -95,12 +71,9 @@ export function estimatePageRange(
 ): { from: number; to: number } {
   if (totalPages <= 0) return { from: 1, to: 1 }
   if (nos.length === 0 || missing.length === 0) return { from: 1, to: totalPages }
-  // 분모는 확인된 번호가 아니라 "원래 있었어야 할 번호 수"다. 확인된 것만으로 나누면
-  // 마지막 결번의 비율이 1.0이 되어 문서 끝으로 밀리고, 정작 그 문제가 실린 페이지를 놓친다
   const totalQuestions = nos.length + missing.length
   const ratioBefore = (n: number) =>
     (nos.filter((x) => x < n).length + missing.filter((x) => x < n).length) / totalQuestions
-  // 여유는 최소 2페이지. 문서가 길면 비율로 늘린다 (긴 문서일수록 추정 오차도 커진다)
   const margin = Math.max(2, Math.ceil(totalPages * 0.05))
   const first = Math.min(...missing)
   const last = Math.max(...missing)
@@ -109,10 +82,9 @@ export function estimatePageRange(
   return { from, to: Math.max(from, to) }
 }
 
-// 결번 구간 재파싱의 화면 상태
 interface ReparseState {
   req: ReparseRequest
-  file: File | null // null이면 원본을 다시 골라야 한다
+  file: File | null
   pageCount: number
   fromPage: number
   toPage: number
@@ -123,7 +95,6 @@ interface ReparseState {
   merged: number
 }
 
-// 파일 카드/재개 항목이 공통으로 쓰는 표시 상태
 interface JobView {
   progress: number
   status: 'pending' | 'uploading' | 'analyzing' | 'done' | 'error' | 'paused' | 'resumable'
@@ -132,40 +103,33 @@ interface JobView {
   pageCount?: number
   chunkIndex?: number
   chunkTotal?: number
-  chunkSize?: number // 자동 조정된 청크 페이지 수 (기본값보다 작아졌을 때만 안내한다)
+  chunkSize?: number
   resumable?: boolean
 }
 
-// 새로 업로드해서 처리를 기다리는 파일
 interface FileState extends JobView {
   file: File
   displayName: string
 }
 
-// 이전에 중단돼 진행상황이 남아 있는 파일. 신규 업로드 큐와 완전히 분리해서 관리한다
 interface ResumeJob {
   sourceFile: string
   saved: PdfParseProgress
-  file: File | null // IndexedDB 복원 실패 시 null → "파일 다시 선택" 필요
+  file: File | null
   view: JobView
 }
 
 type UploadMode = 'file' | 'uri'
 
-// 파싱에 쓰이는 선택 메타데이터. 폼 상태를 클로저로 읽지 않고 명시적으로 넘긴다
-// (재개 항목은 중단 시점의 값으로 처리해야 하므로 둘이 다를 수 있다)
 interface ParseMeta {
   subjects: Subject[]
   examTypes: ExamType[]
 }
 
-// 문제집 이름은 진행상황/PDF 캐시의 공통 키다
 function sourceFileNameOf(f: { file: File; displayName: string }) {
   return f.displayName.trim() || f.file.name.replace(/\.pdf$/i, '')
 }
 
-// 저장된 진행상황으로 "재개 대기" 표시 상태를 만든다.
-// 이번 세션에서 중단 버튼을 누른 것과 구분하려고 'paused'가 아닌 'resumable'을 쓴다
 function resumeJobView(progress: PdfParseProgress): JobView {
   return {
     progress: (Math.max(0, progress.chunkIndex + 1) / Math.max(1, progress.chunkTotal)) * 100,
@@ -187,7 +151,6 @@ interface ProgressRow {
   solved: number
 }
 
-// 과목별 진도표 계산: 최소 한 번 풀어본(정답/오답 기록이 있는) 문제 id 기준
 function computeProgress(): Record<string, ProgressRow[]> {
   const questions = getQuestions()
   const wrongNotes = getWrongNotes()
@@ -222,7 +185,6 @@ function computeProgress(): Record<string, ProgressRow[]> {
   return bySubject
 }
 
-// 과목 내 rows를 연도별로 묶고 연도 내림차순 정렬
 function groupRowsByYear(rows: ProgressRow[]) {
   const map = new Map<number, ProgressRow[]>()
   for (const r of rows) {
@@ -240,7 +202,6 @@ function groupRowsByYear(rows: ProgressRow[]) {
     .sort((a, b) => b.year - a.year)
 }
 
-// 과목 내 rows를 단원별로 묶고 단원명 오름차순 정렬
 function groupRowsByUnit(rows: ProgressRow[]) {
   const map = new Map<string, ProgressRow[]>()
   for (const r of rows) {
@@ -275,8 +236,6 @@ export function PdfTab({
   syncedAt = 0,
 }: {
   onQuestionsAdded: () => void
-  // 상위에서 클라우드 동기화가 끝난 시각. 예전에는 이 값을 key로 써서 탭을 통째로
-  // 리마운트했는데, 그러면 파싱 큐와 검토 패널까지 같이 날아갔다 (동기화가 느리면 파싱 도중에도)
   syncedAt?: number
 }) {
   const [appMode] = useState(() => getAppMode())
@@ -288,32 +247,26 @@ export function PdfTab({
   const [uploadMode, setUploadMode] = useState<UploadMode>('file')
   const [files, setFiles] = useState<FileState[]>([])
   const [fileUri, setFileUri] = useState('')
-  
-  // 💡 기본값 빈 배열([])로 수정
+
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [generalSubjectText, setGeneralSubjectText] = useState('')
   const [examTypes, setExamTypes] = useState<ExamType[]>(isGeneral ? ['모의고사'] : [])
 
   const [isRunning, setIsRunning] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
-  // 이전에 중단된 파일들 (신규 업로드 큐와 완전히 분리)
   const [resumeJobs, setResumeJobs] = useState<ResumeJob[]>([])
-  const [runningKey, setRunningKey] = useState<string | null>(null) // 현재 처리 중인 항목의 sourceFile
-  const [hydrated, setHydrated] = useState(false) // IndexedDB 복원 완료 여부 (완료 전엔 대기 목록을 그리지 않는다)
+  const [runningKey, setRunningKey] = useState<string | null>(null)
+  const [hydrated, setHydrated] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const resumeInputRef = useRef<HTMLInputElement>(null)
   const resumeTargetRef = useRef<string | null>(null)
   const [summary, setSummary] = useState<{ added: number; merged: number } | null>(null)
-  // 이번 실행에서 파싱한 파일들. 검토 패널은 저장된 문제에서 이 파일들 것만 추려 본다
-  // (청크 겹침 중복은 addQuestions가 이미 병합했으므로 여기서 다시 다루지 않는다)
   const [reparse, setReparse] = useState<ReparseState | null>(null)
   const reparseInputRef = useRef<HTMLInputElement>(null)
   const reparsePanelRef = useRef<HTMLDivElement>(null)
   const [reviewFiles, setReviewFiles] = useState<string[]>([])
   const [reviewRefresh, setReviewRefresh] = useState(0)
-  // 검토 대상 파일을 지정하고 저장소를 다시 읽게 한다.
-  // 재개는 같은 파일을 다시 처리하므로 목록이 그대로다. 그때 setReviewFiles가 같은 배열을
-  // 돌려주면 아래 useMemo가 재계산되지 않아 중단 전 스냅샷이 그대로 남는다 — 그래서 신호를 따로 올린다
+
   function showReview(names: string[], replace = false) {
     setReviewFiles((prev) => {
       if (replace) return names
@@ -323,10 +276,9 @@ export function PdfTab({
     })
     setReviewRefresh((v) => v + 1)
   }
-  // key로 리마운트시키면 단원을 고칠 때마다 펼쳐둔 목록이 닫힌다. 값만 새로 읽어 넘긴다
+
   const reviewQuestions = useMemo(
     () => (reviewFiles.length === 0 ? [] : getQuestions().filter((q) => q.sourceFile && reviewFiles.includes(q.sourceFile))),
-    // reviewRefresh는 저장소가 바뀌었음을 알리는 신호라 의존성에 필요하다
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [reviewFiles, reviewRefresh]
   )
@@ -344,11 +296,6 @@ export function PdfTab({
     setSourceFiles(getSourceFiles())
     setProgress(computeProgress())
 
-    // 보관된 PDF 원본이 있으면 파일 재선택 없이 카드로 되살린다.
-    // 새로고침만으로 API를 소모하지 않도록 파싱 자체는 자동 시작하지 않는다.
-    //
-    // 대기 목록(pendingJobs)을 먼저 그린 뒤 복원 결과가 늦게 도착하면 섹션이 줄어들며
-    // 버튼이 밀려서 첫 클릭이 씹힌다. 그래서 복원이 끝난 뒤 한 번에 반영한다.
     let cancelled = false
     ;(async () => {
       const jobs = listPdfProgress()
@@ -359,9 +306,7 @@ export function PdfTab({
       }
       if (cancelled) return
       setResumeJobs(restored)
-      // 중단 시점의 과목/시험 구분을 폼에도 되살린다.
-      // 각 재개 항목은 자기 저장값으로 처리되므로(resolveMeta) 이건 화면 표시용이다.
-      // 항목마다 과목이 다르면 아무거나 하나를 골라 보여주는 게 오히려 오해를 부르므로 그때는 비워 둔다
+
       const metas = jobs
         .map((j) => j.progress)
         .filter((pg) => pg.subjects?.length || pg.examTypes?.length)
@@ -400,14 +345,10 @@ export function PdfTab({
     if (reparseOpen) reparsePanelRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }, [reparseOpen])
 
-  // 클라우드에서 문제를 다시 받아오면 통계와 검토 값도 다시 읽는다.
-  // 예전에는 상위가 key={syncedAt}로 이 탭을 통째로 리마운트해 처리했는데,
-  // 그러면 업로드 큐·재개 목록·검토 패널이 전부 초기화됐다 (동기화가 느리면 파싱 도중에도)
   useEffect(() => {
     if (syncedAt === 0) return
     refreshSourceFiles()
     setReviewRefresh((v) => v + 1)
-    // refreshSourceFiles는 렌더마다 새로 만들어지는 함수라 의존성에 넣으면 매 렌더 실행된다
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncedAt])
 
@@ -461,7 +402,6 @@ export function PdfTab({
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(e.target.files ?? []).filter((f) => f.type === 'application/pdf')
-    // 재개 대기 큐(resumeJobs)와는 완전히 분리된 배열이라 새 선택이 기존 재개 항목에 영향을 주지 않는다
     setFiles(
       selected.map((f) => ({
         file: f,
@@ -471,20 +411,15 @@ export function PdfTab({
       }))
     )
     setSummary(null)
-    // 검토 패널은 지우지 않는다. 방금 끝낸 파싱 결과를 보면서 다음 파일을 고르는 흐름이 정상이고,
-    // 새 파싱이 시작되면 showReview(_, true)가 대상을 갈아끼운다
     setActionError(null)
   }
 
-  // 다음 문제집을 위해 문제집 정보 선택을 초기 상태로 되돌린다.
-  // 재개 대기 항목은 각자 저장된 과목으로 처리되므로(resolveMeta) 여기서 비워도 영향이 없다
   function resetBookForm() {
     setSubjects([])
     setGeneralSubjectText('')
     setExamTypes(isGeneral ? ['모의고사'] : [])
   }
 
-  // 큐를 비우면 문제집 정보도 함께 초기화한다 (다음 파일은 새로 고르게)
   function clearQueue() {
     setFiles([])
     resetBookForm()
@@ -501,8 +436,7 @@ export function PdfTab({
     })
   }
 
-  // 신규 업로드 카드와 재개 항목이 공유하는 처리 루틴.
-  // 어느 목록에 속하는지는 update 콜백이 결정하므로 두 큐가 서로 간섭하지 않는다
+  // 💡 [에러 발생 시 1페이지 세분화 루프가 포함된 처리 루틴]
   async function processEntry(
     entry: { file: File; displayName: string },
     startChunk: number,
@@ -511,20 +445,17 @@ export function PdfTab({
     signal?: AbortSignal
   ): Promise<{ added: number; merged: number; aborted: boolean }> {
     const sourceFile = sourceFileNameOf(entry)
-    // startChunk가 0이어도 기록을 읽어야 누적 문제 수/추가 수가 리셋되지 않는다
     const savedProgress = getPdfProgress(sourceFile)
-    // 새로고침 후 파일 재선택 없이 이어서 처리할 수 있도록 원본을 보관 (완료 시 삭제)
     await savePdfFile(sourceFile, entry.file)
     let fileQuestionCount = savedProgress?.fileQuestionCount ?? 0
     let deltaAdded = 0
     let deltaMerged = 0
     let aborted = false
-    let lastCompletedChunk = startChunk - 1 // 이번 실행에서 아직 끝낸 청크 없음
+    let lastCompletedChunk = startChunk - 1
     let chunkTotal = 0
     let totalPages = 0
     let chunkSize = CHUNK_SIZE
 
-    // 새로고침 후에도 재개할 수 있도록 파일명/과목까지 함께 남긴다
     const saveProgress = (chunkIndexDone: number) => {
       savePdfProgress(sourceFile, {
         chunkIndex: chunkIndexDone,
@@ -544,8 +475,6 @@ export function PdfTab({
       const sourceBuffer = await entry.file.arrayBuffer()
       const sourcePdf = await PDFDocument.load(sourceBuffer)
       totalPages = sourcePdf.getPageCount()
-      // 재개 중이면 중단 시점의 청크 크기를 그대로 쓴다.
-      // 여기서 값이 달라지면 저장된 청크 번호가 가리키는 페이지가 통째로 어긋난다
       chunkSize =
         startChunk > 0
           ? (savedProgress?.chunkSize ?? CHUNK_SIZE)
@@ -565,15 +494,10 @@ export function PdfTab({
       for (let chunkIndex = startChunk; chunkIndex < chunkTotal; chunkIndex++) {
         const { startPage, endPage } = chunkRange(chunkIndex, chunkSize, totalPages)
         const chunkBytes = await buildChunkBytes(sourcePdf, startPage, endPage)
-        // 평균으로 고른 청크 크기가 유독 무거운 페이지에서 빗나갈 수 있다.
-        // 413은 서버에서 못 막으므로 보내기 전에 여기서 걸러 원인을 분명히 알린다
+
         if (chunkBytes.byteLength > MAX_UPLOAD_BYTES) {
           throw new Error(
-            `${chunkIndex + 1}번째 청크가 ${mb(chunkBytes.byteLength)}MB로 업로드 한도(4.5MB)를 넘습니다. ` +
-              (chunkSize > 1
-                ? `이 PDF는 페이지당 용량이 커서 청크를 ${chunkSize}페이지보다 더 잘게 나눠야 합니다. ` +
-                  '기록을 삭제하고 다시 시작해주세요.'
-                : '한 페이지만으로도 한도를 넘습니다. PDF를 압축하거나 해상도를 낮춰 다시 올려주세요.')
+            `${chunkIndex + 1}번째 청크가 ${mb(chunkBytes.byteLength)}MB로 업로드 한도(4.5MB)를 넘습니다.`
           )
         }
         const chunkFile = new File(
@@ -595,15 +519,56 @@ export function PdfTab({
             chunkIndex: chunkIndex + 1,
           })
           await waitForFileActive(apiKey, uri)
-          for (const s of meta.subjects) {
-            for (const et of meta.examTypes) {
-              const questions = await extractQuestionsFromPdf(apiKey, uri, s, et, new Date().getFullYear(), signal)
-              const result = addQuestions(questions, sourceFile)
-              deltaAdded += result.added
-              deltaMerged += result.merged
-              fileQuestionCount += questions.length
+
+          // 💡 [핵심 수정] 65536 토큰 초과 / RECITATION / JSON 파싱 오류 감지 시 1페이지 세분화 실행
+          try {
+            for (const s of meta.subjects) {
+              for (const et of meta.examTypes) {
+                const questions = await extractQuestionsFromPdf(apiKey, uri, s, et, new Date().getFullYear(), signal)
+                const result = addQuestions(questions, sourceFile)
+                deltaAdded += result.added
+                deltaMerged += result.merged
+                fileQuestionCount += questions.length
+              }
+            }
+          } catch (extractErr: any) {
+            const errStr = String(extractErr)
+            if (errStr.includes('65536') || errStr.includes('RECITATION') || errStr.includes('JSON')) {
+              console.warn(`[Chunk ${chunkIndex + 1}] 과도한 분량/RECITATION 감지. 1페이지 단위 세분화 재시도를 수행합니다.`)
+
+              for (let p = startPage; p < endPage; p++) {
+                try {
+                  const singleBytes = await buildChunkBytes(sourcePdf, p, p + 1)
+                  const singleFile = new File(
+                    [singleBytes.buffer as ArrayBuffer],
+                    `${entry.file.name.replace(/\.pdf$/i, '')}-p${p + 1}.pdf`,
+                    { type: 'application/pdf' }
+                  )
+                  let singleUri = ''
+                  try {
+                    singleUri = await uploadPdfToFileApi(apiKey, singleFile, undefined, signal)
+                    await waitForFileActive(apiKey, singleUri)
+                    for (const s of meta.subjects) {
+                      for (const et of meta.examTypes) {
+                        const subQ = await extractQuestionsFromPdf(apiKey, singleUri, s, et, new Date().getFullYear(), signal)
+                        const result = addQuestions(subQ, sourceFile)
+                        deltaAdded += result.added
+                        deltaMerged += result.merged
+                        fileQuestionCount += subQ.length
+                      }
+                    }
+                  } finally {
+                    if (singleUri) await deleteFile(apiKey, singleUri).catch(() => {})
+                  }
+                } catch (pErr) {
+                  console.error(`[p.${p + 1}] 세분화 파싱 실패 (해당 페이지만 스킵):`, pErr)
+                }
+              }
+            } else {
+              throw extractErr
             }
           }
+
           update({
             progress: ((chunkIndex + 1) / chunkTotal) * 100,
             chunkIndex: chunkIndex + 1,
@@ -619,9 +584,7 @@ export function PdfTab({
       clearPdfProgress(sourceFile)
       await deletePdfFile(sourceFile)
     } catch (err) {
-      // 사용자가 중단한 경우: 마지막으로 저장된 청크까지는 그대로 두고 재개 가능 상태로 표시
       aborted = isAbortError(err)
-      // 첫 청크 도중에 멈춰도 "대기 중" 기록은 남겨서 새로고침 후 목록에 뜨게 한다
       if (chunkTotal > 0) saveProgress(lastCompletedChunk)
       update({
         status: aborted ? 'paused' : 'error',
@@ -634,12 +597,10 @@ export function PdfTab({
     return { added: deltaAdded, merged: deltaMerged, aborted }
   }
 
-  // 진행 중인 업로드/분석 fetch를 중단. 완료된 청크는 savePdfProgress에 남아 있어 나중에 재개 가능
   function stopAnalysis() {
     abortRef.current?.abort()
   }
 
-  // 저장된 진행상황이 있으면 그 다음 청크부터. 다른 PDF를 같은 이름으로 올린 경우엔 처음부터
   function resolveStartChunk(entry: { file: File; displayName: string }): number {
     const saved = getPdfProgress(sourceFileNameOf(entry))
     if (!saved || saved.chunkIndex < 0) return 0
@@ -647,8 +608,6 @@ export function PdfTab({
     return saved.chunkIndex + 1
   }
 
-  // 재개 항목은 중단 시점에 선택돼 있던 과목/시험 구분으로 처리한다.
-  // 폼의 현재값을 쓰면 대기열을 비웠거나 다른 문제집을 고른 뒤 재개할 때 엉뚱한 과목으로 저장된다
   function resolveMeta(saved: PdfParseProgress | null | undefined): ParseMeta {
     return {
       subjects: saved?.subjects?.length ? (saved.subjects as Subject[]) : activeSubjects,
@@ -656,7 +615,6 @@ export function PdfTab({
     }
   }
 
-  // 실제로 쓰이는 값을 폼에도 반영해 사용자가 무엇으로 처리되는지 볼 수 있게 한다
   function applyMetaToForm(meta: ParseMeta) {
     if (meta.subjects.length) {
       if (isGeneral) setGeneralSubjectText(meta.subjects[0])
@@ -675,7 +633,6 @@ export function PdfTab({
     let totalMerged = 0
     const processedFiles: string[] = []
 
-    // 재개 대기 큐(resumeJobs)는 여기서 절대 건드리지 않는다. 각 항목의 "이어서 처리하기"로만 시작된다
     for (let i = 0; i < files.length; i++) {
       const entry = files[i]
       processedFiles.push(sourceFileNameOf(entry))
@@ -689,7 +646,7 @@ export function PdfTab({
       )
       totalAdded += result.added
       totalMerged += result.merged
-      if (result.aborted) break // 남은 파일은 손대지 않고 대기 상태로 둔다
+      if (result.aborted) break
     }
 
     setRunningKey(null)
@@ -697,7 +654,6 @@ export function PdfTab({
     setSummary({ added: totalAdded, merged: totalMerged })
     showReview(processedFiles, true)
     setIsRunning(false)
-    // 끝까지 처리된 파일만 큐에서 뺀다. 중단·오류 항목은 이어서 처리할 수 있게 남긴다
     setFiles((prev) => {
       const rest = prev.filter((f) => f.status !== 'done')
       if (rest.length === 0) resetBookForm()
@@ -708,8 +664,6 @@ export function PdfTab({
   }
 
   async function handleResumeFile(i: number) {
-    // 어떤 이유로든 아무 일도 안 일어난 것처럼 보이지 않도록 화면에 사유를 남긴다
-    // (alert는 브라우저가 "추가 대화상자 표시 안 함"으로 억제할 수 있어 쓰지 않는다)
     const entry = files[i]
     if (!entry) {
       setActionError('파일 정보를 찾을 수 없습니다. 페이지를 새로고침해주세요.')
@@ -719,10 +673,9 @@ export function PdfTab({
       setActionError('Gemini API 키를 먼저 입력해주세요.')
       return
     }
-    // 저장된 진행상황이 있으면 그때 고른 과목으로 이어간다 (폼을 다시 고를 필요 없음)
     const meta = resolveMeta(getPdfProgress(sourceFileNameOf(entry)))
     if (meta.subjects.length === 0 || meta.examTypes.length === 0) {
-      setActionError('과목과 시험 구분을 먼저 선택해주세요. 선택하지 않으면 문제가 추출되지 않은 채 청크만 소모됩니다.')
+      setActionError('과목과 시험 구분을 먼저 선택해주세요.')
       return
     }
     applyMetaToForm(meta)
@@ -757,7 +710,6 @@ export function PdfTab({
     )
   }
 
-  // 재개 대기 항목 하나만 처리한다. 신규 업로드 큐는 건드리지 않는다
   async function handleResumeJob(sourceFile: string) {
     const job = resumeJobs.find((j) => j.sourceFile === sourceFile)
     if (!job || !job.file) {
@@ -768,10 +720,9 @@ export function PdfTab({
       setActionError('Gemini API 키를 먼저 입력해주세요.')
       return
     }
-    // 중단 시점의 과목/시험 구분으로 이어간다. 폼이 비어 있어도 재개가 막히지 않는다
     const meta = resolveMeta(job.saved)
     if (meta.subjects.length === 0 || meta.examTypes.length === 0) {
-      setActionError('과목과 시험 구분을 먼저 선택해주세요. 선택하지 않으면 문제가 추출되지 않은 채 청크만 소모됩니다.')
+      setActionError('과목과 시험 구분을 먼저 선택해주세요.')
       return
     }
     applyMetaToForm(meta)
@@ -797,7 +748,6 @@ export function PdfTab({
       merged: (prev?.merged ?? 0) + result.merged,
     }))
     showReview([sourceFile])
-    // 끝까지 처리된 항목은 진행상황 기록이 지워지므로 목록에서도 제거한다
     if (!getPdfProgress(sourceFile)) {
       setResumeJobs((prev) => prev.filter((j) => j.sourceFile !== sourceFile))
     }
@@ -805,7 +755,27 @@ export function PdfTab({
     onQuestionsAdded()
   }
 
-  // 새로고침 후 재개: File 객체는 localStorage에 담을 수 없어 같은 PDF를 다시 고르게 한다
+  // 💡 [에러 청크 건너뛰기 로직 구현]
+  function skipCurrentChunk(sourceFile: string) {
+    const saved = getPdfProgress(sourceFile)
+    if (!saved) return
+    const nextChunkIndex = saved.chunkIndex + 1
+    savePdfProgress(sourceFile, { ...saved, chunkIndex: nextChunkIndex })
+
+    setResumeJobs((prev) =>
+      prev.map((j) =>
+        j.sourceFile === sourceFile
+          ? {
+              ...j,
+              saved: { ...j.saved, chunkIndex: nextChunkIndex },
+              view: resumeJobView({ ...j.saved, chunkIndex: nextChunkIndex }),
+            }
+          : j
+      )
+    )
+    setActionError(`[${sourceFile}] 오류 청크를 건너뛰었습니다. '이어서 처리하기'를 눌러주세요.`)
+  }
+
   function requestResumeFromDisk(sourceFile: string) {
     resumeTargetRef.current = sourceFile
     resumeInputRef.current?.click()
@@ -826,34 +796,23 @@ export function PdfTab({
       picked.name !== job.saved.fileName &&
       !confirm(
         `저장된 파일명은 "${job.saved.fileName}"인데 "${picked.name}"을 선택했습니다.\n` +
-        '페이지 구성이 다르면 청크 위치가 어긋나 엉뚱한 부분부터 처리됩니다. 계속할까요?'
+        '계속할까요?'
       )
     ) return
 
-    // 중단 시점의 과목/시험 구분 복원 (없으면 현재 선택값 유지)
     applyMetaToForm(resolveMeta(job.saved))
-
-    // 다음 새로고침 때 다시 고르지 않도록 원본을 캐시에 넣어둔다
     void savePdfFile(sourceFile, picked)
     setResumeJobs((prev) => prev.map((j) => (j.sourceFile === sourceFile ? { ...j, file: picked } : j)))
     setActionError(null)
   }
 
   function discardResumeJob(sourceFile: string) {
-    if (!confirm(`"${sourceFile}"의 이어서 처리 기록을 삭제할까요? 이미 추가된 문제는 그대로 남습니다.`)) return
+    if (!confirm(`"${sourceFile}"의 이어서 처리 기록을 삭제할까요?`)) return
     clearPdfProgress(sourceFile)
     void deletePdfFile(sourceFile)
     setResumeJobs((prev) => prev.filter((j) => j.sourceFile !== sourceFile))
   }
 
-  // ── 결번 구간 재파싱 ────────────────────────────────────────────────────────
-  // 검토 화면이 "N번이 빠진 것 같다"고 알려도 손으로 다시 올리는 것 말고는 할 수 있는 게 없었다.
-  // 여기서 빠진 번호가 있을 법한 페이지 구간만 다시 파싱해 붙인다.
-  //
-  // 진행상황 기록(savePdfProgress)과 원본 캐시(savePdfFile)는 일부러 건드리지 않는다.
-  // 이건 일회성 보충 작업이라, 중단된 파일의 재개 기록을 덮어쓰면 그 파일을 이어서 처리할 수 없게 된다
-
-  // 파일을 확보한 뒤 페이지 수를 읽고 추정 구간을 채운다
   async function prepareReparse(req: ReparseRequest, file: File) {
     try {
       const pdf = await PDFDocument.load(await file.arrayBuffer())
@@ -878,8 +837,6 @@ export function PdfTab({
       req, file: null, pageCount: 0, fromPage: 1, toPage: 1,
       status: 'needFile', error: null, donePages: 0, added: 0, merged: 0,
     })
-    // 중단 상태로 남아 있는 파일이면 캐시에 원본이 있다.
-    // 끝까지 완료된 파일은 완료 직후 캐시가 지워지므로 여기서 null이 온다 → 다시 고르게 한다
     const cached = await loadPdfFile(req.sourceFile)
     if (cached) await prepareReparse(req, cached)
   }
@@ -910,7 +867,6 @@ export function PdfTab({
       const sourceBuffer = await target.file.arrayBuffer()
       const sourcePdf = await PDFDocument.load(sourceBuffer)
       const totalPages = sourcePdf.getPageCount()
-      // 입력값이 어긋나 있어도 문서 밖을 읽지 않도록 여기서 한 번 더 조인다
       const from = Math.max(1, Math.min(target.fromPage, totalPages))
       const to = Math.max(from, Math.min(target.toPage, totalPages))
       const chunkSize = await calibrateChunkSize(sourcePdf, totalPages, sourceBuffer.byteLength)
@@ -920,7 +876,7 @@ export function PdfTab({
         const chunkBytes = await buildChunkBytes(sourcePdf, start, end)
         if (chunkBytes.byteLength > MAX_UPLOAD_BYTES) {
           throw new Error(
-            `${start + 1}~${end}페이지가 ${mb(chunkBytes.byteLength)}MB로 업로드 한도를 넘습니다. 범위를 좁혀주세요.`
+            `${start + 1}~${end}페이지가 ${mb(chunkBytes.byteLength)}MB로 업로드 한도를 넘습니다.`
           )
         }
         const chunkFile = new File(
@@ -940,8 +896,6 @@ export function PdfTab({
             new Date().getFullYear(),
             controller.signal
           )
-          // 이미 있는 문제는 addQuestions가 지문으로 알아보고 병합한다.
-          // 그래서 구간이 넓어 겹쳐도 중복이 생기지 않고, 빠졌던 번호만 새로 추가된다
           const result = addQuestions(questions, target.req.sourceFile)
           added += result.added
           merged += result.merged
@@ -960,7 +914,6 @@ export function PdfTab({
         added,
         merged,
       })
-      // 중단하거나 실패해도 그때까지 추가된 문제는 이미 저장돼 있다. 검토에 반영해준다
       if (added > 0 || merged > 0) {
         showReview([target.req.sourceFile])
         onQuestionsAdded()
@@ -999,7 +952,7 @@ export function PdfTab({
       onQuestionsAdded()
     } catch (err) {
       if (isAbortError(err)) {
-        setUriStatus('idle') // 중단: 같은 URI로 다시 시작할 수 있게 초기 상태로 되돌린다
+        setUriStatus('idle')
       } else {
         setUriError(String(err))
         setUriStatus('error')
@@ -1093,7 +1046,7 @@ export function PdfTab({
           </button>
           {showApiKeyInfo && (
             <div className="mt-2 bg-muted rounded-lg p-3 space-y-1 text-xs text-muted-foreground">
-              <p>PDF 문제집에서 문제를 자동으로 추출·분석하기 위해 Google Gemini API를 사용합니다. 이 작업에는 개인 API 키가 필요합니다.</p>
+              <p>PDF 문제집에서 문제를 자동으로 추출·분석하기 위해 Google Gemini API를 사용합니다.</p>
               <p className="font-medium text-foreground pt-1">발급 방법 (무료)</p>
               <p>
                 1.{' '}
@@ -1110,7 +1063,6 @@ export function PdfTab({
               <p>2. 좌측 메뉴에서 "Get API key" 클릭</p>
               <p>3. "Create API key"로 새 키 발급</p>
               <p>4. 생성된 키를 복사해서 위 입력란에 붙여넣기</p>
-              <p className="pt-1">무료 요금제로도 충분히 사용 가능합니다.</p>
             </div>
           )}
         </div>
@@ -1399,13 +1351,12 @@ export function PdfTab({
           </button>
         </div>
 
-        {/* 재개 대기 큐: 신규 업로드와 완전히 분리된 별도 영역. 각 항목의 버튼으로만 시작된다 */}
+        {/* 재개 대기 큐 */}
         {hydrated && resumeJobs.length > 0 && (
           <div className="space-y-2 border border-orange-500/30 bg-orange-500/5 rounded-xl p-3">
             <p className="text-xs font-medium text-orange-400">⏸ 이어서 처리 대기 중</p>
             <p className="text-xs text-muted-foreground">
-              이전에 중단된 파일입니다. 아래 버튼을 직접 누를 때만 처리되며, 새 파일 업로드나 &quot;분석 시작&quot;에는
-              영향을 받지 않습니다.
+              이전에 중단된 파일입니다. 아래 버튼을 직접 누를 때만 처리됩니다.
             </p>
             {resumeJobs.map((j) => {
               const busy = j.view.status === 'uploading' || j.view.status === 'analyzing'
@@ -1440,15 +1391,8 @@ export function PdfTab({
                       보관된 원본이 없습니다. 같은 PDF를 다시 선택해주세요.
                     </p>
                   )}
-                  {(j.saved.subjects?.length || j.saved.examTypes?.length) && (
-                    <p className="text-xs text-muted-foreground">
-                      중단 시점 선택: {[j.saved.subjects?.join(', '), j.saved.examTypes?.join(', ')]
-                        .filter(Boolean)
-                        .join(' · ')} (그대로 이어서 처리됩니다)
-                    </p>
-                  )}
 
-                  <div className="flex gap-2 items-center">
+                  <div className="flex gap-2 items-center flex-wrap">
                     {j.file ? (
                       <button
                         type="button"
@@ -1468,6 +1412,17 @@ export function PdfTab({
                         파일 다시 선택
                       </button>
                     )}
+
+                    {/* 💡 [청크 건너뛰기 버튼 추가] */}
+                    <button
+                      type="button"
+                      onClick={() => skipCurrentChunk(j.sourceFile)}
+                      disabled={isRunning}
+                      className="text-xs text-yellow-500 border border-yellow-500/30 rounded-lg px-2.5 py-1 hover:bg-yellow-500/10 disabled:opacity-40 transition-colors"
+                    >
+                      이 청크 건너뛰기
+                    </button>
+
                     {isRunning && runningKey === j.sourceFile && (
                       <button
                         type="button"
@@ -1553,13 +1508,11 @@ export function PdfTab({
                     {f.chunkSize !== undefined && f.chunkSize < CHUNK_SIZE && (
                       <p className="text-xs text-muted-foreground">
                         페이지당 용량이 커서 청크를 {f.chunkSize}페이지로 자동 조정했습니다
-                        (기본 {CHUNK_SIZE}페이지)
                       </p>
                     )}
                     {f.status === 'uploading' && f.chunkTotal && (
                       <p className="text-xs text-primary animate-pulse">
                         청크 {f.chunkIndex ?? 1}/{f.chunkTotal} 업로드 중...
-                        {f.pageCount && ` (총 ${f.pageCount}페이지)`}
                       </p>
                     )}
                     {f.status === 'analyzing' && (
@@ -1570,14 +1523,7 @@ export function PdfTab({
                     {(f.status === 'error' || f.status === 'paused' || f.status === 'resumable') && (
                       <div className="space-y-1.5">
                         {f.status === 'paused' && (
-                          <p className="text-xs text-orange-400">
-                            사용자가 중단했습니다. 완료된 청크까지는 저장되어 있습니다.
-                          </p>
-                        )}
-                        {f.status === 'resumable' && (
-                          <p className="text-xs text-orange-400">
-                            이전에 처리하던 진행상황이 남아 있습니다. 아래 버튼으로 이어서 처리하세요.
-                          </p>
+                          <p className="text-xs text-orange-400">사용자가 중단했습니다.</p>
                         )}
                         {f.status === 'error' && (
                           <p className="text-xs text-red-400 break-all">{f.error}</p>
@@ -1587,7 +1533,7 @@ export function PdfTab({
                             type="button"
                             onClick={() => handleResumeFile(i)}
                             disabled={isRunning}
-                            className="text-xs text-primary border border-primary/30 rounded-lg px-3 py-1 hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            className="text-xs text-primary border border-primary/30 rounded-lg px-3 py-1 hover:bg-primary/10 disabled:opacity-40 transition-colors"
                           >
                             {f.chunkIndex ? `${f.chunkIndex}/${f.chunkTotal} 청크부터 이어서 처리하기` : '이어서 처리하기'}
                           </button>
@@ -1615,7 +1561,6 @@ export function PdfTab({
               <p className="text-xs text-red-400">{actionError}</p>
             )}
 
-            {/* 💡 subjects.length === 0 대신 activeSubjects.length === 0 적용 */}
             <div className="flex gap-2">
               <button
                 type="button"
@@ -1656,14 +1601,6 @@ export function PdfTab({
               <span className="text-blue-400 text-lg shrink-0">→</span>
             </a>
 
-            <div className="bg-muted rounded-lg p-3 space-y-1 text-xs text-muted-foreground">
-              <p className="font-medium text-foreground">AI Studio에서 File URI 얻는 법</p>
-              <p>1. aistudio.google.com 접속</p>
-              <p>2. 우측 상단 파일 아이콘 클릭 → PDF 업로드</p>
-              <p>3. 업로드된 파일 클릭 → "Copy file URI" 선택</p>
-              <p>4. 아래 입력란에 붙여넣기</p>
-            </div>
-
             <div className="space-y-2">
               <label className="text-xs text-muted-foreground">File URI</label>
               <input
@@ -1683,7 +1620,6 @@ export function PdfTab({
               <p className="text-xs text-red-400 break-all">{uriError}</p>
             )}
 
-            {/* 💡 subjects.length === 0 대신 activeSubjects.length === 0 적용 */}
             <div className="flex gap-2">
               <button
                 onClick={startUriAnalysis}
@@ -1737,7 +1673,6 @@ export function PdfTab({
             {reparse.status === 'needFile' ? (
               <div className="space-y-1.5">
                 <p className="text-xs text-muted-foreground">
-                  파싱이 끝난 PDF 원본은 저장 공간을 위해 지워집니다.{' '}
                   <span className="text-foreground">{reparse.req.sourceFile}</span>의 원본을 다시 선택해주세요.
                 </p>
                 <button
@@ -1776,10 +1711,6 @@ export function PdfTab({
                   />
                   <span className="text-muted-foreground">쪽</span>
                 </div>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  번호와 페이지는 1:1이 아니라 위 범위는 추정값입니다. 빠진 번호가 안 잡히면 넓혀주세요 —
-                  이미 있는 문제는 지문으로 알아보고 병합하므로 넓게 잡아도 중복되지 않습니다.
-                </p>
                 {reparse.status === 'running' && (
                   <p className="text-xs text-muted-foreground tabular-nums">
                     분석 중… {reparse.donePages}/{Math.max(1, reparse.toPage - reparse.fromPage + 1)}페이지 ·{' '}
@@ -1789,7 +1720,6 @@ export function PdfTab({
                 {reparse.status === 'done' && (
                   <p className="text-xs text-emerald-600 dark:text-emerald-400">
                     완료: {reparse.added}문제 추가, {reparse.merged}문제 병합
-                    {reparse.added === 0 && ' — 이 범위에서는 새 문제를 찾지 못했습니다. 범위를 넓혀 다시 시도해보세요'}
                   </p>
                 )}
                 <div className="flex gap-2">
