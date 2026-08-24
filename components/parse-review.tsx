@@ -4,19 +4,32 @@ import { useState } from 'react'
 import type { Question } from '@/lib/types'
 import { updateQuestionUnit, updateQuestionYear } from '@/lib/store'
 import {
-  buildParseReview, isMinorUnit, unitOptionsFor, yearOptions, formatMissing, UNKNOWN_YEAR,
+  buildParseReview, isMinorUnit, unitOptionsFor, yearOptions, formatMissing, allMissing, UNKNOWN_YEAR,
   type GroupCheck, type UnitCount, type YearCount,
 } from '@/lib/parseReview'
+
+// 결번이 난 회차를 다시 파싱해달라는 요청. 실제 재파싱은 원본 PDF와 API 키를 쥔 상위(pdf-tab)가 한다
+export interface ReparseRequest {
+  sourceFile: string
+  subject: string
+  examType: string
+  year: number
+  nos: number[] // 이미 확인된 번호 (페이지 추정용)
+  missing: number[]
+}
 
 interface Props {
   questions: Question[]      // 검토 대상 (이번에 파싱한 파일들의 문제)
   onUnitChanged: () => void  // 단원을 고쳤을 때 상위에서 목록을 다시 읽도록
+  // 없으면 재파싱 버튼을 숨긴다 (원본을 다룰 수 없는 화면에서도 이 패널을 쓸 수 있게)
+  onReparse?: (req: ReparseRequest) => void
+  reparseDisabled?: boolean
 }
 
 // 파싱 직후 결과를 점검하는 패널.
 // A: 문제번호가 연속인지 (빠진 번호 = 파싱 누락 의심)
 // B: 단원 분포 (엉뚱한 단원이 섞였는지 육안 확인 + 수정)
-export function ParseReview({ questions, onUnitChanged }: Props) {
+export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabled }: Props) {
   const [openUnit, setOpenUnit] = useState<string | null>(null)
   const [openYear, setOpenYear] = useState<number | null>(null)
   // 수정 직후에도 화면이 바로 갱신되도록 로컬 변경분을 따로 들고 있는다
@@ -76,7 +89,14 @@ export function ParseReview({ questions, onUnitChanged }: Props) {
         {review.groups.length === 0 ? (
           <p className="text-xs text-muted-foreground">번호를 확인할 수 있는 문제가 없습니다</p>
         ) : (
-          review.groups.map((g) => <GroupRow key={`${g.subject}-${g.examType}-${g.year}`} g={g} />)
+          review.groups.map((g) => (
+            <GroupRow
+              key={`${g.subject}-${g.examType}-${g.year}`}
+              g={g}
+              onReparse={onReparse}
+              reparseDisabled={reparseDisabled}
+            />
+          ))
         )}
       </div>
 
@@ -232,7 +252,15 @@ function UnitQuestionList({
 // 한 회차의 번호 연속성. 이상이 없을 때도 "무엇을 근거로 괜찮다고 하는지"를 함께 적는다.
 // 예전에는 "✓ 빠짐없이 이어집니다"만 띄웠는데, 뒷부분이 통째로 잘린 경우도 남은 번호끼리는
 // 연속이라 그 문구가 그대로 떴다. 실제 범위를 보여주면 사용자가 눈으로 잡을 수 있다
-function GroupRow({ g }: { g: GroupCheck }) {
+function GroupRow({
+  g,
+  onReparse,
+  reparseDisabled,
+}: {
+  g: GroupCheck
+  onReparse?: (req: ReparseRequest) => void
+  reparseDisabled?: boolean
+}) {
   const label = `${g.year} ${g.examType} · ${g.subject}`
   if (g.ok) {
     return (
@@ -269,9 +297,28 @@ function GroupRow({ g }: { g: GroupCheck }) {
       )}
       <p className="text-muted-foreground">
         {g.sparse
-          ? '→ 번호를 골라 담은 교재라면 정상입니다. 아니라면 해당 청크를 다시 파싱해보세요'
-          : '→ 해당 페이지가 있는 청크를 다시 파싱해보세요'}
+          ? '→ 번호를 골라 담은 교재라면 정상입니다. 아니라면 해당 구간을 다시 파싱해보세요'
+          : '→ 빠진 번호가 있는 페이지 구간만 다시 파싱할 수 있습니다'}
       </p>
+      {onReparse && g.sourceFiles.length > 0 && (
+        <button
+          type="button"
+          disabled={reparseDisabled}
+          onClick={() =>
+            onReparse({
+              sourceFile: g.sourceFiles[0],
+              subject: g.subject,
+              examType: g.examType,
+              year: g.year,
+              nos: g.nos,
+              missing: allMissing(g),
+            })
+          }
+          className="mt-1 px-2 py-1 border border-primary/40 text-primary rounded text-xs font-medium hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          🔁 이 구간 다시 파싱
+        </button>
+      )}
     </div>
   )
 }

@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { PDFDocument } from 'pdf-lib'
 import { getApiKey, setApiKey, addQuestions, getSourceFiles, deleteQuestionsBySource, mergeSourceFiles, getQuestions, getWrongNotes } from '@/lib/store'
-import { ParseReview } from '@/components/parse-review'
+import { ParseReview, type ReparseRequest } from '@/components/parse-review'
+import { formatMissing } from '@/lib/parseReview'
 import {
   uploadPdfToFileApi, waitForFileActive, extractQuestionsFromPdf, deleteFile,
   savePdfProgress, getPdfProgress, clearPdfProgress, listPdfProgress, isAbortError,
@@ -81,6 +82,45 @@ async function calibrateChunkSize(
     size = Math.max(1, Math.min(size - 1, fit)) // 최소 1페이지는 보장하고, 최소 1페이지씩은 줄인다
   }
   return size
+}
+
+// 결번 재파싱에서 "몇 페이지를 다시 볼지" 초기값을 정한다.
+// 문제 번호와 페이지는 1:1이 아니므로 정확히는 알 수 없다. 같은 회차의 문제들이 페이지에
+// 고르게 실려 있다고 보고, 빠진 번호 앞에 실제로 몇 문제가 있었는지의 비율로 위치를 잡은 뒤
+// 여유를 붙인다. 어디까지나 초기값이고 사용자가 화면에서 고칠 수 있다
+export function estimatePageRange(
+  nos: number[],
+  missing: number[],
+  totalPages: number
+): { from: number; to: number } {
+  if (totalPages <= 0) return { from: 1, to: 1 }
+  if (nos.length === 0 || missing.length === 0) return { from: 1, to: totalPages }
+  // 분모는 확인된 번호가 아니라 "원래 있었어야 할 번호 수"다. 확인된 것만으로 나누면
+  // 마지막 결번의 비율이 1.0이 되어 문서 끝으로 밀리고, 정작 그 문제가 실린 페이지를 놓친다
+  const totalQuestions = nos.length + missing.length
+  const ratioBefore = (n: number) =>
+    (nos.filter((x) => x < n).length + missing.filter((x) => x < n).length) / totalQuestions
+  // 여유는 최소 2페이지. 문서가 길면 비율로 늘린다 (긴 문서일수록 추정 오차도 커진다)
+  const margin = Math.max(2, Math.ceil(totalPages * 0.05))
+  const first = Math.min(...missing)
+  const last = Math.max(...missing)
+  const from = Math.max(1, Math.floor(ratioBefore(first) * totalPages) + 1 - margin)
+  const to = Math.min(totalPages, Math.ceil(ratioBefore(last) * totalPages) + 1 + margin)
+  return { from, to: Math.max(from, to) }
+}
+
+// 결번 구간 재파싱의 화면 상태
+interface ReparseState {
+  req: ReparseRequest
+  file: File | null // null이면 원본을 다시 골라야 한다
+  pageCount: number
+  fromPage: number
+  toPage: number
+  status: 'ready' | 'needFile' | 'running' | 'done' | 'error'
+  error: string | null
+  donePages: number
+  added: number
+  merged: number
 }
 
 // 파일 카드/재개 항목이 공통으로 쓰는 표시 상태
@@ -266,6 +306,9 @@ export function PdfTab({
   const [summary, setSummary] = useState<{ added: number; merged: number } | null>(null)
   // 이번 실행에서 파싱한 파일들. 검토 패널은 저장된 문제에서 이 파일들 것만 추려 본다
   // (청크 겹침 중복은 addQuestions가 이미 병합했으므로 여기서 다시 다루지 않는다)
+  const [reparse, setReparse] = useState<ReparseState | null>(null)
+  const reparseInputRef = useRef<HTMLInputElement>(null)
+  const reparsePanelRef = useRef<HTMLDivElement>(null)
   const [reviewFiles, setReviewFiles] = useState<string[]>([])
   const [reviewRefresh, setReviewRefresh] = useState(0)
   // 검토 대상 파일을 지정하고 저장소를 다시 읽게 한다.
@@ -351,6 +394,11 @@ export function PdfTab({
     setSourceFiles(getSourceFiles())
     setProgress(computeProgress())
   }
+
+  const reparseOpen = reparse !== null
+  useEffect(() => {
+    if (reparseOpen) reparsePanelRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [reparseOpen])
 
   // 클라우드에서 문제를 다시 받아오면 통계와 검토 값도 다시 읽는다.
   // 예전에는 상위가 key={syncedAt}로 이 탭을 통째로 리마운트해 처리했는데,
@@ -796,6 +844,132 @@ export function PdfTab({
     clearPdfProgress(sourceFile)
     void deletePdfFile(sourceFile)
     setResumeJobs((prev) => prev.filter((j) => j.sourceFile !== sourceFile))
+  }
+
+  // ── 결번 구간 재파싱 ────────────────────────────────────────────────────────
+  // 검토 화면이 "N번이 빠진 것 같다"고 알려도 손으로 다시 올리는 것 말고는 할 수 있는 게 없었다.
+  // 여기서 빠진 번호가 있을 법한 페이지 구간만 다시 파싱해 붙인다.
+  //
+  // 진행상황 기록(savePdfProgress)과 원본 캐시(savePdfFile)는 일부러 건드리지 않는다.
+  // 이건 일회성 보충 작업이라, 중단된 파일의 재개 기록을 덮어쓰면 그 파일을 이어서 처리할 수 없게 된다
+
+  // 파일을 확보한 뒤 페이지 수를 읽고 추정 구간을 채운다
+  async function prepareReparse(req: ReparseRequest, file: File) {
+    try {
+      const pdf = await PDFDocument.load(await file.arrayBuffer())
+      const pageCount = pdf.getPageCount()
+      const { from, to } = estimatePageRange(req.nos, req.missing, pageCount)
+      setReparse({
+        req, file, pageCount, fromPage: from, toPage: to,
+        status: 'ready', error: null, donePages: 0, added: 0, merged: 0,
+      })
+    } catch (err) {
+      setReparse({
+        req, file: null, pageCount: 0, fromPage: 1, toPage: 1,
+        status: 'error', error: `PDF를 읽지 못했습니다: ${String(err)}`,
+        donePages: 0, added: 0, merged: 0,
+      })
+    }
+  }
+
+  async function openReparse(req: ReparseRequest) {
+    setActionError(null)
+    setReparse({
+      req, file: null, pageCount: 0, fromPage: 1, toPage: 1,
+      status: 'needFile', error: null, donePages: 0, added: 0, merged: 0,
+    })
+    // 중단 상태로 남아 있는 파일이면 캐시에 원본이 있다.
+    // 끝까지 완료된 파일은 완료 직후 캐시가 지워지므로 여기서 null이 온다 → 다시 고르게 한다
+    const cached = await loadPdfFile(req.sourceFile)
+    if (cached) await prepareReparse(req, cached)
+  }
+
+  async function handleReparseFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = e.target.files?.[0]
+    e.target.value = ''
+    if (!picked || !reparse) return
+    await prepareReparse(reparse.req, picked)
+  }
+
+  function updateReparse(patch: Partial<ReparseState>) {
+    setReparse((prev) => (prev ? { ...prev, ...patch } : prev))
+  }
+
+  async function runReparse() {
+    const target = reparse
+    if (!target?.file || !apiKey || target.status === 'running') return
+
+    const controller = new AbortController()
+    abortRef.current = controller
+    setIsRunning(true)
+    updateReparse({ status: 'running', error: null, donePages: 0, added: 0, merged: 0 })
+
+    let added = 0
+    let merged = 0
+    try {
+      const sourceBuffer = await target.file.arrayBuffer()
+      const sourcePdf = await PDFDocument.load(sourceBuffer)
+      const totalPages = sourcePdf.getPageCount()
+      // 입력값이 어긋나 있어도 문서 밖을 읽지 않도록 여기서 한 번 더 조인다
+      const from = Math.max(1, Math.min(target.fromPage, totalPages))
+      const to = Math.max(from, Math.min(target.toPage, totalPages))
+      const chunkSize = await calibrateChunkSize(sourcePdf, totalPages, sourceBuffer.byteLength)
+
+      for (let start = from - 1; start < to; start += chunkSize) {
+        const end = Math.min(start + chunkSize, to)
+        const chunkBytes = await buildChunkBytes(sourcePdf, start, end)
+        if (chunkBytes.byteLength > MAX_UPLOAD_BYTES) {
+          throw new Error(
+            `${start + 1}~${end}페이지가 ${mb(chunkBytes.byteLength)}MB로 업로드 한도를 넘습니다. 범위를 좁혀주세요.`
+          )
+        }
+        const chunkFile = new File(
+          [chunkBytes.buffer as ArrayBuffer],
+          `${target.req.sourceFile}-재파싱-${start + 1}-${end}.pdf`,
+          { type: 'application/pdf' }
+        )
+        let uri = ''
+        try {
+          uri = await uploadPdfToFileApi(apiKey, chunkFile, undefined, controller.signal)
+          await waitForFileActive(apiKey, uri)
+          const questions = await extractQuestionsFromPdf(
+            apiKey,
+            uri,
+            target.req.subject as Subject,
+            target.req.examType as ExamType,
+            new Date().getFullYear(),
+            controller.signal
+          )
+          // 이미 있는 문제는 addQuestions가 지문으로 알아보고 병합한다.
+          // 그래서 구간이 넓어 겹쳐도 중복이 생기지 않고, 빠졌던 번호만 새로 추가된다
+          const result = addQuestions(questions, target.req.sourceFile)
+          added += result.added
+          merged += result.merged
+        } finally {
+          if (uri) await deleteFile(apiKey, uri).catch(() => {})
+        }
+        updateReparse({ donePages: end - (from - 1), added, merged })
+      }
+      updateReparse({ status: 'done', donePages: to - (from - 1), added, merged })
+      showReview([target.req.sourceFile])
+      onQuestionsAdded()
+    } catch (err) {
+      updateReparse({
+        status: isAbortError(err) ? 'ready' : 'error',
+        error: isAbortError(err) ? null : String(err),
+        added,
+        merged,
+      })
+      // 중단하거나 실패해도 그때까지 추가된 문제는 이미 저장돼 있다. 검토에 반영해준다
+      if (added > 0 || merged > 0) {
+        showReview([target.req.sourceFile])
+        onQuestionsAdded()
+      }
+    } finally {
+      abortRef.current = null
+      setIsRunning(false)
+      refreshSourceFiles()
+    }
   }
 
   async function startUriAnalysis() {
@@ -1540,6 +1714,119 @@ export function PdfTab({
           </div>
         )}
 
+        {reparse && (
+          <div ref={reparsePanelRef} className="border border-primary/40 rounded-lg p-3 space-y-2">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">결번 구간 다시 파싱</p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {reparse.req.year} {reparse.req.examType} · {reparse.req.subject} · 빠진 번호{' '}
+                  {formatMissing(reparse.req.missing)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReparse(null)}
+                disabled={reparse.status === 'running'}
+                className="shrink-0 text-xs text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
+              >
+                닫기
+              </button>
+            </div>
+
+            {reparse.status === 'needFile' ? (
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">
+                  파싱이 끝난 PDF 원본은 저장 공간을 위해 지워집니다.{' '}
+                  <span className="text-foreground">{reparse.req.sourceFile}</span>의 원본을 다시 선택해주세요.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => reparseInputRef.current?.click()}
+                  className="px-3 py-1.5 border border-border rounded text-xs font-medium hover:bg-muted transition-colors"
+                >
+                  📄 원본 PDF 선택
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground truncate">
+                  {reparse.file?.name} · 총 {reparse.pageCount}페이지
+                </p>
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="text-muted-foreground">페이지</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={reparse.pageCount}
+                    value={reparse.fromPage}
+                    disabled={reparse.status === 'running'}
+                    onChange={(e) => updateReparse({ fromPage: Number(e.target.value) || 1 })}
+                    className="w-16 px-2 py-1 bg-input border border-border rounded text-center tabular-nums disabled:opacity-40"
+                  />
+                  <span className="text-muted-foreground">~</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={reparse.pageCount}
+                    value={reparse.toPage}
+                    disabled={reparse.status === 'running'}
+                    onChange={(e) => updateReparse({ toPage: Number(e.target.value) || 1 })}
+                    className="w-16 px-2 py-1 bg-input border border-border rounded text-center tabular-nums disabled:opacity-40"
+                  />
+                  <span className="text-muted-foreground">쪽</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  번호와 페이지는 1:1이 아니라 위 범위는 추정값입니다. 빠진 번호가 안 잡히면 넓혀주세요 —
+                  이미 있는 문제는 지문으로 알아보고 병합하므로 넓게 잡아도 중복되지 않습니다.
+                </p>
+                {reparse.status === 'running' && (
+                  <p className="text-xs text-muted-foreground tabular-nums">
+                    분석 중… {reparse.donePages}/{Math.max(1, reparse.toPage - reparse.fromPage + 1)}페이지 ·{' '}
+                    {reparse.added}문제 추가, {reparse.merged}문제 병합
+                  </p>
+                )}
+                {reparse.status === 'done' && (
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                    완료: {reparse.added}문제 추가, {reparse.merged}문제 병합
+                    {reparse.added === 0 && ' — 이 범위에서는 새 문제를 찾지 못했습니다. 범위를 넓혀 다시 시도해보세요'}
+                  </p>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={runReparse}
+                    disabled={!apiKey || reparse.status === 'running'}
+                    className="px-3 py-1.5 bg-primary text-primary-foreground rounded text-xs font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                  >
+                    {reparse.status === 'running'
+                      ? '분석 중...'
+                      : `${Math.max(0, reparse.toPage - reparse.fromPage + 1)}쪽 다시 파싱`}
+                  </button>
+                  {reparse.status === 'running' && (
+                    <button
+                      type="button"
+                      onClick={stopAnalysis}
+                      className="px-3 py-1.5 border border-orange-500/40 text-orange-400 rounded text-xs font-medium hover:bg-orange-500/10 transition-colors"
+                    >
+                      ⏸ 중단
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {reparse.error && <p className="text-xs text-red-400">{reparse.error}</p>}
+            <input
+              ref={reparseInputRef}
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={handleReparseFileSelected}
+            />
+          </div>
+        )}
+
         {reviewFiles.length > 0 && (
           <ParseReview
             questions={reviewQuestions}
@@ -1547,6 +1834,8 @@ export function PdfTab({
               setReviewRefresh((v) => v + 1)
               onQuestionsAdded()
             }}
+            onReparse={openReparse}
+            reparseDisabled={isRunning}
           />
         )}
       </div>

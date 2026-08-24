@@ -31,6 +31,8 @@ export interface GroupCheck {
   count: number
   min: number
   max: number
+  nos: number[] // 실제로 확인된 번호 (오름차순) — 재파싱할 페이지를 추정할 때 쓴다
+  sourceFiles: string[] // 이 회차의 문제가 들어 있는 파일 (많이 나온 순)
   interior: number[] // min~max 사이에서 빠진 번호 (전체)
   headMissing: number // 1번부터 min-1번까지 몇 개가 없는지
   expectedMax: number | null // 형제 회차들로 추정한 마지막 번호
@@ -105,7 +107,17 @@ export function buildParseReview(questions: Question[]): ParseReview {
         new Set(list.map((q) => Number(q.no)).filter((n) => Number.isFinite(n) && n > 0))
       ).sort((a, b) => a - b)
       const head = list[0]
-      return { subject: head.subject, examType: head.examType, year: head.year, nos }
+      // 재파싱은 파일 단위로 하므로 어느 파일에서 온 회차인지 알아야 한다.
+      // 보통 하나지만 같은 회차를 여러 파일에 나눠 올렸을 수 있어 많이 나온 순으로 둔다
+      const fileCount = new Map<string, number>()
+      for (const q of list) {
+        if (!q.sourceFile) continue
+        fileCount.set(q.sourceFile, (fileCount.get(q.sourceFile) ?? 0) + 1)
+      }
+      const sourceFiles = Array.from(fileCount.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([name]) => name)
+      return { subject: head.subject, examType: head.examType, year: head.year, nos, sourceFiles }
     })
     .filter((r) => r.nos.length >= MIN_COUNT_FOR_GAP_CHECK)
 
@@ -132,6 +144,8 @@ export function buildParseReview(questions: Question[]): ParseReview {
       count: r.nos.length,
       min,
       max,
+      nos: r.nos,
+      sourceFiles: r.sourceFiles,
       interior,
       headMissing,
       expectedMax,
@@ -205,6 +219,16 @@ export function buildParseReview(questions: Question[]): ParseReview {
       years.some((y) => y.problem !== null) ||
       yearDominant !== null,
   }
+}
+
+// 앞·중간·뒤에서 빠진 번호를 한 줄로 모은다. 재파싱 대상 구간을 잡을 때 쓴다
+export function allMissing(g: GroupCheck): number[] {
+  const head = Array.from({ length: g.headMissing }, (_, i) => i + 1)
+  const tail =
+    g.tailMissing > 0 && g.expectedMax !== null
+      ? Array.from({ length: g.tailMissing }, (_, i) => g.max + 1 + i)
+      : []
+  return [...head, ...g.interior, ...tail]
 }
 
 // 결번 목록을 화면에 넣을 문자열로. 너무 길면 뒤를 접는다
