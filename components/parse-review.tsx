@@ -4,8 +4,8 @@ import { useState } from 'react'
 import type { Question } from '@/lib/types'
 import { updateQuestionUnit, updateQuestionYear } from '@/lib/store'
 import {
-  buildParseReview, isMinorUnit, unitOptionsFor, yearOptions, UNKNOWN_YEAR,
-  type UnitCount, type YearCount,
+  buildParseReview, isMinorUnit, unitOptionsFor, yearOptions, formatMissing, UNKNOWN_YEAR,
+  type GroupCheck, type UnitCount, type YearCount,
 } from '@/lib/parseReview'
 
 interface Props {
@@ -45,35 +45,38 @@ export function ParseReview({ questions, onUnitChanged }: Props) {
     onUnitChanged()
   }
 
+  // 검토 대상 파일명 (문제에 기록된 sourceFile에서 뽑는다)
+  const reviewedFiles = Array.from(new Set(questions.map((q) => q.sourceFile).filter(Boolean))) as string[]
+
   const maxCount = review.units[0]?.count ?? 1
 
   return (
     <div className="border border-border rounded-lg divide-y divide-border text-sm">
-      <div className="px-3 py-2 flex items-center justify-between">
-        <span className="font-medium text-foreground">파싱 결과 검토</span>
-        <span className="text-xs text-muted-foreground">총 {review.total}문제</span>
+      <div className="px-3 py-2 space-y-0.5">
+        <div className="flex items-center justify-between">
+          <span className="font-medium text-foreground">파싱 결과 검토</span>
+          <span className="text-xs text-muted-foreground">총 {review.total}문제</span>
+        </div>
+        {/* 어떤 파일에 대한 검토인지 밝힌다. 같은 문제집을 나눠 파싱하면 누적 집계가 나오므로
+            "이번에 추가된 것만"으로 오해하지 않도록 파일명을 함께 보여준다 */}
+        {reviewedFiles.length > 0 && (
+          <p className="text-[11px] text-muted-foreground truncate">{reviewedFiles.join(', ')}</p>
+        )}
       </div>
 
       {/* A. 번호 연속성 */}
       <div className="px-3 py-2 space-y-1.5">
-        {review.gaps.length === 0 ? (
-          <p className="text-xs text-emerald-600 dark:text-emerald-400">
-            ✓ 문제 번호가 빠짐없이 이어집니다
+        <p className="text-xs text-muted-foreground">번호 연속성</p>
+        {review.skippedUnknownYear > 0 && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            ⚠ 연도 미상 {review.skippedUnknownYear}문제는 어느 회차인지 알 수 없어 검사에서 뺐습니다.
+            아래 &apos;출제연도 분포&apos;에서 연도를 지정한 뒤 다시 확인해주세요
           </p>
+        )}
+        {review.groups.length === 0 ? (
+          <p className="text-xs text-muted-foreground">번호를 확인할 수 있는 문제가 없습니다</p>
         ) : (
-          review.gaps.map((g) => (
-            <div key={`${g.subject}-${g.examType}-${g.year}`} className="text-xs space-y-0.5">
-              <p className="text-amber-600 dark:text-amber-400 font-medium">⚠ 파싱 누락 의심</p>
-              <p className="text-muted-foreground">
-                {g.year} {g.examType} · {g.subject} · {g.min}~{g.max}번 중 {g.count}개 확인
-              </p>
-              <p className="text-foreground">
-                빠진 번호: {g.missing.join(', ')}
-                {g.missingTotal > g.missing.length && ` 외 ${g.missingTotal - g.missing.length}개`}
-              </p>
-              <p className="text-muted-foreground">→ 해당 페이지가 있는 청크를 다시 파싱해보세요</p>
-            </div>
-          ))
+          review.groups.map((g) => <GroupRow key={`${g.subject}-${g.examType}-${g.year}`} g={g} />)
         )}
       </div>
 
@@ -222,6 +225,53 @@ function UnitQuestionList({
           </select>
         </div>
       ))}
+    </div>
+  )
+}
+
+// 한 회차의 번호 연속성. 이상이 없을 때도 "무엇을 근거로 괜찮다고 하는지"를 함께 적는다.
+// 예전에는 "✓ 빠짐없이 이어집니다"만 띄웠는데, 뒷부분이 통째로 잘린 경우도 남은 번호끼리는
+// 연속이라 그 문구가 그대로 떴다. 실제 범위를 보여주면 사용자가 눈으로 잡을 수 있다
+function GroupRow({ g }: { g: GroupCheck }) {
+  const label = `${g.year} ${g.examType} · ${g.subject}`
+  if (g.ok) {
+    return (
+      <p className="text-xs text-emerald-600 dark:text-emerald-400">
+        ✓ {label} <span className="tabular-nums">{g.min}~{g.max}번</span> 연속 ({g.count}문제)
+        {g.expectedMax === null && (
+          <span className="text-muted-foreground"> · 마지막 번호는 확인 불가</span>
+        )}
+      </p>
+    )
+  }
+  return (
+    <div className="text-xs space-y-0.5">
+      <p className="text-amber-600 dark:text-amber-400 font-medium">⚠ 파싱 누락 의심</p>
+      <p className="text-muted-foreground">
+        {label} · <span className="tabular-nums">{g.min}~{g.max}번</span> 중 {g.count}개 확인
+      </p>
+      {g.headMissing > 0 && (
+        <p className="text-foreground">
+          앞부분 {g.headMissing}개 없음: <span className="tabular-nums">1~{g.min - 1}번</span>
+        </p>
+      )}
+      {g.interior.length > 0 && (
+        <p className="text-foreground">
+          {g.sparse ? '확인된 문제보다 빠진 번호가 많습니다' : '빠진 번호'}:{' '}
+          <span className="tabular-nums">{formatMissing(g.interior)}</span>
+        </p>
+      )}
+      {g.tailMissing > 0 && (
+        <p className="text-foreground">
+          뒷부분 {g.tailMissing}개 없음: <span className="tabular-nums">{g.max + 1}~{g.expectedMax}번</span>
+          <span className="text-muted-foreground"> (다른 회차는 {g.expectedMax}번까지 있습니다)</span>
+        </p>
+      )}
+      <p className="text-muted-foreground">
+        {g.sparse
+          ? '→ 번호를 골라 담은 교재라면 정상입니다. 아니라면 해당 청크를 다시 파싱해보세요'
+          : '→ 해당 페이지가 있는 청크를 다시 파싱해보세요'}
+      </p>
     </div>
   )
 }

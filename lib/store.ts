@@ -115,11 +115,15 @@ function normalizePassage(passage: string): string {
 }
 
 // 중복 판정 1차 후보 키. 문제번호가 있으면 그것으로 좁히고, 없으면 지문 전체로 좁힌다.
-// 문제번호만으로 병합하면 같은 해의 서로 다른 모의고사끼리 충돌하므로 2차 확인을 반드시 거친다
+// 문제번호만으로 병합하면 서로 다른 회차끼리 충돌하므로 2차 확인(isSameQuestion)을 반드시 거친다.
+//
+// 키에 연도를 넣지 않는다. 청크 겹침 구간의 같은 문제를 한 청크는 2023으로, 다른 청크는
+// 연도 미상(0)으로 판정하면 후보 자체가 갈려 병합이 실패하고 같은 문제가 두 번 저장됐다.
+// 어차피 진짜 동일성은 지문으로 판정하므로, 후보를 넓게 잡아도 잘못 합쳐지지 않는다
 function questionBucketKey(q: Question): string {
   const no = Number(q.no)
   return Number.isFinite(no) && no > 0
-    ? `no:${q.subject}|${q.examType}|${q.year}|${no}`
+    ? `no:${q.subject}|${q.examType}|${no}`
     : `psg:${normalizePassage(q.passage)}`
 }
 

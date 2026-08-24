@@ -7,6 +7,25 @@ const MODEL = 'gemini-3.1-flash-lite'
 // 모델 상한을 넘어 400이 나면 이 값만 낮추면 된다
 const MAX_OUTPUT_TOKENS = 65536
 
+// 출력 한도·안전필터에 걸리면 Gemini는 200 OK와 함께 "중간에서 잘린 JSON"을 준다.
+// 그대로 내려보내면 브라우저에서는 정체를 알 수 없는 SyntaxError로만 보이므로
+// (Safari는 잘린 위치에 따라 "Property name must be a string literal" 같은 엉뚱한 문구를 낸다)
+// 여기서 finishReason을 확인해 원인을 밝힌 오류로 바꾼다
+function incompleteReason(data: unknown): string | null {
+  const reason = (data as { candidates?: { finishReason?: string }[] })?.candidates?.[0]?.finishReason
+  return !reason || reason === 'STOP' ? null : reason
+}
+
+function incompleteMessage(reason: string, chars: number): string {
+  const detail =
+    reason === 'MAX_TOKENS'
+      ? `응답이 출력 한도(${MAX_OUTPUT_TOKENS}토큰)에 걸려 잘렸습니다. 이 청크에 문제·해설이 너무 많습니다.`
+      : reason === 'SAFETY' || reason === 'RECITATION'
+        ? `Gemini가 응답을 중단했습니다 (${reason}).`
+        : `Gemini가 응답을 끝맺지 못했습니다 (${reason}).`
+  return `${detail} (받은 길이 ${chars}자) 잘린 결과를 저장하면 문제가 유실되므로 처리하지 않았습니다.`
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -248,8 +267,15 @@ ${SUBJECT_UNITS_JSON}
       const data = await res.json()
       const raw: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '[]'
 
+      // 업로드본 정리는 성공/실패와 무관하게 한다 (남겨두면 저장 용량만 먹는다)
       const fileName = fileUri.split('/').pop()
       fetch(`${BASE}/v1beta/files/${fileName}?key=${apiKey}`, { method: 'DELETE' }).catch(() => {})
+
+      const cut = incompleteReason(data)
+      if (cut) {
+        console.error('Gemini finishReason:', cut, 'chars:', raw.length)
+        return NextResponse.json({ error: incompleteMessage(cut, raw.length) }, { status: 502 })
+      }
 
       return NextResponse.json({ raw, subject, examType, year })
     }
@@ -369,6 +395,12 @@ Grounding Rule: 입력 자료 외 법률 내용 생성 금지. 불확실하면 "
 
       const data = await res.json()
       const raw: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}'
+
+      const cut = incompleteReason(data)
+      if (cut) {
+        console.error('Gemini finishReason:', cut, 'chars:', raw.length)
+        return NextResponse.json({ error: incompleteMessage(cut, raw.length) }, { status: 502 })
+      }
 
       return NextResponse.json({ raw })
     }

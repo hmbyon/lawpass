@@ -54,6 +54,28 @@ export async function mapWithConcurrency<T, R>(
   return results
 }
 
+// 본문이 끝까지 오지 않으면 res.json()이 브라우저마다 다른 문구의 SyntaxError를 던진다.
+// (Safari는 잘린 위치에 따라 "Property name must be a string literal"처럼 원인과 무관한 문구를 낸다)
+// 어느 호출의 응답이 몇 자에서 깨졌는지 남겨 원인을 짚을 수 있게 한다
+async function readJson<T>(res: Response, what: string): Promise<T> {
+  const text = await res.text()
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new Error(
+      `${what} 응답을 읽지 못했습니다 (받은 길이 ${text.length}자). 통신이 중간에 끊겼을 수 있습니다.`
+    )
+  }
+}
+
+// AI가 돌려준 JSON 자체가 깨졌을 때 쓰는 오류 문구. 응답 끝부분을 붙여 어디서 끊겼는지 보여준다
+function badJsonError(raw: string): Error {
+  const tail = raw.slice(-120).replace(/\s+/g, ' ')
+  return new Error(
+    `AI 응답을 JSON으로 읽지 못했습니다 (길이 ${raw.length}자). 중간에서 잘렸을 가능성이 큽니다. 끝부분: …${tail}`
+  )
+}
+
 // ── Upload PDF via server proxy ──────────────────────────────────────────────
 export async function uploadPdfToFileApi(
   apiKey: string,
@@ -111,7 +133,7 @@ export async function extractQuestionsFromPdf(
     throw new Error(data?.error ?? `Analyze failed (${res.status})`)
   }
 
-  const { raw } = await res.json()
+  const { raw } = await readJson<{ raw: string }>(res, '문제 추출')
 
   let parsed: {
     문제번호: number
@@ -139,8 +161,16 @@ export async function extractQuestionsFromPdf(
   try {
     parsed = JSON.parse(raw)
   } catch {
+    // 모델이 JSON 앞뒤에 설명을 붙였을 때를 위한 구제 시도.
+    // 여기서도 실패하면 조용히 []를 돌려주면 안 된다 — 그 청크의 문제가 통째로 사라진 채
+    // '완료'로 기록돼 재개해도 복구되지 않는다. 오류로 던져 청크를 다시 처리할 수 있게 남긴다
     const match = (raw as string).match(/\[[\s\S]*\]/)
-    parsed = match ? JSON.parse(match[0]) : []
+    if (!match) throw badJsonError(raw)
+    try {
+      parsed = JSON.parse(match[0])
+    } catch {
+      throw badJsonError(raw)
+    }
   }
 
   const LABELS = ['①', '②', '③', '④', '⑤']
@@ -277,13 +307,19 @@ export async function analyzeWrongAnswer(
     throw new Error(data?.error ?? `Error analysis failed (${res.status})`)
   }
 
-  const { raw } = await res.json()
+  const { raw } = await readJson<{ raw: string }>(res, '오답 분석')
 
   try {
     return JSON.parse(raw) as ErrorAnalysis
   } catch {
+    // 오답 분석은 실패해도 학습을 막지 않는다. 문제 추출과 달리 여기서는 대체값을 쓴다
     const match = (raw as string).match(/\{[\s\S]*\}/)
-    return match ? (JSON.parse(match[0]) as ErrorAnalysis) : fallbackAnalysis()
+    if (!match) return fallbackAnalysis()
+    try {
+      return JSON.parse(match[0]) as ErrorAnalysis
+    } catch {
+      return fallbackAnalysis()
+    }
   }
 }
 

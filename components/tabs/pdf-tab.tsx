@@ -230,7 +230,15 @@ const PROGRESS_VIEW_OPTIONS: { id: ProgressViewMode; label: string }[] = [
   { id: 'all', label: '전체목록' },
 ]
 
-export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
+export function PdfTab({
+  onQuestionsAdded,
+  syncedAt = 0,
+}: {
+  onQuestionsAdded: () => void
+  // 상위에서 클라우드 동기화가 끝난 시각. 예전에는 이 값을 key로 써서 탭을 통째로
+  // 리마운트했는데, 그러면 파싱 큐와 검토 패널까지 같이 날아갔다 (동기화가 느리면 파싱 도중에도)
+  syncedAt?: number
+}) {
   const [appMode] = useState(() => getAppMode())
   const isGeneral = appMode === 'general'
 
@@ -260,6 +268,18 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
   // (청크 겹침 중복은 addQuestions가 이미 병합했으므로 여기서 다시 다루지 않는다)
   const [reviewFiles, setReviewFiles] = useState<string[]>([])
   const [reviewRefresh, setReviewRefresh] = useState(0)
+  // 검토 대상 파일을 지정하고 저장소를 다시 읽게 한다.
+  // 재개는 같은 파일을 다시 처리하므로 목록이 그대로다. 그때 setReviewFiles가 같은 배열을
+  // 돌려주면 아래 useMemo가 재계산되지 않아 중단 전 스냅샷이 그대로 남는다 — 그래서 신호를 따로 올린다
+  function showReview(names: string[], replace = false) {
+    setReviewFiles((prev) => {
+      if (replace) return names
+      const next = prev.slice()
+      for (const n of names) if (!next.includes(n)) next.push(n)
+      return next
+    })
+    setReviewRefresh((v) => v + 1)
+  }
   // key로 리마운트시키면 단원을 고칠 때마다 펼쳐둔 목록이 닫힌다. 값만 새로 읽어 넘긴다
   const reviewQuestions = useMemo(
     () => (reviewFiles.length === 0 ? [] : getQuestions().filter((q) => q.sourceFile && reviewFiles.includes(q.sourceFile))),
@@ -332,6 +352,17 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     setProgress(computeProgress())
   }
 
+  // 클라우드에서 문제를 다시 받아오면 통계와 검토 값도 다시 읽는다.
+  // 예전에는 상위가 key={syncedAt}로 이 탭을 통째로 리마운트해 처리했는데,
+  // 그러면 업로드 큐·재개 목록·검토 패널이 전부 초기화됐다 (동기화가 느리면 파싱 도중에도)
+  useEffect(() => {
+    if (syncedAt === 0) return
+    refreshSourceFiles()
+    setReviewRefresh((v) => v + 1)
+    // refreshSourceFiles는 렌더마다 새로 만들어지는 함수라 의존성에 넣으면 매 렌더 실행된다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncedAt])
+
   function toggleSubjectExpand(s: string) {
     setExpandedSubjects((prev) => {
       const next = new Set(prev)
@@ -392,7 +423,8 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       }))
     )
     setSummary(null)
-    setReviewFiles([])
+    // 검토 패널은 지우지 않는다. 방금 끝낸 파싱 결과를 보면서 다음 파일을 고르는 흐름이 정상이고,
+    // 새 파싱이 시작되면 showReview(_, true)가 대상을 갈아끼운다
     setActionError(null)
   }
 
@@ -615,7 +647,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
     setRunningKey(null)
     abortRef.current = null
     setSummary({ added: totalAdded, merged: totalMerged })
-    setReviewFiles(processedFiles)
+    showReview(processedFiles, true)
     setIsRunning(false)
     // 끝까지 처리된 파일만 큐에서 뺀다. 중단·오류 항목은 이어서 처리할 수 있게 남긴다
     setFiles((prev) => {
@@ -665,7 +697,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       added: (prev?.added ?? 0) + result.added,
       merged: (prev?.merged ?? 0) + result.merged,
     }))
-    setReviewFiles((prev) => (prev.includes(sourceFileNameOf(entry)) ? prev : [...prev, sourceFileNameOf(entry)]))
+    showReview([sourceFileNameOf(entry)])
     setIsRunning(false)
     refreshSourceFiles()
     onQuestionsAdded()
@@ -716,7 +748,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
       added: (prev?.added ?? 0) + result.added,
       merged: (prev?.merged ?? 0) + result.merged,
     }))
-    setReviewFiles((prev) => (prev.includes(sourceFile) ? prev : [...prev, sourceFile]))
+    showReview([sourceFile])
     // 끝까지 처리된 항목은 진행상황 기록이 지워지므로 목록에서도 제거한다
     if (!getPdfProgress(sourceFile)) {
       setResumeJobs((prev) => prev.filter((j) => j.sourceFile !== sourceFile))
@@ -787,6 +819,7 @@ export function PdfTab({ onQuestionsAdded }: { onQuestionsAdded: () => void }) {
         }
       }
       setSummary({ added: totalAdded, merged: totalMerged })
+      showReview([sourceFile], true)
       setUriStatus('done')
       refreshSourceFiles()
       onQuestionsAdded()

@@ -367,7 +367,9 @@ export function AppShell({ user }: Props) {
       </nav>
 
       <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-5">
-        {tab === 'pdf' && <PdfTab key={syncedAt} onQuestionsAdded={refreshAndSync} />}
+        {/* PdfTab만 key를 주지 않는다. 파싱 큐·재개 목록·검토 패널은 동기화가 끝났다고 해서
+            버려도 되는 상태가 아니다. 대신 syncedAt을 넘겨 필요한 값만 다시 읽게 한다 */}
+        {tab === 'pdf' && <PdfTab syncedAt={syncedAt} onQuestionsAdded={refreshAndSync} />}
         {tab === 'cbt' && <CbtTab key={syncedAt} questions={questions} onDone={refreshAndSync} />}
         {tab === 'study' && <StudyTab key={syncedAt} questions={questions} onDone={refreshAndSync} onSync={refreshAndSync} />}
         {tab === 'wrong' && <WrongTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
