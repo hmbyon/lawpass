@@ -110,6 +110,12 @@ interface JobView {
   chunkSize?: number
   resumable?: boolean
   skippedPages?: number[] // 읽지 못해 건너뛴 페이지(1-based)
+  // 지금 실제로 보내고 있는 페이지 구간(1-based, 양끝 포함).
+  // chunkSize는 파일 시작 때 한 번 정해질 뿐이라, 응답이 커서 더 잘게 쪼개는 중이면
+  // 화면과 실제가 어긋난다. 그 실제를 담는다.
+  // narrowed는 청크 전체가 아니라 쪼개진 일부라는 뜻 — chunkSize와 견주면 안 된다.
+  // 마지막 청크는 원래 짧고, 겹침(CHUNK_OVERLAP) 때문에 중간 청크는 오히려 chunkSize보다 길다
+  activeRange?: { from: number; to: number; narrowed: boolean }
 }
 
 interface FileState extends JobView {
@@ -465,12 +471,14 @@ export function PdfTab({
     sink: {
       onCount: (added: number, merged: number, parsed: number) => void
       onProgress: (donePagesInChunk: number) => void
+      onRange: (from: number, to: number) => void
       skipped: number[]
     },
     chunkStart = startPage
   ): Promise<void> {
     let uri = ''
     try {
+      sink.onRange(startPage + 1, endPage)
       const bytes = await buildChunkBytes(sourcePdf, startPage, endPage)
       // 413은 서버가 아니라 플랫폼이 되돌려주므로 보내기 전에 걸러야 한다.
       // 예전에는 여기서 그냥 던져 파일 전체가 멈췄다 — 이제는 쪼갤 수 있는 실패로 취급한다
@@ -611,6 +619,11 @@ export function PdfTab({
             const within = (endPage - startPage) > 0 ? donePages / (endPage - startPage) : 1
             update({ progress: ((chunkIndex + within) / chunkTotal) * 100 })
           },
+          // 이 청크의 온전한 범위와 같지 않으면 쪼개진 것이다. 길이로 어림하지 않고 그대로 대조한다
+          onRange: (from, to) =>
+            update({
+              activeRange: { from, to, narrowed: !(from === startPage + 1 && to === endPage) },
+            }),
           skipped: skippedPages,
         })
 
@@ -619,6 +632,7 @@ export function PdfTab({
           chunkIndex: chunkIndex + 1,
           count: fileQuestionCount,
           skippedPages: [...skippedPages],
+          activeRange: undefined,
         })
         lastCompletedChunk = chunkIndex
         saveProgress(chunkIndex)
@@ -629,6 +643,7 @@ export function PdfTab({
         chunkIndex: chunkTotal,
         resumable: false,
         skippedPages: [...skippedPages],
+        activeRange: undefined,
       })
       clearPdfProgress(sourceFile)
       await deletePdfFile(sourceFile)
@@ -641,6 +656,7 @@ export function PdfTab({
         resumable: true,
         count: fileQuestionCount,
         skippedPages: [...skippedPages],
+        activeRange: undefined,
       })
     }
 
@@ -1440,6 +1456,7 @@ export function PdfTab({
                   {j.view.status === 'error' && j.view.error && (
                     <p className="text-xs text-red-400 break-all">{j.view.error}</p>
                   )}
+                  <ActiveRangeNote view={j.view} />
                   <SkippedNote pages={j.view.skippedPages} />
                   {!j.file && (
                     <p className="text-xs text-muted-foreground">
@@ -1562,9 +1579,10 @@ export function PdfTab({
                     )}
                     {f.chunkSize !== undefined && f.chunkSize < CHUNK_SIZE && (
                       <p className="text-xs text-muted-foreground">
-                        페이지당 용량이 커서 청크를 {f.chunkSize}페이지로 자동 조정했습니다
+                        용량이 커서 {f.chunkSize}페이지씩 나눠 보냅니다
                       </p>
                     )}
+                    <ActiveRangeNote view={f} />
                     {f.status === 'uploading' && f.chunkTotal && (
                       <p className="text-xs text-primary animate-pulse">
                         청크 {f.chunkIndex ?? 1}/{f.chunkTotal} 업로드 중...
@@ -1838,6 +1856,22 @@ export function PdfTab({
 }
 
 // 읽지 못해 건너뛴 페이지 안내. 무엇을 잃었는지 밝혀야 사용자가 회수를 시도할 수 있다
+// 지금 실제로 보내고 있는 구간. 기준 청크 크기보다 작으면 "더 잘게 쪼개는 중"이라는 뜻이다.
+// 이걸 안 보여주면 화면은 "3페이지씩"이라고 하는데 실제로는 1쪽씩 재시도하는 상태가 되어,
+// 왜 이렇게 느린지 사용자가 알 길이 없다
+function ActiveRangeNote({ view }: { view: JobView }) {
+  const r = view.activeRange
+  if (!r || view.status !== 'analyzing') return null
+  const label = r.to - r.from + 1 === 1 ? `${r.from}쪽` : `${r.from}~${r.to}쪽`
+  return (
+    <p className={`text-xs ${r.narrowed ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}>
+      {r.narrowed
+        ? `↳ ${label}만 따로 재시도 중 — 응답이 크거나 거부되어 더 잘게 나누고 있습니다`
+        : `↳ ${label} 처리 중`}
+    </p>
+  )
+}
+
 function SkippedNote({ pages }: { pages?: number[] }) {
   if (!pages || pages.length === 0) return null
   const shown = pages.slice(0, 12).join(', ')
