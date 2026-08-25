@@ -54,6 +54,23 @@ export async function mapWithConcurrency<T, R>(
   return results
 }
 
+// 청크를 통째로 처리할 수 없다는 신호. 호출부는 이걸 보고 구간을 반으로 쪼개 다시 시도하거나,
+// 더 못 쪼개면 그 페이지만 건너뛰고 나머지를 계속 처리한다.
+// reason별 성격이 다르다 — MAX_TOKENS는 잘게 쪼개면 풀리지만, RECITATION은 내용 자체가 원인이라
+// 같은 페이지를 다시 보내면 또 발동한다 (그래서 최종적으로 '건너뛰기'가 반드시 필요하다)
+export class IncompleteResponseError extends Error {
+  reason: string
+  constructor(message: string, reason: string) {
+    super(message)
+    this.name = 'IncompleteResponseError'
+    this.reason = reason
+  }
+}
+
+export function isIncompleteResponseError(err: unknown): err is IncompleteResponseError {
+  return err instanceof IncompleteResponseError
+}
+
 // 본문이 끝까지 오지 않으면 res.json()이 브라우저마다 다른 문구의 SyntaxError를 던진다.
 // (Safari는 잘린 위치에 따라 "Property name must be a string literal"처럼 원인과 무관한 문구를 낸다)
 // 어느 호출의 응답이 몇 자에서 깨졌는지 남겨 원인을 짚을 수 있게 한다
@@ -71,8 +88,11 @@ async function readJson<T>(res: Response, what: string): Promise<T> {
 // AI가 돌려준 JSON 자체가 깨졌을 때 쓰는 오류 문구. 응답 끝부분을 붙여 어디서 끊겼는지 보여준다
 function badJsonError(raw: string): Error {
   const tail = raw.slice(-120).replace(/\s+/g, ' ')
-  return new Error(
-    `AI 응답을 JSON으로 읽지 못했습니다 (길이 ${raw.length}자). 중간에서 잘렸을 가능성이 큽니다. 끝부분: …${tail}`
+  // 깨진 JSON도 사실상 "이 구간을 통째로는 못 읽었다"는 뜻이므로 같은 종류로 던진다.
+  // 그래야 호출부가 구간을 쪼개 다시 시도할 수 있다
+  return new IncompleteResponseError(
+    `AI 응답을 JSON으로 읽지 못했습니다 (길이 ${raw.length}자). 중간에서 잘렸을 가능성이 큽니다. 끝부분: …${tail}`,
+    'BAD_JSON'
   )
 }
 
@@ -130,7 +150,9 @@ export async function extractQuestionsFromPdf(
 
   if (!res.ok) {
     const data = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(data?.error ?? `Analyze failed (${res.status})`)
+    const message = data?.error ?? `Analyze failed (${res.status})`
+    if (data?.code === 'INCOMPLETE') throw new IncompleteResponseError(message, String(data.reason ?? 'UNKNOWN'))
+    throw new Error(message)
   }
 
   const { raw } = await readJson<{ raw: string }>(res, '문제 추출')
@@ -351,6 +373,8 @@ export interface PdfParseProgress {
   chunkSize?: number // 이 파일에 적용된 청크 페이지 수. 재개 시 같은 값을 써야 청크 번호가 가리키는 페이지가 어긋나지 않는다
   subjects?: string[] // 중단 시점에 선택돼 있던 과목 — 복원하지 않으면 재개가 0문제로 헛돈다
   examTypes?: string[]
+  // 어떤 크기로 쪼개도 읽지 못해 건너뛴 페이지(1-based). 재개해도 이 목록은 이어진다
+  skippedPages?: number[]
   updatedAt?: number
 }
 

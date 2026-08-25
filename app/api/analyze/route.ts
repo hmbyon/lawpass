@@ -274,7 +274,12 @@ ${SUBJECT_UNITS_JSON}
       const cut = incompleteReason(data)
       if (cut) {
         console.error('Gemini finishReason:', cut, 'chars:', raw.length)
-        return NextResponse.json({ error: incompleteMessage(cut, raw.length) }, { status: 502 })
+        // code/reason을 함께 준다. 문구로 판별하면 메시지를 다듬는 순간 클라이언트의
+        // 세분화 재시도가 조용히 멈춘다 — 실제로 그렇게 막혔던 적이 있다
+        return NextResponse.json(
+          { error: incompleteMessage(cut, raw.length), code: 'INCOMPLETE', reason: cut },
+          { status: 502 }
+        )
       }
 
       return NextResponse.json({ raw, subject, examType, year })
@@ -399,7 +404,10 @@ Grounding Rule: 입력 자료 외 법률 내용 생성 금지. 불확실하면 "
       const cut = incompleteReason(data)
       if (cut) {
         console.error('Gemini finishReason:', cut, 'chars:', raw.length)
-        return NextResponse.json({ error: incompleteMessage(cut, raw.length) }, { status: 502 })
+        return NextResponse.json(
+          { error: incompleteMessage(cut, raw.length), code: 'INCOMPLETE', reason: cut },
+          { status: 502 }
+        )
       }
 
       return NextResponse.json({ raw })

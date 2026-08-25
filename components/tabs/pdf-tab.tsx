@@ -10,6 +10,7 @@ import {
   savePdfProgress, getPdfProgress, clearPdfProgress, listPdfProgress, isAbortError,
 } from '@/lib/gemini'
 import type { PdfParseProgress } from '@/lib/gemini'
+import { isIncompleteResponseError, IncompleteResponseError } from '@/lib/gemini'
 import { savePdfFile, loadPdfFile, deletePdfFile } from '@/lib/pdfCache'
 import { getAppMode } from '@/lib/appMode'
 import type { Subject, ExamType } from '@/lib/types'
@@ -105,6 +106,7 @@ interface JobView {
   chunkTotal?: number
   chunkSize?: number
   resumable?: boolean
+  skippedPages?: number[] // 읽지 못해 건너뛴 페이지(1-based)
 }
 
 interface FileState extends JobView {
@@ -139,6 +141,7 @@ function resumeJobView(progress: PdfParseProgress): JobView {
     chunkIndex: progress.chunkIndex + 1,
     chunkTotal: progress.chunkTotal,
     chunkSize: progress.chunkSize,
+    skippedPages: progress.skippedPages,
     resumable: true,
   }
 }
@@ -260,7 +263,7 @@ export function PdfTab({
   const [actionError, setActionError] = useState<string | null>(null)
   const resumeInputRef = useRef<HTMLInputElement>(null)
   const resumeTargetRef = useRef<string | null>(null)
-  const [summary, setSummary] = useState<{ added: number; merged: number } | null>(null)
+  const [summary, setSummary] = useState<{ added: number; merged: number; skipped: number[] } | null>(null)
   const [reparse, setReparse] = useState<ReparseState | null>(null)
   const reparseInputRef = useRef<HTMLInputElement>(null)
   const reparsePanelRef = useRef<HTMLDivElement>(null)
@@ -437,13 +440,92 @@ export function PdfTab({
   }
 
   // 💡 [에러 발생 시 1페이지 세분화 루프가 포함된 처리 루틴]
+  // 한 페이지 구간을 추출해 저장한다.
+  //
+  // 구간을 통째로 못 읽는 경우(MAX_TOKENS·RECITATION·깨진 JSON)에는 반으로 쪼개 다시 시도하고,
+  // 1페이지까지 좁혀도 안 되면 그 페이지만 건너뛰고 나머지를 계속 처리한다.
+  // 곧장 1페이지로 쪼개지 않고 반씩 줄이는 이유: 5페이지 청크가 분량으로 걸린 경우 보통 2+3이면
+  // 통과하는데, 1페이지씩 5번 부르면 API 호출이 그만큼 낭비된다.
+  //
+  // RECITATION은 분량이 아니라 내용이 원인이라 아무리 쪼개도 같은 페이지에서 다시 발동한다.
+  // 그래서 '건너뛰기'가 선택이 아니라 필수다 — 이게 없으면 그 파일은 영영 진행되지 않는다.
+  //
+  // 사용자가 누른 중단(AbortError)은 절대 삼키지 않고 그대로 올려보낸다
+  async function extractRange(
+    sourcePdf: PDFDocument,
+    startPage: number,
+    endPage: number,
+    fileName: string,
+    sourceFile: string,
+    meta: ParseMeta,
+    signal: AbortSignal | undefined,
+    sink: {
+      onCount: (added: number, merged: number, parsed: number) => void
+      onProgress: (donePagesInChunk: number) => void
+      skipped: number[]
+    },
+    chunkStart = startPage
+  ): Promise<void> {
+    let uri = ''
+    try {
+      const bytes = await buildChunkBytes(sourcePdf, startPage, endPage)
+      // 413은 서버가 아니라 플랫폼이 되돌려주므로 보내기 전에 걸러야 한다.
+      // 예전에는 여기서 그냥 던져 파일 전체가 멈췄다 — 이제는 쪼갤 수 있는 실패로 취급한다
+      if (bytes.byteLength > MAX_UPLOAD_BYTES) {
+        throw new IncompleteResponseError(
+          `${startPage + 1}~${endPage}쪽이 ${mb(bytes.byteLength)}MB로 업로드 한도(4.5MB)를 넘습니다.`,
+          'TOO_LARGE'
+        )
+      }
+      const chunkFile = new File(
+        [bytes.buffer as ArrayBuffer],
+        `${fileName.replace(/\.pdf$/i, '')}-p${startPage + 1}-${endPage}.pdf`,
+        { type: 'application/pdf' }
+      )
+      uri = await uploadPdfToFileApi(apiKey, chunkFile, undefined, signal)
+      await waitForFileActive(apiKey, uri)
+      for (const s of meta.subjects) {
+        for (const et of meta.examTypes) {
+          const questions = await extractQuestionsFromPdf(
+            apiKey, uri, s, et, new Date().getFullYear(), signal
+          )
+          const result = addQuestions(questions, sourceFile)
+          sink.onCount(result.added, result.merged, questions.length)
+        }
+      }
+      sink.onProgress(endPage - chunkStart)
+      return
+    } catch (err) {
+      if (isAbortError(err)) throw err
+      // 네트워크 끊김·인증 오류처럼 쪼갠다고 풀리지 않는 실패는 그대로 올려보낸다
+      if (!isIncompleteResponseError(err)) throw err
+
+      const pages = endPage - startPage
+      if (pages <= 1) {
+        console.warn(`[p.${startPage + 1}] ${err.reason} — 이 페이지는 건너뜁니다:`, err.message)
+        if (!sink.skipped.includes(startPage + 1)) sink.skipped.push(startPage + 1)
+        sink.onProgress(endPage - chunkStart)
+        return
+      }
+      const mid = startPage + Math.floor(pages / 2)
+      console.warn(
+        `[p.${startPage + 1}~${endPage}] ${err.reason} — ` +
+          `${startPage + 1}~${mid}쪽과 ${mid + 1}~${endPage}쪽으로 나눠 다시 시도합니다`
+      )
+      await extractRange(sourcePdf, startPage, mid, fileName, sourceFile, meta, signal, sink, chunkStart)
+      await extractRange(sourcePdf, mid, endPage, fileName, sourceFile, meta, signal, sink, chunkStart)
+    } finally {
+      if (uri) await deleteFile(apiKey, uri).catch(() => {})
+    }
+  }
+
   async function processEntry(
     entry: { file: File; displayName: string },
     startChunk: number,
     update: (patch: Partial<JobView>) => void,
     meta: ParseMeta,
     signal?: AbortSignal
-  ): Promise<{ added: number; merged: number; aborted: boolean }> {
+  ): Promise<{ added: number; merged: number; aborted: boolean; skipped: number[] }> {
     const sourceFile = sourceFileNameOf(entry)
     const savedProgress = getPdfProgress(sourceFile)
     await savePdfFile(sourceFile, entry.file)
@@ -455,6 +537,9 @@ export function PdfTab({
     let chunkTotal = 0
     let totalPages = 0
     let chunkSize = CHUNK_SIZE
+    // 어떤 크기로 쪼개도 읽지 못해 포기한 페이지(1-based). 무엇을 잃었는지 남겨야
+    // 사용자가 결번 재파싱으로 회수를 시도할 수 있다
+    const skippedPages: number[] = [...(savedProgress?.skippedPages ?? [])]
 
     const saveProgress = (chunkIndexDone: number) => {
       savePdfProgress(sourceFile, {
@@ -468,6 +553,7 @@ export function PdfTab({
         chunkSize,
         subjects: meta.subjects,
         examTypes: meta.examTypes,
+        skippedPages,
       })
     }
 
@@ -493,94 +579,44 @@ export function PdfTab({
 
       for (let chunkIndex = startChunk; chunkIndex < chunkTotal; chunkIndex++) {
         const { startPage, endPage } = chunkRange(chunkIndex, chunkSize, totalPages)
-        const chunkBytes = await buildChunkBytes(sourcePdf, startPage, endPage)
+        update({
+          status: 'analyzing',
+          progress: (chunkIndex / chunkTotal) * 100,
+          chunkIndex: chunkIndex + 1,
+        })
 
-        if (chunkBytes.byteLength > MAX_UPLOAD_BYTES) {
-          throw new Error(
-            `${chunkIndex + 1}번째 청크가 ${mb(chunkBytes.byteLength)}MB로 업로드 한도(4.5MB)를 넘습니다.`
-          )
-        }
-        const chunkFile = new File(
-          [chunkBytes.buffer as ArrayBuffer],
-          `${entry.file.name.replace(/\.pdf$/i, '')}-chunk-${chunkIndex + 1}.pdf`,
-          { type: 'application/pdf' }
-        )
+        // 구간을 통째로 못 읽으면 extractRange가 반으로 쪼개 다시 시도하고,
+        // 1페이지까지 좁혀도 안 되는 페이지는 건너뛴다. 그래서 이 호출은 청크를 막지 않는다
+        await extractRange(sourcePdf, startPage, endPage, entry.file.name, sourceFile, meta, signal, {
+          onCount: (added, merged, parsed) => {
+            deltaAdded += added
+            deltaMerged += merged
+            fileQuestionCount += parsed
+            update({ count: fileQuestionCount })
+          },
+          onProgress: (donePages) => {
+            const within = (endPage - startPage) > 0 ? donePages / (endPage - startPage) : 1
+            update({ progress: ((chunkIndex + within) / chunkTotal) * 100 })
+          },
+          skipped: skippedPages,
+        })
 
-        update({ status: 'uploading', progress: (chunkIndex / chunkTotal) * 100, chunkIndex: chunkIndex + 1 })
-        let uri = ''
-        try {
-          uri = await uploadPdfToFileApi(apiKey, chunkFile, (pct) => {
-            const overallProgress = ((chunkIndex + pct / 100) / chunkTotal) * 100
-            update({ progress: overallProgress })
-          }, signal)
-          update({
-            status: 'analyzing',
-            progress: ((chunkIndex + 0.9) / chunkTotal) * 100,
-            chunkIndex: chunkIndex + 1,
-          })
-          await waitForFileActive(apiKey, uri)
-
-          // 💡 [핵심 수정] 65536 토큰 초과 / RECITATION / JSON 파싱 오류 감지 시 1페이지 세분화 실행
-          try {
-            for (const s of meta.subjects) {
-              for (const et of meta.examTypes) {
-                const questions = await extractQuestionsFromPdf(apiKey, uri, s, et, new Date().getFullYear(), signal)
-                const result = addQuestions(questions, sourceFile)
-                deltaAdded += result.added
-                deltaMerged += result.merged
-                fileQuestionCount += questions.length
-              }
-            }
-          } catch (extractErr: any) {
-            const errStr = String(extractErr)
-            if (errStr.includes('65536') || errStr.includes('RECITATION') || errStr.includes('JSON')) {
-              console.warn(`[Chunk ${chunkIndex + 1}] 과도한 분량/RECITATION 감지. 1페이지 단위 세분화 재시도를 수행합니다.`)
-
-              for (let p = startPage; p < endPage; p++) {
-                try {
-                  const singleBytes = await buildChunkBytes(sourcePdf, p, p + 1)
-                  const singleFile = new File(
-                    [singleBytes.buffer as ArrayBuffer],
-                    `${entry.file.name.replace(/\.pdf$/i, '')}-p${p + 1}.pdf`,
-                    { type: 'application/pdf' }
-                  )
-                  let singleUri = ''
-                  try {
-                    singleUri = await uploadPdfToFileApi(apiKey, singleFile, undefined, signal)
-                    await waitForFileActive(apiKey, singleUri)
-                    for (const s of meta.subjects) {
-                      for (const et of meta.examTypes) {
-                        const subQ = await extractQuestionsFromPdf(apiKey, singleUri, s, et, new Date().getFullYear(), signal)
-                        const result = addQuestions(subQ, sourceFile)
-                        deltaAdded += result.added
-                        deltaMerged += result.merged
-                        fileQuestionCount += subQ.length
-                      }
-                    }
-                  } finally {
-                    if (singleUri) await deleteFile(apiKey, singleUri).catch(() => {})
-                  }
-                } catch (pErr) {
-                  console.error(`[p.${p + 1}] 세분화 파싱 실패 (해당 페이지만 스킵):`, pErr)
-                }
-              }
-            } else {
-              throw extractErr
-            }
-          }
-
-          update({
-            progress: ((chunkIndex + 1) / chunkTotal) * 100,
-            chunkIndex: chunkIndex + 1,
-            count: fileQuestionCount,
-          })
-          lastCompletedChunk = chunkIndex
-          saveProgress(chunkIndex)
-        } finally {
-          if (uri) await deleteFile(apiKey, uri).catch(() => {})
-        }
+        update({
+          progress: ((chunkIndex + 1) / chunkTotal) * 100,
+          chunkIndex: chunkIndex + 1,
+          count: fileQuestionCount,
+          skippedPages: [...skippedPages],
+        })
+        lastCompletedChunk = chunkIndex
+        saveProgress(chunkIndex)
       }
-      update({ status: 'done', progress: 100, chunkIndex: chunkTotal, resumable: false })
+      update({
+        status: 'done',
+        progress: 100,
+        chunkIndex: chunkTotal,
+        resumable: false,
+        skippedPages: [...skippedPages],
+      })
       clearPdfProgress(sourceFile)
       await deletePdfFile(sourceFile)
     } catch (err) {
@@ -591,10 +627,11 @@ export function PdfTab({
         error: aborted ? undefined : String(err),
         resumable: true,
         count: fileQuestionCount,
+        skippedPages: [...skippedPages],
       })
     }
 
-    return { added: deltaAdded, merged: deltaMerged, aborted }
+    return { added: deltaAdded, merged: deltaMerged, aborted, skipped: skippedPages }
   }
 
   function stopAnalysis() {
@@ -631,6 +668,7 @@ export function PdfTab({
     setSummary(null)
     let totalAdded = 0
     let totalMerged = 0
+    const totalSkipped: number[] = []
     const processedFiles: string[] = []
 
     for (let i = 0; i < files.length; i++) {
@@ -646,12 +684,13 @@ export function PdfTab({
       )
       totalAdded += result.added
       totalMerged += result.merged
+      totalSkipped.push(...result.skipped)
       if (result.aborted) break
     }
 
     setRunningKey(null)
     abortRef.current = null
-    setSummary({ added: totalAdded, merged: totalMerged })
+    setSummary({ added: totalAdded, merged: totalMerged, skipped: totalSkipped })
     showReview(processedFiles, true)
     setIsRunning(false)
     setFiles((prev) => {
@@ -697,6 +736,7 @@ export function PdfTab({
     setSummary((prev) => ({
       added: (prev?.added ?? 0) + result.added,
       merged: (prev?.merged ?? 0) + result.merged,
+      skipped: [...(prev?.skipped ?? []), ...result.skipped],
     }))
     showReview([sourceFileNameOf(entry)])
     setIsRunning(false)
@@ -746,6 +786,7 @@ export function PdfTab({
     setSummary((prev) => ({
       added: (prev?.added ?? 0) + result.added,
       merged: (prev?.merged ?? 0) + result.merged,
+      skipped: [...(prev?.skipped ?? []), ...result.skipped],
     }))
     showReview([sourceFile])
     if (!getPdfProgress(sourceFile)) {
@@ -945,7 +986,7 @@ export function PdfTab({
           totalMerged += result.merged
         }
       }
-      setSummary({ added: totalAdded, merged: totalMerged })
+      setSummary({ added: totalAdded, merged: totalMerged, skipped: [] })
       showReview([sourceFile], true)
       setUriStatus('done')
       refreshSourceFiles()
@@ -1386,6 +1427,7 @@ export function PdfTab({
                   {j.view.status === 'error' && j.view.error && (
                     <p className="text-xs text-red-400 break-all">{j.view.error}</p>
                   )}
+                  <SkippedNote pages={j.view.skippedPages} />
                   {!j.file && (
                     <p className="text-xs text-muted-foreground">
                       보관된 원본이 없습니다. 같은 PDF를 다시 선택해주세요.
@@ -1528,6 +1570,7 @@ export function PdfTab({
                         {f.status === 'error' && (
                           <p className="text-xs text-red-400 break-all">{f.error}</p>
                         )}
+                        <SkippedNote pages={f.skippedPages} />
                         {f.resumable && (
                           <button
                             type="button"
@@ -1647,6 +1690,14 @@ export function PdfTab({
               완료: <span className="font-bold">{summary.added}문제</span> 추가,{' '}
               <span className="font-bold">{summary.merged}문제</span> 병합
             </p>
+            {summary.skipped.length > 0 && (
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                ⚠ {summary.skipped.length}개 페이지를 읽지 못해 건너뛰었습니다 (
+                {summary.skipped.slice(0, 12).join(', ')}
+                {summary.skipped.length > 12 && ` 외 ${summary.skipped.length - 12}개`}쪽).
+                아래 검토에서 빠진 번호가 잡히면 &apos;이 구간 다시 파싱&apos;으로 그 쪽만 다시 시도할 수 있습니다
+              </p>
+            )}
           </div>
         )}
 
@@ -1770,6 +1821,18 @@ export function PdfTab({
         )}
       </div>
     </div>
+  )
+}
+
+// 읽지 못해 건너뛴 페이지 안내. 무엇을 잃었는지 밝혀야 사용자가 회수를 시도할 수 있다
+function SkippedNote({ pages }: { pages?: number[] }) {
+  if (!pages || pages.length === 0) return null
+  const shown = pages.slice(0, 12).join(', ')
+  return (
+    <p className="text-xs text-amber-600 dark:text-amber-400">
+      ⚠ {pages.length}쪽 건너뜀 ({shown}
+      {pages.length > 12 && ` 외 ${pages.length - 12}개`}쪽) — 분량 초과이거나 Gemini가 응답을 거부한 페이지입니다
+    </p>
   )
 }
 
