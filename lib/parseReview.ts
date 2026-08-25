@@ -95,6 +95,49 @@ function missingBetween(present: Set<number>, from: number, to: number): number[
   return out
 }
 
+// 순서를 정하는 데 필요한 것만 요구한다. 덕분에 Question을 짓지 않고도 시험할 수 있다
+export interface PagedItem {
+  pageFrom?: number
+  pageTo?: number
+}
+
+/**
+ * 번호 런을 자르기 전에, 문제들을 '원본 PDF에서 놓여 있던 순서'로 세운다.
+ *
+ * 기준은 파싱 때 기록된 페이지다. 그런데 페이지를 모르는 문제가 섞일 수 있다 —
+ * 페이지 기록 도입 이전에 파싱된 문제집이거나, 페이지를 알 수 없는 경로로 들어온 경우다.
+ * 그런 문제를 맨 뒤로 밀거나 맨 앞에 세우면 없던 번호 역행이 생겨 런이 엉뚱하게 잘린다.
+ *
+ * 그래서 페이지가 없는 문제는 **저장 배열 순서상 바로 앞 문제의 페이지를 물려받는다.**
+ * 저장 배열 순서는 addQuestions가 파싱한 순서 그대로 밀어 넣은 것이라, 페이지 기록이
+ * 없던 시절에도 사실상 원본 순서다. 규칙 하나로 세 경우가 다 풀린다.
+ *   - 전부 페이지 있음 → 순수 페이지 순
+ *   - 전부 페이지 없음 → 물려받을 값이 모두 같아져 저장 배열 순서 그대로 (옛 데이터 폴백)
+ *   - 섞임            → 아는 것끼리는 페이지 순, 모르는 것은 직전 문제 바로 뒤
+ *
+ * 물려받을 때 pageFrom뿐 아니라 pageTo까지 함께 가져간다. from만 물려받으면
+ * 10~15쪽 청크 다음에 온 '페이지 모르는 문제'가 (10,10)이 되어 정작 그 청크(10,15)보다
+ * 앞서는 뒤집힘이 생긴다.
+ *
+ * 원본 배열은 건드리지 않고 새 배열을 돌려준다.
+ */
+export function orderForRuns<T extends PagedItem>(list: T[]): T[] {
+  // 저장 순서대로 훑으며 '지금까지 확인된 마지막 페이지'를 흘려보낸다
+  let carriedFrom = 0
+  let carriedTo = 0
+  const keyed = list.map((item, index) => {
+    if (item.pageFrom !== undefined) {
+      carriedFrom = item.pageFrom
+      carriedTo = item.pageTo ?? item.pageFrom
+    }
+    return { item, index, from: carriedFrom, to: carriedTo }
+  })
+
+  // index를 마지막 기준으로 두어, 같은 페이지 안에서는 저장 순서가 그대로 유지된다
+  keyed.sort((a, b) => a.from - b.from || a.to - b.to || a.index - b.index)
+  return keyed.map((k) => k.item)
+}
+
 // 저장된 문제들로부터 검토 결과를 만든다.
 // 청크 겹침으로 생긴 중복은 addQuestions가 이미 병합했으므로 여기서 다시 다루지 않는다
 export function buildParseReview(questions: Question[]): ParseReview {

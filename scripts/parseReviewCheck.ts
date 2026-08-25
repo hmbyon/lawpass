@@ -17,7 +17,13 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Question, Subject, ExamType } from '../lib/types'
-import { buildParseReview, UNKNOWN_YEAR, type ParseReview } from '../lib/parseReview'
+import {
+  buildParseReview,
+  orderForRuns,
+  UNKNOWN_YEAR,
+  type PagedItem,
+  type ParseReview,
+} from '../lib/parseReview'
 
 const SNAPSHOT = join(process.cwd(), 'scripts/__snapshots__/parse-review.txt')
 
@@ -165,6 +171,77 @@ const FIXTURES: Fixture[] = [
   },
 ]
 
+// ── 순서 결정 케이스 (orderForRuns) ─────────────────────────────
+// 런을 자르기 전에 문제를 원본 순서로 세우는 규칙만 따로 시험한다.
+// 여기서는 번호도 연도도 보지 않는다 — 오로지 페이지와 저장 배열 순서뿐이다
+
+interface OrderItem extends PagedItem {
+  label: string
+}
+
+interface OrderCase {
+  name: string
+  note: string
+  items: OrderItem[] // 배열 순서 = 저장 배열 순서
+  expect: string // 기대하는 결과 순서
+}
+
+/** p('A', 3) → 3쪽 / p('A', 10, 15) → 10~15쪽 / p('A') → 페이지 모름 */
+function p(label: string, from?: number, to?: number): OrderItem {
+  const item: OrderItem = { label }
+  if (from !== undefined) {
+    item.pageFrom = from
+    item.pageTo = to ?? from
+  }
+  return item
+}
+
+function showItem(i: OrderItem): string {
+  if (i.pageFrom === undefined) return `${i.label}(-)`
+  return i.pageTo === i.pageFrom ? `${i.label}(${i.pageFrom})` : `${i.label}(${i.pageFrom}~${i.pageTo})`
+}
+
+const ORDER_CASES: OrderCase[] = [
+  {
+    name: '전부 페이지 있음',
+    note: '저장 순서가 원본과 어긋나 있어도 페이지 순으로 바로 세운다.',
+    items: [p('A', 3), p('B', 1), p('C', 2)],
+    expect: 'B C A',
+  },
+  {
+    name: '전부 페이지 없음 (옛 데이터)',
+    note: '물려받을 값이 모두 같아져 저장 배열 순서가 그대로 남는다. 이게 옛 데이터 폴백이다.',
+    items: [p('A'), p('B'), p('C')],
+    expect: 'A B C',
+  },
+  {
+    name: '페이지 정보 섞임',
+    note: '아는 것끼리는 페이지 순, 모르는 것은 저장 순서상 직전 문제 바로 뒤에 붙는다.',
+    items: [p('A', 1), p('B'), p('C', 3), p('D'), p('E', 2)],
+    expect: 'A B E C D',
+  },
+  {
+    name: '같은 페이지에 여러 문제',
+    note: '한 쪽에 여러 문제가 있으면 저장 순서를 흔들지 않는다.',
+    items: [p('A', 5), p('B', 5), p('C', 5)],
+    expect: 'A B C',
+  },
+  {
+    name: '넓은 청크 뒤에 페이지 모르는 문제',
+    note:
+      'pageTo까지 물려받지 않으면 B가 (10,10)이 되어 정작 자기 앞의 A(10~15)를 제치고 나선다. ' +
+      '기대값이 A B C인 것이 그 방지책이 살아 있다는 뜻이다.',
+    items: [p('A', 10, 15), p('B'), p('C', 12)],
+    expect: 'A B C',
+  },
+  {
+    name: '맨 앞이 페이지 모르는 문제',
+    note: '물려받을 앞 문제가 없으면 0쪽으로 두어 저장 순서 맨 앞자리를 지킨다.',
+    items: [p('A'), p('B'), p('C', 5)],
+    expect: 'A B C',
+  },
+]
+
 // ── 출력 ────────────────────────────────────────────────────────
 
 const MAX_NOS_SHOWN = 12
@@ -198,6 +275,15 @@ function render(f: Fixture, review: ParseReview): string {
       .join(' ')}`
   )
   return lines.join('\n')
+}
+
+function renderOrder(c: OrderCase, got: string): string {
+  return [
+    `- ${c.name}`,
+    `  # ${c.note}`,
+    `  입력: ${c.items.map(showItem).join(' ')}`,
+    `  결과: ${got}`,
+  ].join('\n')
 }
 
 // ── 불변식 ──────────────────────────────────────────────────────
@@ -235,12 +321,27 @@ function invariants(f: Fixture, review: ParseReview) {
 
 const update = process.argv.includes('--update')
 
-const report =
-  FIXTURES.map((f) => {
-    const review = buildParseReview(f.questions)
-    invariants(f, review)
-    return render(f, review)
-  }).join('\n\n') + '\n'
+const fixtureReport = FIXTURES.map((f) => {
+  const review = buildParseReview(f.questions)
+  invariants(f, review)
+  return render(f, review)
+}).join('\n\n')
+
+const orderReport = ORDER_CASES.map((c) => {
+  const before = c.items.map((i) => i.label).join(' ')
+  const got = orderForRuns(c.items)
+    .map((i) => i.label)
+    .join(' ')
+  check(got === c.expect, `[순서: ${c.name}] 기대 "${c.expect}" != 실제 "${got}"`)
+  // 원본 배열을 건드리지 않아야 한다 — 호출한 쪽의 저장 순서가 곧 폴백 근거이기 때문
+  check(
+    c.items.map((i) => i.label).join(' ') === before,
+    `[순서: ${c.name}] orderForRuns가 입력 배열을 뒤섞었다`
+  )
+  return renderOrder(c, got)
+}).join('\n\n')
+
+const report = `${fixtureReport}\n\n### 순서 결정 (orderForRuns)\n\n${orderReport}\n`
 
 if (update) {
   mkdirSync(dirname(SNAPSHOT), { recursive: true })
@@ -273,4 +374,7 @@ if (failures.length > 0) {
   for (const f of failures) console.error(`- ${f}`)
   process.exit(1)
 }
-console.log(`통과: fixture ${FIXTURES.length}개, 불변식 이상 없음${update ? '' : ', 스냅샷 일치'}`)
+console.log(
+  `통과: fixture ${FIXTURES.length}개, 순서 케이스 ${ORDER_CASES.length}개, ` +
+    `불변식 이상 없음${update ? '' : ', 스냅샷 일치'}`
+)
