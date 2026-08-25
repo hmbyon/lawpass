@@ -143,7 +143,30 @@ function completenessScore(q: Question): number {
   return filledChoices * 100000 + q.passage.length
 }
 
-export function addQuestions(incoming: Question[], sourceFile?: string): { added: number; merged: number } {
+// 페이지 구간의 넓이. 한쪽이라도 없으면 "모름"이므로 무한대로 쳐서 언제나 지게 한다
+function pageSpan(from?: number, to?: number): number {
+  return from === undefined || to === undefined ? Infinity : to - from
+}
+
+// 같은 문제를 여러 번 만날 수 있다. 청크 겹침으로 두 번 오기도 하고,
+// 분할 재시도로 10~15쪽에서 한 번, 좁혀진 12~12쪽에서 또 오기도 한다.
+// 이때는 더 좁은 구간이 더 정확한 정보이므로 그쪽을 택한다.
+// 다른 항목별 필드들이 쓰는 "빈 것만 채움"(??=) 방식이면 먼저 온 넓은 구간이 눌러앉는다
+function betterPages(
+  found: Question,
+  from: number | undefined,
+  to: number | undefined
+): boolean {
+  if (from === undefined || to === undefined) return false
+  return pageSpan(from, to) < pageSpan(found.pageFrom, found.pageTo)
+}
+
+export function addQuestions(
+  incoming: Question[],
+  sourceFile?: string,
+  // 이 묶음을 뽑아낸 원본 PDF 구간 (1-based, 양끝 포함). 알 수 없는 경로에서는 생략한다
+  pages?: { from: number; to: number }
+): { added: number; merged: number } {
   const result = getQuestions()
   let added = 0
   let merged = 0
@@ -163,7 +186,12 @@ export function addQuestions(incoming: Question[], sourceFile?: string): { added
     const matchIndex = candidates.find((i) => isSameQuestion(result[i], q))
 
     if (matchIndex === undefined) {
-      result.push({ ...q, sourceFile })
+      result.push({
+        ...q,
+        sourceFile,
+        pageFrom: pages?.from ?? q.pageFrom,
+        pageTo: pages?.to ?? q.pageTo,
+      })
       buckets.set(key, [...candidates, result.length - 1])
       added++
       continue
@@ -184,6 +212,13 @@ export function addQuestions(incoming: Question[], sourceFile?: string): { added
     found.subChoiceExplanations ??= q.subChoiceExplanations
     found.subItems ??= q.subItems
     found.passageTable ??= q.passageTable
+    // 페이지만 ??= 가 아니다 — 위 주석 참조
+    const inFrom = pages?.from ?? q.pageFrom
+    const inTo = pages?.to ?? q.pageTo
+    if (betterPages(found, inFrom, inTo)) {
+      found.pageFrom = inFrom
+      found.pageTo = inTo
+    }
     // 청크 경계에서 잘린 판본이 온전한 판본을 밀어내지 않도록, 더 완전한 쪽 내용을 채택한다.
     // id는 유지하므로 오답노트·형광펜 연결이 끊기지 않는다
     if (completenessScore(q) > completenessScore(found)) {

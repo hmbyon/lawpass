@@ -64,6 +64,13 @@ export interface Question {
   subChoiceExplanations?: Record<string, string>  // ㄱㄴㄷㄹ 보기 항목별 한 줄 설명
   subItems?: SubItem[]  // 하위 보기 항목 (구조화 추출). 없으면 지문 정규식 파싱으로 폴백
   passageTable?: TableBlock[]  // 지문 안의 표/서식. 표가 없는 문제는 생략 (앞면·뒷면처럼 여러 개일 수 있어 배열)
+  // 이 문제가 확인된 원본 PDF의 페이지 구간 (1-based, 양끝 포함).
+  // 문제 하나가 정확히 몇 쪽인지가 아니라 "이 구간 안에 있었다"는 뜻이다 —
+  // Gemini에 보낸 청크의 범위를 그대로 적기 때문이다. 청크는 보통 1~6쪽이라
+  // 결번 재파싱에서 다시 보낼 구간을 잡기에 충분하다.
+  // 페이지를 알 수 없는 경로(URI 업로드)나 이 필드 도입 이전 데이터에는 없다
+  pageFrom?: number
+  pageTo?: number
 }
 
 export interface ErrorAnalysis {

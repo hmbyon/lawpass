@@ -504,7 +504,12 @@ export function PdfTab({
           const questions = await extractQuestionsFromPdf(
             apiKey, uri, s, et, new Date().getFullYear(), signal
           )
-          const result = addQuestions(questions, sourceFile)
+          // 이 청크의 원본 페이지 구간을 그대로 남긴다. 나중에 결번 재파싱이
+          // 번호 비율로 어림잡지 않고 실제 구간을 다시 보낼 수 있게 하기 위한 것이다
+          const result = addQuestions(questions, sourceFile, {
+            from: startPage + 1,
+            to: endPage,
+          })
           sink.onCount(result.added, result.merged, questions.length)
         }
       }
