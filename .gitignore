@@ -16,3 +16,6 @@ node_modules
 .vercel
 .env*
 *.tsbuildinfo
+
+# check:parse-review 가 tsc 출력을 떨구는 곳
+.tmp-check/

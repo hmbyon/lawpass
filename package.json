@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "check:parse-review": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --outDir .tmp-check lib/parseReview.ts lib/units.ts scripts/parseReviewCheck.ts && node .tmp-check/scripts/parseReviewCheck.js"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
