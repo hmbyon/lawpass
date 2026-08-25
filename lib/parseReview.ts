@@ -24,6 +24,13 @@ const EARLIEST_YEAR = 2010
 // 한 회차(과목·시험구분·연도)의 번호 연속성 점검 결과.
 // 예전에는 "범위 안 결번"만 봤는데, 그러면 앞뒤가 통째로 잘린 경우를 전부 놓쳤다.
 // 존재하는 번호에서 min/max를 뽑으니 잘린 쪽은 애초에 범위에 들어오지 않기 때문이다
+// 한 문제가 확인된 원본 PDF 구간. Question.pageFrom/pageTo를 번호별로 모은 것
+export interface QuestionPage {
+  no: number
+  from: number
+  to: number
+}
+
 export interface GroupCheck {
   subject: Subject
   examType: string
@@ -32,6 +39,10 @@ export interface GroupCheck {
   min: number
   max: number
   nos: number[] // 실제로 확인된 번호 (오름차순) — 재파싱할 페이지를 추정할 때 쓴다
+  // 페이지를 아는 문제만 번호순으로. 1단계 이전에 파싱된 문제집은 비어 있다
+  pages: QuestionPage[]
+  pageFrom: number | null // 이 회차에서 확인된 가장 이른 쪽
+  pageTo: number | null // 가장 늦은 쪽
   sourceFiles: string[] // 이 회차의 문제가 들어 있는 파일 (많이 나온 순)
   interior: number[] // min~max 사이에서 빠진 번호 (전체)
   headMissing: number // 1번부터 min-1번까지 몇 개가 없는지
@@ -117,7 +128,24 @@ export function buildParseReview(questions: Question[]): ParseReview {
       const sourceFiles = Array.from(fileCount.entries())
         .sort((a, b) => b[1] - a[1])
         .map(([name]) => name)
-      return { subject: head.subject, examType: head.examType, year: head.year, nos, sourceFiles }
+
+      // 번호별 페이지 구간. 같은 번호의 판본이 여럿이면 더 좁은 쪽을 택한다
+      // (store.ts의 병합 규칙과 같은 원칙 — 좁을수록 정확한 정보다)
+      const pageByNo = new Map<number, { from: number; to: number }>()
+      for (const q of list) {
+        const no = Number(q.no)
+        if (!Number.isFinite(no) || no <= 0) continue
+        if (q.pageFrom === undefined || q.pageTo === undefined) continue
+        const prev = pageByNo.get(no)
+        if (!prev || q.pageTo - q.pageFrom < prev.to - prev.from) {
+          pageByNo.set(no, { from: q.pageFrom, to: q.pageTo })
+        }
+      }
+      const pages: QuestionPage[] = Array.from(pageByNo.entries())
+        .map(([no, p]) => ({ no, from: p.from, to: p.to }))
+        .sort((a, b) => a.no - b.no)
+
+      return { subject: head.subject, examType: head.examType, year: head.year, nos, sourceFiles, pages }
     })
     .filter((r) => r.nos.length >= MIN_COUNT_FOR_GAP_CHECK)
 
@@ -146,6 +174,9 @@ export function buildParseReview(questions: Question[]): ParseReview {
       max,
       nos: r.nos,
       sourceFiles: r.sourceFiles,
+      pages: r.pages,
+      pageFrom: r.pages.length > 0 ? Math.min(...r.pages.map((p) => p.from)) : null,
+      pageTo: r.pages.length > 0 ? Math.max(...r.pages.map((p) => p.to)) : null,
       interior,
       headMissing,
       expectedMax,
@@ -229,6 +260,48 @@ export function allMissing(g: GroupCheck): number[] {
       ? Array.from({ length: g.tailMissing }, (_, i) => g.max + 1 + i)
       : []
   return [...head, ...g.interior, ...tail]
+}
+
+// 빠진 번호가 있을 만한 페이지 구간을, 기록된 실제 페이지로 좁힌다.
+//
+// 결번의 앞뒤 이웃 문제가 몇 쪽에 있었는지 알면 빠진 문제는 반드시 그 사이에 있다.
+// 이때는 추정이 아니라 확정이다 (exact = true).
+//
+// 회차의 앞이나 뒤가 통째로 빠진 경우에는 한쪽 이웃이 없다. 그쪽만 어림하는데,
+// 기준은 문서 전체가 아니라 **이 회차 안의 페이지 밀도**다.
+// (예전 estimatePageRange는 "이 회차 번호 중 몇 번째"를 "문서 전체의 몇 %"로 환산해
+//  242쪽 문서에서 111쪽을 내놓았다. 회차가 문서 어디에 있는지 모르는 채 계산했기 때문이다)
+export function gapPageRange(
+  pages: QuestionPage[],
+  missing: number[],
+  totalPages: number
+): { from: number; to: number; exact: boolean } | null {
+  if (pages.length === 0 || missing.length === 0 || totalPages <= 0) return null
+
+  const first = Math.min(...missing)
+  const last = Math.max(...missing)
+  const prev = [...pages].reverse().find((p) => p.no < first)
+  const next = pages.find((p) => p.no > last)
+
+  const roundFrom = Math.min(...pages.map((p) => p.from))
+  const roundTo = Math.max(...pages.map((p) => p.to))
+  // 이 회차의 문제 하나가 차지하는 쪽수. 회차가 한 쪽에 여러 문제여도 최소 1쪽은 잡는다
+  const perQuestion = Math.max(1, (roundTo - roundFrom + 1) / pages.length)
+
+  // 이웃이 없는 쪽은 "몇 문제를 건너뛰어야 하는가"로 거리를 잰다.
+  // 빠진 번호만 세면 안 된다 — 그 사이에 '파싱은 됐지만 페이지를 모르는' 문제가 있으면
+  // 그만큼을 빠뜨려 범위가 짧아진다. 번호 거리로 재면 그 문제들도 자연히 포함된다
+  const below = Math.max(0, pages[0].no - first)
+  const above = Math.max(0, last - pages[pages.length - 1].no)
+
+  const from = prev
+    ? prev.from
+    : Math.max(1, roundFrom - Math.ceil(below * perQuestion) - 1)
+  const to = next
+    ? next.to
+    : Math.min(totalPages, roundTo + Math.ceil(above * perQuestion) + 1)
+
+  return { from, to: Math.max(from, to), exact: Boolean(prev && next) }
 }
 
 // 결번 목록을 화면에 넣을 문자열로. 너무 길면 뒤를 접는다

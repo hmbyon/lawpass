@@ -5,7 +5,7 @@ import type { Question } from '@/lib/types'
 import { updateQuestionUnit, updateQuestionYear } from '@/lib/store'
 import {
   buildParseReview, isMinorUnit, unitOptionsFor, yearOptions, formatMissing, allMissing, UNKNOWN_YEAR,
-  type GroupCheck, type UnitCount, type YearCount,
+  type GroupCheck, type UnitCount, type YearCount, type QuestionPage,
 } from '@/lib/parseReview'
 
 // 결번이 난 회차를 다시 파싱해달라는 요청. 실제 재파싱은 원본 PDF와 API 키를 쥔 상위(pdf-tab)가 한다
@@ -16,6 +16,9 @@ export interface ReparseRequest {
   year: number
   nos: number[] // 이미 확인된 번호 (페이지 추정용)
   missing: number[]
+  // 파싱 때 기록된 실제 페이지 구간. 이게 있으면 번호 비율로 어림잡지 않아도 된다.
+  // 1단계 이전에 파싱된 문제집에서는 빈 배열이다
+  pages: QuestionPage[]
 }
 
 interface Props {
@@ -312,6 +315,7 @@ function GroupRow({
               year: g.year,
               nos: g.nos,
               missing: allMissing(g),
+              pages: g.pages,
             })
           }
           className="mt-1 px-2 py-1 border border-primary/40 text-primary rounded text-xs font-medium hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"

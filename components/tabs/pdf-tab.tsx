@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import { PDFDocument } from 'pdf-lib'
 import { getApiKey, setApiKey, addQuestions, getSourceFiles, deleteQuestionsBySource, mergeSourceFiles, getQuestions, getWrongNotes } from '@/lib/store'
 import { ParseReview, type ReparseRequest } from '@/components/parse-review'
-import { formatMissing } from '@/lib/parseReview'
+import { formatMissing, gapPageRange } from '@/lib/parseReview'
 import {
   uploadPdfToFileApi, waitForFileActive, extractQuestionsFromPdf, deleteFile,
   savePdfProgress, getPdfProgress, clearPdfProgress, listPdfProgress, isAbortError,
@@ -101,6 +101,15 @@ interface ReparseState {
   skipped: number[]
   // 지금 실제로 보내고 있는 구간. 쪼개는 중이면 화면의 쪽수와 어긋나므로 그대로 보여준다
   activeRange: { from: number; to: number; narrowed: boolean } | null
+  // 입력칸의 값이 어디서 왔는지. 근거가 다르면 신뢰도도 다르므로 화면에 밝힌다
+  //   recorded  파싱 때 기록된 실제 페이지 (앞뒤 이웃 문제로 확정 또는 회차 밀도로 보정)
+  //   none      기록이 없어 비워 둠. 어림값을 채워 넣지 않는다
+  //   estimated 사용자가 '추정해보기'를 눌러 번호 비율로 어림잡은 값
+  pageSource: 'recorded' | 'none' | 'estimated'
+  // recorded일 때 근거가 된 구간과, 앞뒤가 모두 확정됐는지
+  pageExact: boolean
+  confirmedFrom: number | null
+  confirmedTo: number | null
 }
 
 interface JobView {
@@ -896,9 +905,24 @@ export function PdfTab({
     try {
       const pdf = await PDFDocument.load(await file.arrayBuffer())
       const pageCount = pdf.getPageCount()
-      const { from, to } = estimatePageRange(req.nos, req.missing, pageCount)
+      // 기록된 실제 페이지가 있으면 그것만 쓴다.
+      // 없으면 비워 둔다 — 어림값을 채워 넣으면 사용자는 그게 근거 있는 값인 줄 안다.
+      // 예전에는 여기서 estimatePageRange를 무조건 채워 242쪽 문서에 1~111쪽이 들어갔다
+      const hit = gapPageRange(req.pages, req.missing, pageCount)
+      const confirmed = req.pages.length > 0
+        ? {
+            from: Math.min(...req.pages.map((p) => p.from)),
+            to: Math.max(...req.pages.map((p) => p.to)),
+          }
+        : null
       setReparse({
-        req, file, pageCount, fromPage: from, toPage: to,
+        req, file, pageCount,
+        fromPage: hit?.from ?? 0,
+        toPage: hit?.to ?? 0,
+        pageSource: hit ? 'recorded' : 'none',
+        pageExact: hit?.exact ?? false,
+        confirmedFrom: confirmed?.from ?? null,
+        confirmedTo: confirmed?.to ?? null,
         status: 'ready', error: null, donePages: 0, added: 0, merged: 0, skipped: [], activeRange: null,
       })
     } catch (err) {
@@ -906,6 +930,7 @@ export function PdfTab({
         req, file: null, pageCount: 0, fromPage: 1, toPage: 1,
         status: 'error', error: `PDF를 읽지 못했습니다: ${String(err)}`,
         donePages: 0, added: 0, merged: 0, skipped: [], activeRange: null,
+        pageSource: 'none', pageExact: false, confirmedFrom: null, confirmedTo: null,
       })
     }
   }
@@ -915,6 +940,7 @@ export function PdfTab({
     setReparse({
       req, file: null, pageCount: 0, fromPage: 1, toPage: 1,
       status: 'needFile', error: null, donePages: 0, added: 0, merged: 0, skipped: [], activeRange: null,
+        pageSource: 'none', pageExact: false, confirmedFrom: null, confirmedTo: null,
     })
     const cached = await loadPdfFile(req.sourceFile)
     if (cached) await prepareReparse(req, cached)
@@ -925,6 +951,15 @@ export function PdfTab({
     e.target.value = ''
     if (!picked || !reparse) return
     await prepareReparse(reparse.req, picked)
+  }
+
+  // 기록된 페이지가 없을 때 마지막 수단. 번호 비율을 문서 전체 비율로 환산하는 방식이라
+  // 회차가 문서 어디에 있는지 모르고, 그 회차에서 파싱된 문제가 적을수록 넓게 빗나간다.
+  // 그래서 자동으로 채우지 않고 사용자가 눌렀을 때만, 경고와 함께 보여준다
+  function applyEstimate() {
+    if (!reparse) return
+    const { from, to } = estimatePageRange(reparse.req.nos, reparse.req.missing, reparse.pageCount)
+    updateReparse({ fromPage: from, toPage: to, pageSource: 'estimated' })
   }
 
   function updateReparse(patch: Partial<ReparseState>) {
@@ -1794,15 +1829,17 @@ export function PdfTab({
                 <p className="text-xs text-muted-foreground truncate">
                   {reparse.file?.name} · 총 {reparse.pageCount}페이지
                 </p>
+                <ReparseSourceNote state={reparse} onEstimate={applyEstimate} />
                 <div className="flex items-center gap-1.5 text-xs">
                   <span className="text-muted-foreground">페이지</span>
                   <input
                     type="number"
                     min={1}
                     max={reparse.pageCount}
-                    value={reparse.fromPage}
+                    value={reparse.fromPage || ''}
+                    placeholder="?"
                     disabled={reparse.status === 'running'}
-                    onChange={(e) => updateReparse({ fromPage: Number(e.target.value) || 1 })}
+                    onChange={(e) => updateReparse({ fromPage: Number(e.target.value) || 0 })}
                     className="w-16 px-2 py-1 bg-input border border-border rounded text-center tabular-nums disabled:opacity-40"
                   />
                   <span className="text-muted-foreground">~</span>
@@ -1810,9 +1847,10 @@ export function PdfTab({
                     type="number"
                     min={1}
                     max={reparse.pageCount}
-                    value={reparse.toPage}
+                    value={reparse.toPage || ''}
+                    placeholder="?"
                     disabled={reparse.status === 'running'}
-                    onChange={(e) => updateReparse({ toPage: Number(e.target.value) || 1 })}
+                    onChange={(e) => updateReparse({ toPage: Number(e.target.value) || 0 })}
                     className="w-16 px-2 py-1 bg-input border border-border rounded text-center tabular-nums disabled:opacity-40"
                   />
                   <span className="text-muted-foreground">쪽</span>
@@ -1852,12 +1890,19 @@ export function PdfTab({
                   <button
                     type="button"
                     onClick={runReparse}
-                    disabled={!apiKey || reparse.status === 'running'}
+                    disabled={
+                      !apiKey ||
+                      reparse.status === 'running' ||
+                      reparse.fromPage < 1 ||
+                      reparse.toPage < reparse.fromPage
+                    }
                     className="px-3 py-1.5 bg-primary text-primary-foreground rounded text-xs font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                   >
                     {reparse.status === 'running'
                       ? '분석 중...'
-                      : `${Math.max(0, reparse.toPage - reparse.fromPage + 1)}쪽 다시 파싱`}
+                      : reparse.fromPage < 1 || reparse.toPage < reparse.fromPage
+                        ? '범위를 지정하세요'
+                        : `${reparse.toPage - reparse.fromPage + 1}쪽 다시 파싱`}
                   </button>
                   {reparse.status === 'running' && (
                     <button
@@ -1900,6 +1945,57 @@ export function PdfTab({
 }
 
 // 읽지 못해 건너뛴 페이지 안내. 무엇을 잃었는지 밝혀야 사용자가 회수를 시도할 수 있다
+// 입력칸의 페이지 값이 어디서 왔는지 밝힌다.
+// 근거 없는 어림값을 근거 있는 값처럼 보여주면 사용자는 엉뚱한 구간을 재파싱하고도
+// 그게 맞는 줄 안다 — 실제로 242쪽 문서에서 1~111쪽을 돌린 적이 있다
+function ReparseSourceNote({
+  state,
+  onEstimate,
+}: {
+  state: ReparseState
+  onEstimate: () => void
+}) {
+  if (state.pageSource === 'recorded') {
+    return (
+      <p className="text-xs text-emerald-600 dark:text-emerald-400">
+        {state.confirmedFrom !== null && state.confirmedTo !== null && (
+          <>
+            이 회차의 문제는 {state.confirmedFrom}~{state.confirmedTo}쪽에서 확인됐습니다.{' '}
+          </>
+        )}
+        {state.pageExact
+          ? '빠진 번호의 앞뒤 문제 위치가 기록돼 있어 그 사이로 좁혔습니다.'
+          : '확인된 문제 위치를 기준으로 잡은 구간입니다.'}
+      </p>
+    )
+  }
+
+  if (state.pageSource === 'estimated') {
+    return (
+      <p className="text-xs text-amber-600 dark:text-amber-400">
+        ⚠ 번호 비율로 어림잡은 값이라 부정확할 수 있습니다. 결과를 보고 범위를 직접 조정하세요.
+      </p>
+    )
+  }
+
+  return (
+    <div className="space-y-1">
+      <p className="text-xs text-muted-foreground">
+        이 문제집은 페이지 정보 없이 파싱됐습니다. 재파싱할 범위를 직접 지정하세요.
+      </p>
+      <button
+        type="button"
+        onClick={onEstimate}
+        disabled={state.status === 'running'}
+        className="px-2 py-0.5 border border-border rounded text-xs text-muted-foreground hover:bg-muted disabled:opacity-40 transition-colors"
+      >
+        추정해보기
+      </button>
+    </div>
+  )
+}
+
+
 // 지금 실제로 보내고 있는 구간. 기준 청크 크기보다 작으면 "더 잘게 쪼개는 중"이라는 뜻이다.
 // 이걸 안 보여주면 화면은 "3페이지씩"이라고 하는데 실제로는 1쪽씩 재시도하는 상태가 되어,
 // 왜 이렇게 느린지 사용자가 알 길이 없다
