@@ -13,6 +13,10 @@ const SPARSE_RATIO = 1
 // 뒷부분이 잘렸는지는 번호만으로는 알 수 없다. 같은 과목·시험구분의 다른 회차가
 // 이만큼 있으면 그 회차들의 마지막 번호를 기준으로 삼는다
 const MIN_SIBLINGS_FOR_TAIL = 2
+// 형제들의 마지막 번호가 이 비율을 넘게 벌어져 있으면 "이 시험은 몇 번까지"라는
+// 전제 자체가 없는 것이다. 단원별 문제집이 그렇다 — 단원마다 문항 수가 다른 게 정상이다.
+// 그럴 땐 추정을 포기한다 (UI가 '마지막 번호는 확인 불가'로 밝힌다)
+const TAIL_SPREAD_RATIO = 0.2
 
 // 연도를 확인하지 못한 문제는 year가 0으로 저장된다 (gemini.ts의 resolveYear)
 export const UNKNOWN_YEAR = 0
@@ -156,6 +160,39 @@ export function orderForRuns<T extends PagedItem>(list: T[]): T[] {
   return keyed.map((k) => k.item)
 }
 
+/**
+ * 이 런의 뒷부분이 잘렸는지 견줄 형제 런들의 마지막 번호.
+ *
+ * 회차 기준으로 묶던 시절에는 "같은 과목·시험구분의 다른 연도"면 곧 다른 회차였다.
+ * 런 기준에서는 그렇지 않다. 단원별 문제집의 각 단원도 여기 걸려들어, 문항 수가 다른
+ * 단원끼리 서로를 회차로 착각한다 (30문·20문·45문이면 20문짜리에 뒷잘림 경고가 뜬다).
+ *
+ * 그래서 연도가 하나로 정해지는 런만 형제로 인정한다. 여러 해가 섞인 런은 회차가 아니라
+ * 단원 토막일 가능성이 높고, 그런 토막끼리는 문항 수를 견줄 근거가 없다.
+ */
+function siblingMaxesFor(r: Run, runs: Run[]): number[] {
+  if (r.yearMixed || r.year === UNKNOWN_YEAR) return []
+  return runs
+    .filter(
+      (o) =>
+        o.subject === r.subject &&
+        o.examType === r.examType &&
+        !o.yearMixed &&
+        o.year !== UNKNOWN_YEAR &&
+        o.year !== r.year
+    )
+    .map((o) => o.nos[o.nos.length - 1])
+}
+
+// 형제가 충분하고, 그 형제들이 서로 비슷할 때만 마지막 번호를 추정한다
+function estimateExpectedMax(siblingMaxes: number[]): number | null {
+  if (siblingMaxes.length < MIN_SIBLINGS_FOR_TAIL) return null
+  const low = Math.min(...siblingMaxes)
+  const high = Math.max(...siblingMaxes)
+  if (high - low > low * TAIL_SPREAD_RATIO) return null
+  return lowerMedian(siblingMaxes)
+}
+
 // 런 하나. GroupCheck를 만들기 전 단계 — 형제 런의 마지막 번호를 참조해야 해서 둘로 나눠 둔다
 interface Run {
   runId: string
@@ -276,12 +313,9 @@ export function buildParseReview(questions: Question[]): ParseReview {
     const present = new Set(r.nos)
     const interior = missingBetween(present, min, max)
 
-    // 뒷부분 잘림은 같은 과목·시험구분의 다른 런과 견줘야만 보인다.
-    // 견줄 런이 없는 파일에서는 판단 근거가 없어 검사하지 않는다 (UI에서 그 사실을 밝힌다)
-    const siblingMaxes = runs
-      .filter((o) => o.subject === r.subject && o.examType === r.examType && o.year !== r.year)
-      .map((o) => o.nos[o.nos.length - 1])
-    const expectedMax = siblingMaxes.length >= MIN_SIBLINGS_FOR_TAIL ? lowerMedian(siblingMaxes) : null
+    // 뒷부분 잘림은 같은 시험의 다른 회차와 견줘야만 보인다.
+    // 견줄 런이 없거나 서로 들쭉날쭉하면 판단 근거가 없어 검사하지 않는다 (UI에서 그 사실을 밝힌다)
+    const expectedMax = estimateExpectedMax(siblingMaxesFor(r, runs))
 
     const headMissing = min - 1
     const tailMissing = expectedMax !== null && expectedMax > max ? expectedMax - max : 0

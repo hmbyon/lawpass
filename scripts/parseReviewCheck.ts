@@ -171,6 +171,17 @@ const FIXTURES: Fixture[] = [
       ...block({ nos: range(26, 50), year: UNKNOWN_YEAR, startPage: 14 }),
     ]),
   },
+  {
+    name: '8. 단원별 (단원마다 문항 수·연도 다름)',
+    note:
+      '민법총칙 30문(2021), 물권법 20문(2022), 채권총론 45문(2023). 단원끼리 문항 수가 다른 건 정상인데, ' +
+      '서로를 형제 회차로 보면 문항 수가 적은 단원에 뒷잘림 오경고가 뜬다.',
+    questions: questions('민법-단원별-혼합.pdf', [
+      ...block({ nos: range(1, 30), year: 2021, unit: '민법총칙', startPage: 1 }),
+      ...block({ nos: range(1, 20), year: 2022, unit: '물권법', startPage: 16 }),
+      ...block({ nos: range(1, 45), year: 2023, unit: '채권총론', startPage: 26 }),
+    ]),
+  },
 ]
 
 // ── 순서 결정 케이스 (orderForRuns) ─────────────────────────────
