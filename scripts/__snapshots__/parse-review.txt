@@ -27,10 +27,9 @@ total=111 unknownYear=0 groups=3 hasWarning=true
 
 ### 4. 단원별 (연도 섞임)
 # 민법총칙 1~30번, 물권법 1~35번. 각 단원 안에서 연도가 섞인다. 연도로 묶으면 번호가 뒤엉킨다.
-total=65 unknownYear=0 groups=3 hasWarning=true
-  민법|변호사시험|2021 count=12 1~34 head=0 interior=[2,3,5,6,8,9,11,12,14,15,17,18 +10] expMax=33 tail=0 sparse=true ok=false
-  민법|변호사시험|2022 count=12 2~35 head=1 interior=[3,4,6,7,9,10,12,13,15,16,18,19 +10] expMax=33 tail=0 sparse=true ok=false
-  민법|변호사시험|2023 count=11 3~33 head=2 interior=[4,5,7,8,10,11,13,14,16,17,19,20 +8] expMax=34 tail=1 sparse=true ok=false
+total=65 unknownYear=0 groups=2 hasWarning=false
+  민법|변호사시험|2021 count=30 1~30 head=0 interior=[] expMax=- tail=0 sparse=false ok=true
+  민법|변호사시험|2021 count=35 1~35 head=0 interior=[] expMax=- tail=0 sparse=false ok=true
   units: 물권법=35 민법총칙=30
   years: 2023=21 2022=22 2021=22
 

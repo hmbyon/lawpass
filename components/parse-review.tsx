@@ -94,7 +94,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
         ) : (
           review.groups.map((g) => (
             <GroupRow
-              key={`${g.subject}-${g.examType}-${g.year}`}
+              key={g.runId}
               g={g}
               onReparse={onReparse}
               reparseDisabled={reparseDisabled}
@@ -264,7 +264,13 @@ function GroupRow({
   onReparse?: (req: ReparseRequest) => void
   reparseDisabled?: boolean
 }) {
-  const label = `${g.year} ${g.examType} · ${g.subject}`
+  // 한 파일에 같은 과목·연도의 토막이 여럿일 수 있으므로(단원별 문제집) 페이지 구간까지 붙인다.
+  // 연도는 이제 묶는 기준이 아니라 이름표라, 섞여 있으면 섞였다고 밝힌다
+  // 재파싱은 원본 파일이 있어야 걸 수 있다. 미리 뽑아 두어야 아래 콜백 안에서도 좁혀진 채로 쓰인다
+  const sourceFile = g.sourceFile
+  const yearLabel = g.yearMixed ? '연도 섞임' : g.year === UNKNOWN_YEAR ? '연도 미상' : `${g.year}년`
+  const pageLabel = g.pageFrom !== null ? ` · ${g.pageFrom}~${g.pageTo}쪽` : ''
+  const label = `${g.subject} · ${g.examType} · ${yearLabel}${pageLabel}`
   if (g.ok) {
     return (
       <p className="text-xs text-emerald-600 dark:text-emerald-400">
@@ -303,13 +309,13 @@ function GroupRow({
           ? '→ 번호를 골라 담은 교재라면 정상입니다. 아니라면 해당 구간을 다시 파싱해보세요'
           : '→ 빠진 번호가 있는 페이지 구간만 다시 파싱할 수 있습니다'}
       </p>
-      {onReparse && g.sourceFiles.length > 0 && (
+      {onReparse && sourceFile && (
         <button
           type="button"
           disabled={reparseDisabled}
           onClick={() =>
             onReparse({
-              sourceFile: g.sourceFiles[0],
+              sourceFile,
               subject: g.subject,
               examType: g.examType,
               year: g.year,

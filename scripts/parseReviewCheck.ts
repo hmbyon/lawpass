@@ -26,6 +26,8 @@ import {
 } from '../lib/parseReview'
 
 const SNAPSHOT = join(process.cwd(), 'scripts/__snapshots__/parse-review.txt')
+// 런 분할로 새로 생긴 필드만 따로 본다 (위 스냅샷을 오염시키지 않으려고 파일을 나눴다)
+const RUN_SNAPSHOT = join(process.cwd(), 'scripts/__snapshots__/parse-review-runs.txt')
 
 // ── fixture 만들기 ──────────────────────────────────────────────
 
@@ -277,6 +279,22 @@ function render(f: Fixture, review: ParseReview): string {
   return lines.join('\n')
 }
 
+// 런 분할로 새로 생긴 필드는 여기 따로 찍는다.
+// 위 스냅샷을 오염시키지 않아야 회차별 케이스의 무변경을 그대로 증명할 수 있다
+function renderRuns(f: Fixture, review: ParseReview): string {
+  const lines = [`### ${f.name}`]
+  if (review.groups.length === 0) lines.push('  (런 없음)')
+  for (const g of review.groups) {
+    const pages = g.pageFrom === null ? '쪽 모름' : `${g.pageFrom}~${g.pageTo}쪽`
+    lines.push(
+      `  ${g.runId} count=${g.count} ${g.min}~${g.max} ${pages} ` +
+        `year=${g.year === UNKNOWN_YEAR ? '미상' : g.year}${g.yearMixed ? '(섞임)' : ''} ` +
+        `file=${g.sourceFile ?? '-'}`
+    )
+  }
+  return lines.join('\n')
+}
+
 function renderOrder(c: OrderCase, got: string): string {
   return [
     `- ${c.name}`,
@@ -297,6 +315,10 @@ function check(cond: boolean, message: string) {
 
 function invariants(f: Fixture, review: ParseReview) {
   const where = (msg: string) => `[${f.name}] ${msg}`
+  // 화면 key로 쓰이므로 겹치면 안 된다. 회차별로 묶던 시절엔 한 파일에 같은 연도가
+  // 두 번 나오면 key가 겹쳤는데, 런 식별자는 그럴 일이 없어야 한다
+  const ids = new Set(review.groups.map((g) => g.runId))
+  check(ids.size === review.groups.length, where('runId가 겹친다'))
   for (const g of review.groups) {
     check(g.count === g.nos.length, where(`count(${g.count}) != nos.length(${g.nos.length})`))
     check(g.nos.length >= 2, where(`그룹에 번호가 ${g.nos.length}개뿐`))
@@ -321,11 +343,14 @@ function invariants(f: Fixture, review: ParseReview) {
 
 const update = process.argv.includes('--update')
 
-const fixtureReport = FIXTURES.map((f) => {
+const reviews = FIXTURES.map((f) => {
   const review = buildParseReview(f.questions)
   invariants(f, review)
-  return render(f, review)
-}).join('\n\n')
+  return { f, review }
+})
+
+const fixtureReport = reviews.map(({ f, review }) => render(f, review)).join('\n\n')
+const runReport = reviews.map(({ f, review }) => renderRuns(f, review)).join('\n\n')
 
 const orderReport = ORDER_CASES.map((c) => {
   const before = c.items.map((i) => i.label).join(' ')
@@ -343,31 +368,36 @@ const orderReport = ORDER_CASES.map((c) => {
 
 const report = `${fixtureReport}\n\n### 순서 결정 (orderForRuns)\n\n${orderReport}\n`
 
-if (update) {
-  mkdirSync(dirname(SNAPSHOT), { recursive: true })
-  writeFileSync(SNAPSHOT, report)
-  console.log(`스냅샷을 갱신했습니다: ${SNAPSHOT}`)
-} else {
+function compare(path: string, content: string) {
+  if (update) {
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, content)
+    console.log(`스냅샷을 갱신했습니다: ${path}`)
+    return
+  }
   let previous: string | null = null
   try {
-    previous = readFileSync(SNAPSHOT, 'utf8')
+    previous = readFileSync(path, 'utf8')
   } catch {
-    failures.push(`스냅샷이 없습니다. --update로 먼저 만들어주세요: ${SNAPSHOT}`)
+    failures.push(`스냅샷이 없습니다. --update로 먼저 만들어주세요: ${path}`)
+    return
   }
-  if (previous !== null && previous !== report) {
-    const before = previous.split('\n')
-    const after = report.split('\n')
-    const diff: string[] = []
-    for (let i = 0; i < Math.max(before.length, after.length); i++) {
-      if (before[i] !== after[i]) {
-        diff.push(`  ${i + 1}행`)
-        diff.push(`    - ${before[i] ?? '(없음)'}`)
-        diff.push(`    + ${after[i] ?? '(없음)'}`)
-      }
+  if (previous === content) return
+  const before = previous.split('\n')
+  const after = content.split('\n')
+  const diff: string[] = []
+  for (let i = 0; i < Math.max(before.length, after.length); i++) {
+    if (before[i] !== after[i]) {
+      diff.push(`  ${i + 1}행`)
+      diff.push(`    - ${before[i] ?? '(없음)'}`)
+      diff.push(`    + ${after[i] ?? '(없음)'}`)
     }
-    failures.push(`스냅샷과 다릅니다:\n${diff.join('\n')}`)
   }
+  failures.push(`${path} 스냅샷과 다릅니다:\n${diff.join('\n')}`)
 }
+
+compare(SNAPSHOT, report)
+compare(RUN_SNAPSHOT, `${runReport}\n`)
 
 if (failures.length > 0) {
   console.error(`\n실패 ${failures.length}건:\n`)
