@@ -364,7 +364,56 @@ function invariants(f: Fixture, review: ParseReview) {
   }
 }
 
+// ── 실데이터 대조 ───────────────────────────────────────────────
+// npm run check:parse-review -- --data ./questions.json
+//
+// 브라우저 localStorage에서 꺼낸 저장 배열을 그대로 넣어, 지금 코드가 무엇을 내놓는지 본다.
+// fixture는 사람이 지어낸 것이라 실제 문제집의 생김새를 다 담지 못한다.
+// 스냅샷과는 무관하다 — 비교하지 않고 찍기만 하고 끝낸다
+
+function runOnRealData(path: string) {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'))
+  } catch (err) {
+    console.error(`파일을 읽지 못했습니다: ${path}\n${String(err)}`)
+    process.exit(1)
+  }
+  // localStorage 값 그대로(배열)든, {questions: [...]} 로 감싼 것이든 받는다
+  const list = (
+    Array.isArray(parsed) ? parsed : ((parsed as { questions?: unknown }).questions ?? [])
+  ) as Question[]
+  if (!Array.isArray(list) || list.length === 0) {
+    console.error('문제 배열을 찾지 못했습니다. localStorage의 lawpass_questions_law 값을 그대로 넣어주세요')
+    process.exit(1)
+  }
+
+  const review = buildParseReview(list)
+  const files = Array.from(new Set(list.map((q) => q.sourceFile ?? '(파일 미상)')))
+  // 결번으로 지목된 번호를 전부 센다. 오탐이 줄었는지 견줄 수 있는 하나의 숫자다
+  const flagged = review.groups.reduce(
+    (sum, g) => sum + g.interior.length + g.headMissing + g.tailMissing,
+    0
+  )
+
+  console.log(`파일: ${files.join(', ')}`)
+  console.log(render({ name: path, note: '실데이터', questions: list }, review))
+  console.log(renderRuns({ name: path, note: '', questions: list }, review))
+  console.log(`\n결번으로 지목된 번호: 총 ${flagged}개 (경고 있는 런 ${review.groups.filter((g) => !g.ok).length}개)`)
+  process.exit(0)
+}
+
 // ── 실행 ────────────────────────────────────────────────────────
+
+const dataFlag = process.argv.indexOf('--data')
+if (dataFlag >= 0) {
+  const path = process.argv[dataFlag + 1]
+  if (!path) {
+    console.error('--data 뒤에 JSON 파일 경로를 적어주세요')
+    process.exit(1)
+  }
+  runOnRealData(path)
+}
 
 const update = process.argv.includes('--update')
 
