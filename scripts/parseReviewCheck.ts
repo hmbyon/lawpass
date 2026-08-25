@@ -182,6 +182,17 @@ const FIXTURES: Fixture[] = [
       ...block({ nos: range(1, 45), year: 2023, unit: '채권총론', startPage: 26 }),
     ]),
   },
+  {
+    name: '9. 낱개 런',
+    note:
+      '두 회차 사이에 5번 한 문제가 끼어 있다 (번호 오독이거나 다른 회차에서 딸려 온 문제). ' +
+      '앞뒤 어느 쪽과도 이어지지 않아 런이 셋으로 갈리고, 가운데 런은 번호가 하나뿐이라 검사에서 빠진다.',
+    questions: questions('변시-민법-기출.pdf', [
+      ...block({ nos: range(1, 40), year: 2022, startPage: 1 }),
+      ...block({ nos: [5], year: 2023, startPage: 21 }),
+      ...block({ nos: range(1, 40), year: 2024, startPage: 22 }),
+    ]),
+  },
 ]
 
 // ── 순서 결정 케이스 (orderForRuns) ─────────────────────────────
@@ -269,8 +280,11 @@ function render(f: Fixture, review: ParseReview): string {
   const lines: string[] = []
   lines.push(`### ${f.name}`)
   lines.push(`# ${f.note}`)
+  // 낱개 런은 있을 때만 찍는다. 없을 때도 찍으면 기존 fixture의 줄이 전부 바뀌어,
+  // '회차별 케이스는 그대로'를 스냅샷 diff로 보이는 이 하네스의 쓸모가 준다
+  const singletons = review.singletonRuns > 0 ? ` singletons=${review.singletonRuns}` : ''
   lines.push(
-    `total=${review.total} unknownYear=${review.skippedUnknownYear} ` +
+    `total=${review.total} unknownYear=${review.skippedUnknownYear}${singletons} ` +
       `groups=${review.groups.length} hasWarning=${review.hasWarning}`
   )
   if (review.groups.length === 0) lines.push('  (그룹 없음)')

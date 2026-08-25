@@ -89,6 +89,12 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
             아래 &apos;출제연도 분포&apos;에서 연도를 지정한 뒤 다시 확인해주세요
           </p>
         )}
+        {review.singletonRuns > 0 && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            ⚠ 앞뒤 번호와 이어지지 않는 낱개 문제 {review.singletonRuns}개는 연속성 검사에서 뺐습니다.
+            번호를 잘못 읽었거나 다른 회차의 문제가 섞여 들어왔을 수 있습니다
+          </p>
+        )}
         {review.groups.length === 0 ? (
           <p className="text-xs text-muted-foreground">번호를 확인할 수 있는 문제가 없습니다</p>
         ) : (

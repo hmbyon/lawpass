@@ -91,6 +91,9 @@ export interface ParseReview {
   groups: GroupCheck[]
   // 연도를 모르면 어느 회차의 몇 번인지 알 수 없어 결번 검사에서 뺀 문항 수
   skippedUnknownYear: number
+  // 번호가 하나뿐이라 연속성을 논할 수 없어 검사에서 뺀 런의 수.
+  // 이걸 세지 않으면 '많이 잃을수록 조용해지는' 함정으로 되돌아간다
+  singletonRuns: number
   units: UnitCount[]
   years: YearCount[]
   yearDominant: YearCount | null // 70% 이상을 차지하는 연도 (있을 때만)
@@ -302,10 +305,10 @@ export function buildParseReview(questions: Question[]): ParseReview {
   }
 
   // 런 목록을 먼저 만든다 (형제 런의 마지막 번호를 참조해야 하므로 2단계로 나눈다).
-  // 번호가 하나뿐인 런은 연속성을 논할 수 없어 뺀다
-  const runs = Array.from(byBucket.entries())
-    .flatMap(([key, list]) => cutRuns(key, list))
-    .filter((r) => r.nos.length >= MIN_COUNT_FOR_GAP_CHECK)
+  // 번호가 하나뿐인 런은 연속성을 논할 수 없어 빼되, 몇 개를 뺐는지는 세어 화면에 밝힌다
+  const allRuns = Array.from(byBucket.entries()).flatMap(([key, list]) => cutRuns(key, list))
+  const runs = allRuns.filter((r) => r.nos.length >= MIN_COUNT_FOR_GAP_CHECK)
+  const singletonRuns = allRuns.length - runs.length
 
   const groups: GroupCheck[] = runs.map((r) => {
     const min = r.nos[0]
@@ -408,12 +411,14 @@ export function buildParseReview(questions: Question[]): ParseReview {
     total: questions.length,
     groups,
     skippedUnknownYear,
+    singletonRuns,
     units,
     years,
     yearDominant,
     hasWarning:
       groups.some((g) => !g.ok) ||
       skippedUnknownYear > 0 ||
+      singletonRuns > 0 ||
       units.some((u) => !u.valid) ||
       years.some((y) => y.problem !== null) ||
       yearDominant !== null,

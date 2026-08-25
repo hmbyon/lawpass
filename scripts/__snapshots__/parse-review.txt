@@ -67,6 +67,14 @@ total=95 unknownYear=0 groups=3 hasWarning=false
   units: 채권총론=45 민법총칙=30 물권법=20
   years: 2023=45 2022=20 2021=30
 
+### 9. 낱개 런
+# 두 회차 사이에 5번 한 문제가 끼어 있다 (번호 오독이거나 다른 회차에서 딸려 온 문제). 앞뒤 어느 쪽과도 이어지지 않아 런이 셋으로 갈리고, 가운데 런은 번호가 하나뿐이라 검사에서 빠진다.
+total=81 unknownYear=0 singletons=1 groups=2 hasWarning=true
+  민법|변호사시험|2022 count=40 1~40 head=0 interior=[] expMax=- tail=0 sparse=false ok=true
+  민법|변호사시험|2024 count=40 1~40 head=0 interior=[] expMax=- tail=0 sparse=false ok=true
+  units: 민법총칙=81
+  years: 2024=40 2023=1 2022=40
+
 ### 순서 결정 (orderForRuns)
 
 - 전부 페이지 있음
