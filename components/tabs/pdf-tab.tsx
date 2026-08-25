@@ -21,6 +21,9 @@ const CHUNK_SIZE = 5
 const CHUNK_OVERLAP = 1
 
 const MAX_UPLOAD_BYTES = 4_000_000
+// 구간을 쪼개 다시 시도할 값어치는 있지만, 1페이지까지 좁혀도 안 될 때 '건너뛰기'로 처리하면
+// 안 되는 실패 사유. 페이지 내용이 아니라 통신·플랫폼이 원인이라 다음에는 멀쩡히 될 수 있다
+const TRANSPORT_REASONS = ['UPLOAD_TIMEOUT', 'ACTIVE_TIMEOUT']
 const CHUNK_BUDGET_BYTES = 3_600_000
 
 function mb(bytes: number): string {
@@ -483,7 +486,7 @@ export function PdfTab({
         { type: 'application/pdf' }
       )
       uri = await uploadPdfToFileApi(apiKey, chunkFile, undefined, signal)
-      await waitForFileActive(apiKey, uri)
+      await waitForFileActive(apiKey, uri, signal)
       for (const s of meta.subjects) {
         for (const et of meta.examTypes) {
           const questions = await extractQuestionsFromPdf(
@@ -502,6 +505,16 @@ export function PdfTab({
 
       const pages = endPage - startPage
       if (pages <= 1) {
+        // 여기서 성격을 갈라야 한다.
+        // 내용이 원인인 실패(RECITATION·분량 초과·깨진 JSON)는 몇 번을 다시 보내도 같은 결과이므로
+        // 그 페이지를 포기하는 게 맞다. 반면 업로드가 안 되는 것은 그 페이지의 성질이 아니라
+        // 통신·플랫폼 문제여서, 건너뛰면 멀쩡한 문제를 잃는다.
+        // 특히 장애 중이면 모든 페이지가 똑같이 실패하므로, 건너뛰기로 처리했다간
+        // 문서 전체가 '완료'로 기록된 채 통째로 비어버린다. 그래서 이쪽은 오류로 올려보낸다
+        if (TRANSPORT_REASONS.includes(err.reason)) {
+          console.error(`[p.${startPage + 1}] ${err.reason} — 통신 문제라 건너뛰지 않고 중단합니다:`, err.message)
+          throw err
+        }
         console.warn(`[p.${startPage + 1}] ${err.reason} — 이 페이지는 건너뜁니다:`, err.message)
         if (!sink.skipped.includes(startPage + 1)) sink.skipped.push(startPage + 1)
         sink.onProgress(endPage - chunkStart)
@@ -928,7 +941,7 @@ export function PdfTab({
         let uri = ''
         try {
           uri = await uploadPdfToFileApi(apiKey, chunkFile, undefined, controller.signal)
-          await waitForFileActive(apiKey, uri)
+          await waitForFileActive(apiKey, uri, controller.signal)
           const questions = await extractQuestionsFromPdf(
             apiKey,
             uri,

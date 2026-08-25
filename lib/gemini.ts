@@ -16,11 +16,15 @@ export function isAbortError(err: unknown): boolean {
 
 // 503(모델 과부하)과 429(rate limit) 발생 시 재시도.
 // 429는 동시 요청이 많을 때 나므로 지수 백오프로 간격을 벌린다.
+// 504·408도 재시도 대상이다 — 함수가 시간 안에 못 끝났다는 뜻일 뿐 요청 자체가 잘못된 게 아니라,
+// 다시 보내면 대개 통과한다. 예전에는 이게 빠져 있어서 업로드 504 한 건이 파일 전체를 끝냈다.
 // 중단된 경우 fetch가 AbortError를 던지므로 재시도 없이 그대로 전파된다
+const RETRYABLE_STATUSES = [429, 503, 504, 408]
+
 async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(url, init)
-    const retryable = res.status === 503 || res.status === 429
+    const retryable = RETRYABLE_STATUSES.includes(res.status)
     if (!retryable || attempt >= MAX_RETRIES) return res
     if (init.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
     // 503은 고정 간격, 429는 2배씩 늘려 한도가 회복될 시간을 준다
@@ -96,6 +100,11 @@ function badJsonError(raw: string): Error {
   )
 }
 
+// 업로드 응답에서 이미 ACTIVE로 확인된 URI. 흔한 경우에 상태 확인 왕복을 한 번 줄인다
+const knownActive = new Set<string>()
+// 함수가 죽고 게이트웨이가 대신 낸 응답의 상태코드. 우리 라우트의 오류와 구분하는 데 쓴다
+const GATEWAY_STATUSES = [502, 503, 504, 408]
+
 // ── Upload PDF via server proxy ──────────────────────────────────────────────
 export async function uploadPdfToFileApi(
   apiKey: string,
@@ -112,20 +121,74 @@ export async function uploadPdfToFileApi(
   const res = await fetchWithRetry('/api/upload', { method: 'POST', body: form, signal })
 
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: res.statusText }))
+    // 우리 라우트는 실패할 때 반드시 error 문구가 든 JSON을 돌려준다.
+    // 본문이 JSON이 아니면 함수가 죽고 게이트웨이(Vercel)가 대신 응답한 것이다 — 성격이 전혀 다르다.
+    // 이건 "이 구간을 통째로는 못 보냈다"는 뜻이므로, 재시도까지 실패했다면 쪼갤 수 있는 실패로 넘긴다.
+    // 잘못된 API 키 같은 진짜 오류(우리 라우트가 문구와 함께 502를 준다)까지 쪼개면
+    // 문서 전체가 한 페이지씩 건너뛰기로 조용히 사라지므로, 반드시 이렇게 구분해야 한다
+    const data = await res.json().catch(() => null)
+    if (data === null && GATEWAY_STATUSES.includes(res.status)) {
+      throw new IncompleteResponseError(
+        `업로드가 게이트웨이 단계에서 끊겼습니다 (${res.status}). 재시도 ${MAX_RETRIES}회도 실패했습니다.`,
+        'UPLOAD_TIMEOUT'
+      )
+    }
     throw new Error(data?.error ?? `Upload failed (${res.status})`)
   }
 
   const data = await res.json()
   if (!data.fileUri) throw new Error('No fileUri returned from upload API')
 
+  // 202 = 업로드는 됐지만 아직 ACTIVE가 아님. 오류가 아니라 "이어서 기다리라"는 신호다.
+  // 서버에서 이미 ACTIVE로 확인됐으면 waitForFileActive가 왕복을 한 번 아끼도록 표시해 둔다
+  if (data.state === 'ACTIVE') knownActive.add(data.fileUri as string)
+
   onProgress?.(100)
   return data.fileUri as string
 }
 
 // ── waitForFileActive & deleteFile ───────────────────────────────────────────
-export async function waitForFileActive(_apiKey: string, _fileUri: string): Promise<void> {
-  // No-op: handled server-side in /api/upload
+// ACTIVE 전이를 브라우저에서 기다린다.
+// 서버에서 끝까지 기다리면 함수 제한(maxDuration)에 걸려 504가 나고 업로드 결과가 통째로 버려진다.
+// 브라우저에는 그런 제한이 없으므로 기다리는 일은 이쪽이 맡는다
+const ACTIVE_TIMEOUT_MS = 120_000
+const ACTIVE_POLL_MS = 2_000
+
+export async function waitForFileActive(
+  apiKey: string,
+  fileUri: string,
+  signal?: AbortSignal
+): Promise<void> {
+  if (knownActive.delete(fileUri)) return
+
+  const deadline = Date.now() + ACTIVE_TIMEOUT_MS
+  for (;;) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+
+    const form = new FormData()
+    form.append('apiKey', apiKey)
+    form.append('fileUri', fileUri)
+    const res = await fetchWithRetry('/api/upload', { method: 'POST', body: form, signal })
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => null)
+      throw new Error(data?.error ?? `파일 상태 확인 실패 (${res.status})`)
+    }
+
+    const { state } = (await res.json()) as { state?: string }
+    if (state === 'ACTIVE') return
+    // 처리 실패는 그 파일 고유의 문제다. 더 작게 잘라 보내면 통과할 수 있으므로 쪼갤 수 있는 실패로 던진다
+    if (state === 'FAILED') {
+      throw new IncompleteResponseError('Gemini가 이 PDF 구간을 처리하지 못했습니다.', 'FILE_FAILED')
+    }
+    if (Date.now() + ACTIVE_POLL_MS >= deadline) {
+      throw new IncompleteResponseError(
+        `업로드한 구간이 ${ACTIVE_TIMEOUT_MS / 1000}초 안에 준비되지 않았습니다 (마지막 상태 ${state}).`,
+        'ACTIVE_TIMEOUT'
+      )
+    }
+    await sleep(ACTIVE_POLL_MS)
+  }
 }
 
 export async function deleteFile(_apiKey: string, _fileUri: string): Promise<void> {

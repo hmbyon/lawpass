@@ -2,16 +2,62 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export const maxDuration = 60
 
+// 함수가 플랫폼 제한(maxDuration)에 걸려 죽으면 응답 본문이 우리 것이 아니게 된다.
+// 그러면 클라이언트는 JSON 대신 HTML을 받아 "Gateway Timeout"이라는 정체불명 오류만 보고,
+// 재시도할지 쪼갤지 판단할 근거를 잃는다. 그래서 제한보다 넉넉히 앞선 시점에 우리가 먼저 응답한다.
+// 예전에는 폴링 예산(30회 × 2초 = 60초)이 maxDuration과 같아서 우리 504는 도달조차 못 했다
+const BUDGET_MS = 45_000
+// 대부분의 청크는 1~3초면 ACTIVE가 된다. 그 흔한 경우까지 왕복을 한 번 더 시키지 않도록
+// 서버에서 잠깐만 기다려 보고, 그 안에 안 되면 브라우저에게 넘긴다 (브라우저에는 시간 제한이 없다)
+const GRACE_MS = 8_000
+const POLL_INTERVAL_MS = 1_500
+
 const BASE = 'https://generativelanguage.googleapis.com'
 
+type FileState = 'ACTIVE' | 'PROCESSING' | 'FAILED' | string
+
+async function fetchState(apiKey: string, fileUri: string): Promise<FileState> {
+  const fileName = fileUri.split('/').pop()
+  const res = await fetch(`${BASE}/v1beta/files/${fileName}?key=${apiKey}`)
+  if (!res.ok) throw new Error(`Failed to check file state (${res.status})`)
+  const data = await res.json()
+  return (data?.state as FileState) ?? 'PROCESSING'
+}
+
+// deadline까지만 ACTIVE를 기다린다. 시간이 다하면 예외 대신 마지막 상태를 돌려주고,
+// 판단(더 기다릴지 / 포기할지)은 호출부에 맡긴다
+async function pollUntilActive(apiKey: string, fileUri: string, deadline: number): Promise<FileState> {
+  let state: FileState = 'PROCESSING'
+  while (Date.now() < deadline) {
+    state = await fetchState(apiKey, fileUri)
+    if (state === 'ACTIVE' || state === 'FAILED') return state
+    if (Date.now() + POLL_INTERVAL_MS >= deadline) break
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
+  }
+  return state
+}
+
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now()
   try {
     const formData = await req.formData()
-    const file = formData.get('file') as File | null
     const apiKey = formData.get('apiKey') as string | null
+    if (!apiKey) {
+      return NextResponse.json({ error: 'apiKey is required' }, { status: 400 })
+    }
 
-    if (!file || !apiKey) {
-      return NextResponse.json({ error: 'file and apiKey are required' }, { status: 400 })
+    // ── 상태 확인 모드: 업로드는 이미 끝났고 ACTIVE가 됐는지만 묻는다 ──
+    // 브라우저가 이 모드를 반복 호출하며 기다린다. 한 번 호출이 1초 남짓이라 함수 제한과 무관하다
+    const pendingUri = formData.get('fileUri') as string | null
+    if (pendingUri) {
+      const state = await fetchState(apiKey, pendingUri)
+      return NextResponse.json({ fileUri: pendingUri, state })
+    }
+
+    // ── 업로드 모드 ──
+    const file = formData.get('file') as File | null
+    if (!file) {
+      return NextResponse.json({ error: 'file is required' }, { status: 400 })
     }
 
     // 1. Initiate resumable upload
@@ -81,24 +127,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No fileUri returned after upload' }, { status: 502 })
     }
 
-    // 3. Wait for ACTIVE state (poll up to 60 s)
-    const fileName = fileUri.split('/').pop()
-    for (let i = 0; i < 30; i++) {
-      const stateRes = await fetch(`${BASE}/v1beta/files/${fileName}?key=${apiKey}`)
-      if (!stateRes.ok) {
-        return NextResponse.json({ error: 'Failed to check file state' }, { status: 502 })
-      }
-      const stateData = await stateRes.json()
-      if (stateData.state === 'ACTIVE') {
-        return NextResponse.json({ fileUri })
-      }
-      if (stateData.state === 'FAILED') {
-        return NextResponse.json({ error: 'Gemini file processing failed' }, { status: 502 })
-      }
-      await new Promise((r) => setTimeout(r, 2000))
+    // 3. 잠깐만 ACTIVE를 기다려 본다.
+    // 여기서 오래 붙잡고 있으면 함수가 제한에 걸려 죽으므로, 남은 예산과 grace 중 짧은 쪽만 쓴다
+    const deadline = Math.min(startedAt + BUDGET_MS, Date.now() + GRACE_MS)
+    const state = await pollUntilActive(apiKey, fileUri, deadline)
+
+    if (state === 'FAILED') {
+      return NextResponse.json({ error: 'Gemini file processing failed', fileUri }, { status: 502 })
     }
 
-    return NextResponse.json({ error: 'File did not become ACTIVE in time' }, { status: 504 })
+    // ★업로드 자체는 성공했다. 아직 ACTIVE가 아닐 뿐이므로 오류가 아니다.
+    // fileUri를 함께 돌려줘 브라우저가 상태 확인 모드로 이어서 기다리게 한다.
+    // 예전에는 이 상황을 504로 내려보내 업로드 결과를 통째로 버렸다
+    return NextResponse.json({ fileUri, state }, { status: state === 'ACTIVE' ? 200 : 202 })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     return NextResponse.json({ error: message }, { status: 500 })
