@@ -97,6 +97,10 @@ interface ReparseState {
   donePages: number
   added: number
   merged: number
+  // 메인 파싱과 같은 뜻 — 어떤 크기로 쪼개도 읽지 못해 포기한 페이지(1-based)
+  skipped: number[]
+  // 지금 실제로 보내고 있는 구간. 쪼개는 중이면 화면의 쪽수와 어긋나므로 그대로 보여준다
+  activeRange: { from: number; to: number; narrowed: boolean } | null
 }
 
 interface JobView {
@@ -890,13 +894,13 @@ export function PdfTab({
       const { from, to } = estimatePageRange(req.nos, req.missing, pageCount)
       setReparse({
         req, file, pageCount, fromPage: from, toPage: to,
-        status: 'ready', error: null, donePages: 0, added: 0, merged: 0,
+        status: 'ready', error: null, donePages: 0, added: 0, merged: 0, skipped: [], activeRange: null,
       })
     } catch (err) {
       setReparse({
         req, file: null, pageCount: 0, fromPage: 1, toPage: 1,
         status: 'error', error: `PDF를 읽지 못했습니다: ${String(err)}`,
-        donePages: 0, added: 0, merged: 0,
+        donePages: 0, added: 0, merged: 0, skipped: [], activeRange: null,
       })
     }
   }
@@ -905,7 +909,7 @@ export function PdfTab({
     setActionError(null)
     setReparse({
       req, file: null, pageCount: 0, fromPage: 1, toPage: 1,
-      status: 'needFile', error: null, donePages: 0, added: 0, merged: 0,
+      status: 'needFile', error: null, donePages: 0, added: 0, merged: 0, skipped: [], activeRange: null,
     })
     const cached = await loadPdfFile(req.sourceFile)
     if (cached) await prepareReparse(req, cached)
@@ -922,6 +926,10 @@ export function PdfTab({
     setReparse((prev) => (prev ? { ...prev, ...patch } : prev))
   }
 
+  // 결번 재파싱도 메인 파싱과 똑같은 복구 규칙을 따라야 한다.
+  // 예전에는 여기에 자체 청크 루프가 있어서 분할 재시도·1페이지 건너뛰기·겹침이 전부 없었고,
+  // RECITATION 한 번이면 그 자리에서 멈춰 뒤쪽 페이지는 시도조차 못 했다.
+  // 그래서 로직을 새로 짜지 않고 extractRange를 그대로 호출한다
   async function runReparse() {
     const target = reparse
     if (!target?.file || !apiKey || target.status === 'running') return
@@ -929,10 +937,14 @@ export function PdfTab({
     const controller = new AbortController()
     abortRef.current = controller
     setIsRunning(true)
-    updateReparse({ status: 'running', error: null, donePages: 0, added: 0, merged: 0 })
+    updateReparse({
+      status: 'running', error: null, donePages: 0, added: 0, merged: 0,
+      skipped: [], activeRange: null,
+    })
 
     let added = 0
     let merged = 0
+    const skipped: number[] = []
     try {
       const sourceBuffer = await target.file.arrayBuffer()
       const sourcePdf = await PDFDocument.load(sourceBuffer)
@@ -940,50 +952,57 @@ export function PdfTab({
       const from = Math.max(1, Math.min(target.fromPage, totalPages))
       const to = Math.max(from, Math.min(target.toPage, totalPages))
       const chunkSize = await calibrateChunkSize(sourcePdf, totalPages, sourceBuffer.byteLength)
-
-      for (let start = from - 1; start < to; start += chunkSize) {
-        const end = Math.min(start + chunkSize, to)
-        const chunkBytes = await buildChunkBytes(sourcePdf, start, end)
-        if (chunkBytes.byteLength > MAX_UPLOAD_BYTES) {
-          throw new Error(
-            `${start + 1}~${end}페이지가 ${mb(chunkBytes.byteLength)}MB로 업로드 한도를 넘습니다.`
-          )
-        }
-        const chunkFile = new File(
-          [chunkBytes.buffer as ArrayBuffer],
-          `${target.req.sourceFile}-재파싱-${start + 1}-${end}.pdf`,
-          { type: 'application/pdf' }
-        )
-        let uri = ''
-        try {
-          uri = await uploadPdfToFileApi(apiKey, chunkFile, undefined, controller.signal)
-          await waitForFileActive(apiKey, uri, controller.signal)
-          const questions = await extractQuestionsFromPdf(
-            apiKey,
-            uri,
-            target.req.subject as Subject,
-            target.req.examType as ExamType,
-            new Date().getFullYear(),
-            controller.signal
-          )
-          const result = addQuestions(questions, target.req.sourceFile)
-          added += result.added
-          merged += result.merged
-        } finally {
-          if (uri) await deleteFile(apiKey, uri).catch(() => {})
-        }
-        updateReparse({ donePages: end - (from - 1), added, merged })
+      const meta: ParseMeta = {
+        subjects: [target.req.subject as Subject],
+        examTypes: [target.req.examType as ExamType],
       }
-      updateReparse({ status: 'done', donePages: to - (from - 1), added, merged })
+
+      for (let cursor = from - 1; cursor < to; cursor += chunkSize) {
+        // 청크 경계에 걸친 문제를 놓치지 않도록 메인 흐름과 같은 겹침을 준다.
+        // 결번 재파싱은 바로 그 '경계에서 잘린 문제'를 되찾으려는 기능인데
+        // 예전 구현은 정작 자기가 같은 방식으로 딱 잘라 붙였다
+        const startPage = cursor > from - 1 ? Math.max(from - 1, cursor - CHUNK_OVERLAP) : cursor
+        const endPage = Math.min(cursor + chunkSize, to)
+        const doneBefore = cursor - (from - 1)
+
+        await extractRange(
+          sourcePdf, startPage, endPage,
+          target.file.name, target.req.sourceFile, meta, controller.signal,
+          {
+            onCount: (a, m) => {
+              added += a
+              merged += m
+              updateReparse({ added, merged })
+            },
+            // extractRange는 이 청크 안에서 끝낸 페이지 수를 준다. 구간 전체 기준으로 바꾼다
+            onProgress: (donePagesInChunk) =>
+              updateReparse({ donePages: Math.min(to - (from - 1), doneBefore + donePagesInChunk) }),
+            onRange: (rFrom, rTo) =>
+              updateReparse({
+                activeRange: {
+                  from: rFrom, to: rTo,
+                  narrowed: !(rFrom === startPage + 1 && rTo === endPage),
+                },
+              }),
+            skipped,
+          },
+          startPage
+        )
+        updateReparse({ skipped: [...skipped], activeRange: null })
+      }
+      updateReparse({
+        status: 'done', donePages: to - (from - 1), added, merged,
+        skipped: [...skipped], activeRange: null,
+      })
       showReview([target.req.sourceFile])
       onQuestionsAdded()
     } catch (err) {
       updateReparse({
         status: isAbortError(err) ? 'ready' : 'error',
         error: isAbortError(err) ? null : String(err),
-        added,
-        merged,
+        added, merged, skipped: [...skipped], activeRange: null,
       })
+      // 청크 단위로 이미 저장된 것들은 살아 있다. 검토 화면에 반영해 무엇이 들어왔는지 보이게 한다
       if (added > 0 || merged > 0) {
         showReview([target.req.sourceFile])
         onQuestionsAdded()
@@ -1794,16 +1813,36 @@ export function PdfTab({
                   <span className="text-muted-foreground">쪽</span>
                 </div>
                 {reparse.status === 'running' && (
-                  <p className="text-xs text-muted-foreground tabular-nums">
-                    분석 중… {reparse.donePages}/{Math.max(1, reparse.toPage - reparse.fromPage + 1)}페이지 ·{' '}
-                    {reparse.added}문제 추가, {reparse.merged}문제 병합
-                  </p>
+                  <>
+                    <p className="text-xs text-muted-foreground tabular-nums">
+                      분석 중… {reparse.donePages}/{Math.max(1, reparse.toPage - reparse.fromPage + 1)}페이지 ·{' '}
+                      {reparse.added}문제 추가, {reparse.merged}문제 병합
+                    </p>
+                    {reparse.activeRange && (
+                      <p
+                        className={`text-xs ${
+                          reparse.activeRange.narrowed
+                            ? 'text-amber-600 dark:text-amber-400'
+                            : 'text-muted-foreground'
+                        }`}
+                      >
+                        {(() => {
+                          const r = reparse.activeRange
+                          const label = r.to - r.from + 1 === 1 ? `${r.from}쪽` : `${r.from}~${r.to}쪽`
+                          return r.narrowed
+                            ? `↳ ${label}만 따로 재시도 중 — 응답이 크거나 거부되어 더 잘게 나누고 있습니다`
+                            : `↳ ${label} 처리 중`
+                        })()}
+                      </p>
+                    )}
+                  </>
                 )}
                 {reparse.status === 'done' && (
                   <p className="text-xs text-emerald-600 dark:text-emerald-400">
                     완료: {reparse.added}문제 추가, {reparse.merged}문제 병합
                   </p>
                 )}
+                <SkippedNote pages={reparse.skipped} />
                 <div className="flex gap-2">
                   <button
                     type="button"
