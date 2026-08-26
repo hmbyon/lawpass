@@ -6,12 +6,15 @@
 ### 2. 회차별 + 중간 결번
   변시-민법-기출.pdf|민법|변호사시험#0 count=40 1~40 1~20쪽 year=2022 expMin=1 file=변시-민법-기출.pdf
   변시-민법-기출.pdf|민법|변호사시험#1 count=38 1~40 21~39쪽 year=2023 expMin=1 file=변시-민법-기출.pdf
+      interior 17~18번 → excerpt (28쪽과 29쪽이 붙어 있어 들어갈 자리가 없습니다)
   변시-민법-기출.pdf|민법|변호사시험#2 count=40 1~40 41~60쪽 year=2024 expMin=1 file=변시-민법-기출.pdf
 
 ### 3. 회차별 + 앞뒤 잘림
   변시-민법-기출.pdf|민법|변호사시험#0 count=40 1~40 1~20쪽 year=2022 expMin=1 file=변시-민법-기출.pdf
   변시-민법-기출.pdf|민법|변호사시험#1 count=40 1~40 21~40쪽 year=2023 expMin=1 file=변시-민법-기출.pdf
   변시-민법-기출.pdf|민법|변호사시험#2 count=31 5~35 41~56쪽 year=2024 expMin=1 file=변시-민법-기출.pdf
+      head 1~4번 → suspect (다른 회차는 1번부터 시작합니다)
+      tail 36~40번 → suspect (다른 회차는 40번까지 있습니다)
 
 ### 4. 단원별 (연도 섞임)
   민법-단원별.pdf|민법|변호사시험#0 count=30 1~30 1~15쪽 year=2021(섞임) expMin=- file=민법-단원별.pdf
@@ -41,5 +44,20 @@
 
 ### 10. 발췌본 (회차마다 이 단원 문제만)
   민법총칙-발췌.pdf|민법|변호사시험#0 count=9 5~17 1~5쪽 year=2014 expMin=- file=민법총칙-발췌.pdf
+      interior 6~7번 → excerpt (1쪽 안에 나란히 있어 들어갈 자리가 없습니다)
+      interior 13~14번 → excerpt (3쪽과 4쪽이 붙어 있어 들어갈 자리가 없습니다)
   민법총칙-발췌.pdf|민법|변호사시험#1 count=10 3~26 6~10쪽 year=2015 expMin=- file=민법총칙-발췌.pdf
+      interior 5~8번 → excerpt (6쪽과 7쪽이 붙어 있어 들어갈 자리가 없습니다)
+      interior 10~19번 → excerpt (7쪽 안에 나란히 있어 들어갈 자리가 없습니다)
   민법총칙-발췌.pdf|민법|변호사시험#2 count=7 2~20 11~14쪽 year=2016 expMin=- file=민법총칙-발췌.pdf
+      interior 3~6번 → excerpt (11쪽 안에 나란히 있어 들어갈 자리가 없습니다)
+      interior 9~12번 → excerpt (12쪽 안에 나란히 있어 들어갈 자리가 없습니다)
+      interior 15~18번 → excerpt (13쪽 안에 나란히 있어 들어갈 자리가 없습니다)
+
+### 11. 진짜 유실 (빠진 자리에 빈 쪽이 있음)
+  변시-민법-기출.pdf|민법|변호사시험#0 count=38 1~40 1~22쪽 year=2020 expMin=- file=변시-민법-기출.pdf
+      interior 17~18번 → suspect (9~11쪽이 비어 있습니다) [8~12쪽 재파싱]
+
+### 12. 페이지 기록 없는 결번
+  옛-문제집.pdf|민법|변호사시험#0 count=38 1~40 쪽 모름 year=2019 expMin=- file=옛-문제집.pdf
+      interior 17~18번 → unknown (페이지 기록이 없어 판단할 수 없습니다)

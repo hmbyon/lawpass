@@ -32,6 +32,28 @@ export interface QuestionPage {
   to: number
 }
 
+/**
+ * 빠진 번호 한 덩어리와 그에 대한 판정.
+ *
+ * 결번을 낱개 번호가 아니라 덩어리로 보는 이유는, 판정 근거가 덩어리 단위로만 생기기 때문이다.
+ * "6,7번이 없다"는 사실만으로는 유실인지 발췌인지 알 수 없지만,
+ * "5번은 1쪽, 8번은 2쪽" 이라는 사실을 보태면 갈린다 — 6·7번이 들어갈 쪽이 없다.
+ */
+export interface Gap {
+  kind: 'head' | 'interior' | 'tail'
+  from: number // 빠진 첫 번호
+  to: number // 빠진 마지막 번호
+  // excerpt  애초에 실리지 않은 번호로 보임 (빠진 자리에 빈 쪽이 없다)
+  // suspect  파싱에서 놓친 것으로 보임 (빈 쪽이 있거나, 형제 회차가 더 있다)
+  // unknown  페이지 기록이 없어 판단할 수 없음. 조용히 넘기지 않고 그대로 남긴다
+  verdict: 'excerpt' | 'suspect' | 'unknown'
+  reason: string // 왜 그렇게 봤는지. 화면에 그대로 나간다
+  // suspect일 때 다시 파싱할 쪽 구간. 양끝 문제가 있던 쪽까지 포함한다
+  // (한 쪽에 여러 문제가 실리므로 빈 쪽만 보내면 경계에 걸친 문제를 놓친다)
+  pageFrom?: number
+  pageTo?: number
+}
+
 // 한 '번호 런'의 연속성 점검 결과.
 //
 // 예전에는 과목·시험구분·연도(= 회차)로 묶었다. 회차별 기출 문제집에서는 그게 맞았지만
@@ -63,6 +85,9 @@ export interface GroupCheck {
   pageTo: number | null // 가장 늦은 쪽
   sourceFile: string | null // 이 런이 나온 파일. 런은 정의상 한 파일에서만 나온다
   interior: number[] // min~max 사이에서 빠진 번호 (전체)
+  // 빠진 번호를 덩어리로 묶고 하나하나 판정한 것. head·interior·tail을 한 종류로 다룬다.
+  // interior 필드와 같은 사실을 다르게 보여줄 뿐이라 둘은 언제나 아귀가 맞아야 한다
+  gaps: Gap[]
   expectedMin: number | null // 형제 런들로 추정한 첫 번호. null이면 '몇 번부터인지 알 수 없음'
   headMissing: number // expectedMin부터 min-1번까지 몇 개가 없는지 (근거가 없으면 0)
   expectedMax: number | null // 형제 런들로 추정한 마지막 번호
@@ -212,6 +237,95 @@ function estimateExpectedMin(siblingMins: number[]): number | null {
   return startAtOne * 2 >= siblingMins.length ? 1 : null
 }
 
+/**
+ * 빠진 번호를 덩어리로 묶고 하나하나 판정한다.
+ *
+ * 가운데 결번(interior)은 **페이지가 답을 갖고 있다.** 파싱은 쪽 단위로 실패하므로
+ * 정말 놓친 문제가 있으면 그 자리에 빈 쪽이 남는다. 반대로 애초에 실리지 않은 번호라면
+ * 앞뒤 문제의 쪽이 맞붙어 있어 들어갈 자리가 없다.
+ *
+ * 앞뒤 결번(head·tail)은 페이지로 못 가린다. 원래 있었어야 할 문제는 어느 쪽에도 흔적을
+ * 남기지 않기 때문이다. 대신 이쪽은 이미 형제 런이라는 근거를 통과해야만 만들어진다
+ * (headMissing은 6a, tailMissing은 4a에서 그렇게 고쳤다). 그래서 바로 suspect로 본다.
+ */
+function buildGaps(
+  nos: number[],
+  pages: QuestionPage[],
+  expectedMin: number | null,
+  headMissing: number,
+  expectedMax: number | null,
+  tailMissing: number
+): Gap[] {
+  const gaps: Gap[] = []
+
+  if (headMissing > 0 && expectedMin !== null) {
+    gaps.push({
+      kind: 'head',
+      from: expectedMin,
+      to: nos[0] - 1,
+      verdict: 'suspect',
+      reason: `다른 회차는 ${expectedMin}번부터 시작합니다`,
+    })
+  }
+
+  const pageOf = new Map(pages.map((p) => [p.no, p]))
+  for (let i = 1; i < nos.length; i++) {
+    const before = nos[i - 1]
+    const after = nos[i]
+    if (after - before <= 1) continue
+    const from = before + 1
+    const to = after - 1
+    const pa = pageOf.get(before)
+    const pb = pageOf.get(after)
+
+    if (!pa || !pb) {
+      gaps.push({
+        kind: 'interior',
+        from,
+        to,
+        verdict: 'unknown',
+        reason: '페이지 기록이 없어 판단할 수 없습니다',
+      })
+      continue
+    }
+    const emptyPages = pb.from - pa.to - 1
+    if (emptyPages > 0) {
+      gaps.push({
+        kind: 'interior',
+        from,
+        to,
+        verdict: 'suspect',
+        reason: `${pa.to + 1}~${pb.from - 1}쪽이 비어 있습니다`,
+        pageFrom: pa.from,
+        pageTo: pb.to,
+      })
+    } else {
+      gaps.push({
+        kind: 'interior',
+        from,
+        to,
+        verdict: 'excerpt',
+        reason:
+          pa.to === pb.from
+            ? `${pa.to}쪽 안에 나란히 있어 들어갈 자리가 없습니다`
+            : `${pa.to}쪽과 ${pb.from}쪽이 붙어 있어 들어갈 자리가 없습니다`,
+      })
+    }
+  }
+
+  if (tailMissing > 0 && expectedMax !== null) {
+    gaps.push({
+      kind: 'tail',
+      from: nos[nos.length - 1] + 1,
+      to: expectedMax,
+      verdict: 'suspect',
+      reason: `다른 회차는 ${expectedMax}번까지 있습니다`,
+    })
+  }
+
+  return gaps
+}
+
 // 런 하나. GroupCheck를 만들기 전 단계 — 형제 런의 마지막 번호를 참조해야 해서 둘로 나눠 둔다
 interface Run {
   runId: string
@@ -357,6 +471,7 @@ export function buildParseReview(questions: Question[]): ParseReview {
       pageFrom: r.pages.length > 0 ? Math.min(...r.pages.map((p) => p.from)) : null,
       pageTo: r.pages.length > 0 ? Math.max(...r.pages.map((p) => p.to)) : null,
       interior,
+      gaps: buildGaps(r.nos, r.pages, expectedMin, headMissing, expectedMax, tailMissing),
       expectedMin,
       headMissing,
       expectedMax,

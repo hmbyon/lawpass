@@ -84,6 +84,20 @@ total=26 unknownYear=0 groups=3 hasWarning=true
   units: 민법총칙=26
   years: 2016=7 2015=10 2014=9
 
+### 11. 진짜 유실 (빠진 자리에 빈 쪽이 있음)
+# 1~40번 회차인데 17·18번이 없고, 그 둘이 있던 9~11쪽에서 아무 문제도 나오지 않았다. 번호만 보면 밀도 0.95로 촘촘하지만 페이지를 보면 구멍이 뚫려 있다.
+total=38 unknownYear=0 groups=1 hasWarning=true
+  민법|변호사시험|2020 count=38 1~40 head=0 interior=[17,18] expMax=- tail=0 sparse=false ok=false
+  units: 민법총칙=38
+  years: 2020=38
+
+### 12. 페이지 기록 없는 결번
+# 17·18번이 빠졌는데 페이지 기록이 없어 유실인지 발췌인지 가릴 근거가 없다. 조용히 넘기지 않고 판단 보류로 남겨야 한다.
+total=38 unknownYear=0 groups=1 hasWarning=true
+  민법|변호사시험|2019 count=38 1~40 head=0 interior=[17,18] expMax=- tail=0 sparse=false ok=false
+  units: 민법총칙=38
+  years: 2019=38
+
 ### 순서 결정 (orderForRuns)
 
 - 전부 페이지 있음

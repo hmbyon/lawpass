@@ -204,6 +204,26 @@ const FIXTURES: Fixture[] = [
       ...block({ nos: [2, 7, 8, 13, 14, 19, 20], year: 2016, startPage: 11 }),
     ]),
   },
+  {
+    name: '11. 진짜 유실 (빠진 자리에 빈 쪽이 있음)',
+    note:
+      '1~40번 회차인데 17·18번이 없고, 그 둘이 있던 9~11쪽에서 아무 문제도 나오지 않았다. ' +
+      '번호만 보면 밀도 0.95로 촘촘하지만 페이지를 보면 구멍이 뚫려 있다.',
+    questions: questions('변시-민법-기출.pdf', [
+      ...block({ nos: range(1, 16), year: 2020, startPage: 1 }),
+      // 17·18번이 있던 9~11쪽을 건너뛴다 (파싱이 그 구간을 통째로 놓친 상황)
+      ...block({ nos: range(19, 40), year: 2020, startPage: 12 }),
+    ]),
+  },
+  {
+    name: '12. 페이지 기록 없는 결번',
+    note:
+      '17·18번이 빠졌는데 페이지 기록이 없어 유실인지 발췌인지 가릴 근거가 없다. ' +
+      '조용히 넘기지 않고 판단 보류로 남겨야 한다.',
+    questions: questions('옛-문제집.pdf', [
+      ...block({ nos: without(range(1, 40), [17, 18]), year: 2019 }),
+    ]),
+  },
 ]
 
 // ── 순서 결정 케이스 (orderForRuns) ─────────────────────────────
@@ -327,6 +347,10 @@ function renderRuns(f: Fixture, review: ParseReview): string {
         `year=${g.year === UNKNOWN_YEAR ? '미상' : g.year}${g.yearMixed ? '(섞임)' : ''} ` +
         `expMin=${g.expectedMin ?? '-'} file=${g.sourceFile ?? '-'}`
     )
+    for (const gap of g.gaps) {
+      const pages = gap.pageFrom === undefined ? '' : ` [${gap.pageFrom}~${gap.pageTo}쪽 재파싱]`
+      lines.push(`      ${gap.kind} ${gap.from}~${gap.to}번 → ${gap.verdict} (${gap.reason})${pages}`)
+    }
   }
   return lines.join('\n')
 }
@@ -371,6 +395,22 @@ function invariants(f: Fixture, review: ParseReview) {
     check(
       g.pages.every((p) => p.from <= p.to),
       where('pages에 from > to인 항목이 있음')
+    )
+    // gaps는 interior/headMissing/tailMissing과 같은 사실을 다르게 보여주는 것뿐이다.
+    // 둘이 어긋나면 화면이 서로 다른 말을 하게 된다
+    const size = (x: { from: number; to: number }) => x.to - x.from + 1
+    const total = (kind: string) =>
+      g.gaps.filter((x) => x.kind === kind).reduce((n, x) => n + size(x), 0)
+    check(total('interior') === g.interior.length, where(`gaps의 interior(${total('interior')}) != interior.length(${g.interior.length})`))
+    check(total('head') === g.headMissing, where(`gaps의 head(${total('head')}) != headMissing(${g.headMissing})`))
+    check(total('tail') === g.tailMissing, where(`gaps의 tail(${total('tail')}) != tailMissing(${g.tailMissing})`))
+    check(
+      g.gaps.every((x) => x.from <= x.to && x.reason.length > 0),
+      where('gap에 from > to이거나 근거가 빈 항목이 있음')
+    )
+    check(
+      g.gaps.every((x) => x.verdict !== 'suspect' || x.kind !== 'interior' || x.pageFrom !== undefined),
+      where('유실 의심 interior gap인데 재파싱할 쪽이 없음')
     )
   }
 }
