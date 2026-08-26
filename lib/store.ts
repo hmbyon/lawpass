@@ -254,6 +254,17 @@ export function updateQuestionYear(questionId: string, year: number) {
   saveQuestions(questions)
 }
 
+// 파싱 검토 화면에서 문제 하나를 지울 때 쓴다.
+// 같은 문제가 두 벌 저장된 것을 사람이 골라 지우는 용도다 — 2026-08-24 이전에는
+// 병합 키에 연도가 들어 있어서, 같은 문제를 두 청크가 다른 연도로 판정하면 후보가
+// 갈려 비교조차 되지 않은 채 두 번 저장됐다. 그 버그는 고쳤지만 이미 쌓인 것은
+// 저절로 사라지지 않는다.
+//
+// 되돌릴 수 없으므로 부르는 쪽에서 반드시 확인을 받아야 한다
+export function deleteQuestion(questionId: string) {
+  saveQuestions(getQuestions().filter((q) => q.id !== questionId))
+}
+
 // 파일별 문제 삭제
 export function deleteQuestionsBySource(sourceFile: string) {
   saveQuestions(getQuestions().filter((q) => q.sourceFile !== sourceFile))

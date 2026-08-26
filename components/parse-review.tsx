@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import type { Question } from '@/lib/types'
-import { updateQuestionUnit, updateQuestionYear } from '@/lib/store'
+import { updateQuestionUnit, updateQuestionYear, deleteQuestion } from '@/lib/store'
 import {
   buildParseReview, isMinorUnit, unitOptionsFor, yearOptions, formatMissing, allMissing,
   gapLabel, gapNumbers, UNKNOWN_YEAR,
@@ -66,6 +66,15 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
   function changeYear(q: Question, year: number) {
     updateQuestionYear(q.id, year)
     setEditedYear((prev) => ({ ...prev, [q.id]: year }))
+    onUnitChanged()
+  }
+
+  // 되돌릴 수 없으므로 지문 앞부분까지 보여주고 확인을 받는다
+  function removeQuestion(q: Question) {
+    const preview = q.passage.replace(/\s+/g, ' ').trim().slice(0, 60)
+    if (!confirm(`${q.no}번 문제를 삭제할까요?\n\n${preview}…\n\n되돌릴 수 없습니다.`)) return
+    deleteQuestion(q.id)
+    setOpenQuestion(null)
     onUnitChanged()
   }
 
@@ -165,6 +174,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
                   review={review}
                   openId={openQuestion}
                   onOpen={setOpenQuestion}
+                  onDelete={removeQuestion}
                   onChange={changeYear}
                 />
               )}
@@ -210,6 +220,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
                   review={review}
                   openId={openQuestion}
                   onOpen={setOpenQuestion}
+                  onDelete={removeQuestion}
                   onChange={changeUnit}
                 />
               )}
@@ -233,12 +244,14 @@ function QuestionRow({
   duplicates,
   open,
   onToggle,
+  onDelete,
   children,
 }: {
   q: Question
   duplicates: number // 같은 문제가 몇 벌 저장돼 있는지 (2 이상이면 표시)
   open: boolean
   onToggle: () => void
+  onDelete: (q: Question) => void
   children: React.ReactNode // 단원/연도 변경 드롭다운
 }) {
   return (
@@ -259,12 +272,20 @@ function QuestionRow({
         {/* 드롭다운 조작이 펼침을 건드리지 않도록 버튼 밖에 둔다 */}
         {children}
       </div>
-      {open && <QuestionDetail q={q} duplicates={duplicates} />}
+      {open && <QuestionDetail q={q} duplicates={duplicates} onDelete={onDelete} />}
     </div>
   )
 }
 
-function QuestionDetail({ q, duplicates }: { q: Question; duplicates: number }) {
+function QuestionDetail({
+  q,
+  duplicates,
+  onDelete,
+}: {
+  q: Question
+  duplicates: number
+  onDelete: (q: Question) => void
+}) {
   const pages = q.pageFrom !== undefined ? `${q.pageFrom}~${q.pageTo}쪽` : '쪽 모름'
   const meta = [
     q.subject,
@@ -307,7 +328,16 @@ function QuestionDetail({ q, duplicates }: { q: Question; duplicates: number }) 
           {q.passageTable?.length ? `표 ${q.passageTable.length}개` : ''}
         </p>
       )}
-      <p className="text-[11px] text-muted-foreground break-all">id: {q.id}</p>
+      <div className="flex items-center justify-between gap-2 pt-0.5">
+        <p className="text-[11px] text-muted-foreground break-all">id: {q.id}</p>
+        <button
+          type="button"
+          onClick={() => onDelete(q)}
+          className="shrink-0 px-2 py-1 border border-red-400/40 text-red-400 rounded text-xs font-medium hover:bg-red-400/10 transition-colors"
+        >
+          이 문제 삭제
+        </button>
+      </div>
     </div>
   )
 }
@@ -317,12 +347,14 @@ function YearQuestionList({
   review,
   openId,
   onOpen,
+  onDelete,
   onChange,
 }: {
   row: YearCount
   review: ParseReviewData
   openId: string | null
   onOpen: (id: string | null) => void
+  onDelete: (q: Question) => void
   onChange: (q: Question, year: number) => void
 }) {
   const options = yearOptions()
@@ -335,6 +367,7 @@ function YearQuestionList({
           duplicates={review.duplicateIds[q.id] ?? 0}
           open={openId === q.id}
           onToggle={() => onOpen(openId === q.id ? null : q.id)}
+          onDelete={onDelete}
         >
           <select
             value={options.includes(row.year) ? row.year : ''}
@@ -357,12 +390,14 @@ function UnitQuestionList({
   review,
   openId,
   onOpen,
+  onDelete,
   onChange,
 }: {
   row: UnitCount
   review: ParseReviewData
   openId: string | null
   onOpen: (id: string | null) => void
+  onDelete: (q: Question) => void
   onChange: (q: Question, unit: string) => void
 }) {
   const options = unitOptionsFor(row.subject)
@@ -375,6 +410,7 @@ function UnitQuestionList({
           duplicates={review.duplicateIds[q.id] ?? 0}
           open={openId === q.id}
           onToggle={() => onOpen(openId === q.id ? null : q.id)}
+          onDelete={onDelete}
         >
           <select
             value={options.includes(row.unit) ? row.unit : ''}
