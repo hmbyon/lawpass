@@ -4,7 +4,8 @@ import { useState } from 'react'
 import type { Question } from '@/lib/types'
 import { updateQuestionUnit, updateQuestionYear } from '@/lib/store'
 import {
-  buildParseReview, isMinorUnit, unitOptionsFor, yearOptions, formatMissing, allMissing, UNKNOWN_YEAR,
+  buildParseReview, isMinorUnit, unitOptionsFor, yearOptions, formatMissing, allMissing,
+  gapLabel, gapNumbers, UNKNOWN_YEAR,
   type GroupCheck, type UnitCount, type YearCount, type QuestionPage,
 } from '@/lib/parseReview'
 
@@ -19,6 +20,9 @@ export interface ReparseRequest {
   // 파싱 때 기록된 실제 페이지 구간. 이게 있으면 번호 비율로 어림잡지 않아도 된다.
   // 1단계 이전에 파싱된 문제집에서는 빈 배열이다
   pages: QuestionPage[]
+  // 빠진 번호 덩어리의 앞뒤 이웃으로 확정한 쪽 구간. 있으면 이것만 쓰면 된다 —
+  // 어디가 비었는지 이미 알고 요청하는 것이라 다시 어림잡을 이유가 없다
+  pageHint?: { from: number; to: number }
 }
 
 interface Props {
@@ -280,74 +284,77 @@ function GroupRow({
   if (g.verdict === 'ok') {
     return (
       <p className="text-xs text-emerald-600 dark:text-emerald-400">
-        ✓ {label} <span className="tabular-nums">{g.min}~{g.max}번</span> 연속 ({g.count}문제)
+        ✓ {label} · <span className="tabular-nums">{g.min}~{g.max}번</span> 연속 ({g.count}문제)
         {g.expectedMax === null && (
           <span className="text-muted-foreground"> · 마지막 번호는 확인 불가</span>
         )}
       </p>
     )
   }
-  // 빠진 번호가 전부 '애초에 안 실린 것'으로 판정된 런. 경고가 아니라 사실 확인이다
+  // 빠진 번호가 전부 '애초에 안 실린 것'으로 판정된 런. 경고가 아니라 사실 확인이다.
+  // 판정은 하되 번호는 숨기지 않는다 — 사용자가 눈으로 반박할 여지를 남겨야 한다
   if (g.verdict === 'excerpt') {
     return (
-      <p className="text-xs text-emerald-600 dark:text-emerald-400">
-        ✓ {label} <span className="tabular-nums">{g.min}~{g.max}번</span> 중 {g.count}문제 (발췌본으로 보입니다)
-        <span className="text-muted-foreground">
-          {' '}
-          · 빠진 번호 자리에 빈 쪽이 없습니다
-        </span>
-      </p>
+      <div className="text-xs space-y-0.5">
+        <p className="text-emerald-600 dark:text-emerald-400">
+          ✓ {label} · <span className="tabular-nums">{g.min}~{g.max}번</span> 중 {g.count}문제 · 발췌본으로 보입니다
+        </p>
+        <p className="text-muted-foreground">
+          빠진 번호(<span className="tabular-nums">{formatMissing(allMissing(g))}</span>)는 자리에 빈 쪽이 없어
+          애초에 실리지 않은 것으로 봅니다
+        </p>
+      </div>
     )
   }
+
+  const unknown = g.verdict === 'unknown'
   return (
     <div className="text-xs space-y-0.5">
-      <p className="text-amber-600 dark:text-amber-400 font-medium">
-        {g.verdict === 'unknown' ? '? 판단 보류' : '⚠ 파싱 누락 의심'}
+      <p className={`font-medium ${unknown ? 'text-muted-foreground' : 'text-amber-600 dark:text-amber-400'}`}>
+        {unknown ? '? 판단 보류' : '⚠ 파싱 누락 의심'}
       </p>
       <p className="text-muted-foreground">
         {label} · <span className="tabular-nums">{g.min}~{g.max}번</span> 중 {g.count}개 확인
       </p>
-      {g.headMissing > 0 && (
-        <p className="text-foreground">
-          앞부분 {g.headMissing}개 없음: <span className="tabular-nums">1~{g.min - 1}번</span>
+
+      {/* 빠진 번호를 덩어리로 하나씩. 왜 그렇게 봤는지를 번호 옆에 붙여 둔다 */}
+      {g.gaps.map((gap) => (
+        <div key={`${gap.kind}-${gap.from}`} className="space-y-0.5">
+          <p className={gap.verdict === 'suspect' ? 'text-foreground' : 'text-muted-foreground'}>
+            <span className="tabular-nums">{gapLabel(gap)}</span>
+            {gap.verdict === 'excerpt' ? ' 없음(실리지 않은 것으로 보임)' : ' 없음'} — {gap.reason}
+          </p>
+          {gap.verdict === 'suspect' && onReparse && sourceFile && (
+            <button
+              type="button"
+              disabled={reparseDisabled}
+              onClick={() =>
+                onReparse({
+                  sourceFile,
+                  subject: g.subject,
+                  examType: g.examType,
+                  year: g.year,
+                  nos: g.nos,
+                  missing: gapNumbers(gap),
+                  pages: g.pages,
+                  // 덩어리의 쪽을 알면 그것만 보낸다. 모르면(앞뒤 잘림) 예전처럼 추정에 맡긴다
+                  ...(gap.pageFrom !== undefined &&
+                    gap.pageTo !== undefined && { pageHint: { from: gap.pageFrom, to: gap.pageTo } }),
+                })
+              }
+              className="mb-1 px-2 py-1 border border-primary/40 text-primary rounded text-xs font-medium hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              🔁 {gap.pageFrom !== undefined ? `${gap.pageFrom}~${gap.pageTo}쪽` : '이 구간'} 다시 파싱
+            </button>
+          )}
+        </div>
+      ))}
+
+      {unknown && (
+        <p className="text-muted-foreground">
+          → 페이지 기록이 없어 유실인지 발췌인지 가릴 수 없습니다. 이 문제집을 다시 파싱하면 페이지가 기록되어
+          판정할 수 있습니다
         </p>
-      )}
-      {g.interior.length > 0 && (
-        <p className="text-foreground">
-          빠진 번호:{' '}
-          <span className="tabular-nums">{formatMissing(g.interior)}</span>
-        </p>
-      )}
-      {g.tailMissing > 0 && (
-        <p className="text-foreground">
-          뒷부분 {g.tailMissing}개 없음: <span className="tabular-nums">{g.max + 1}~{g.expectedMax}번</span>
-          <span className="text-muted-foreground"> (다른 회차는 {g.expectedMax}번까지 있습니다)</span>
-        </p>
-      )}
-      <p className="text-muted-foreground">
-        {g.verdict === 'unknown'
-          ? '→ 페이지 기록이 없어 유실인지 발췌인지 가릴 수 없습니다. 이 문제집을 다시 파싱하면 판정할 수 있습니다'
-          : '→ 빠진 번호가 있는 페이지 구간만 다시 파싱할 수 있습니다'}
-      </p>
-      {onReparse && sourceFile && (
-        <button
-          type="button"
-          disabled={reparseDisabled}
-          onClick={() =>
-            onReparse({
-              sourceFile,
-              subject: g.subject,
-              examType: g.examType,
-              year: g.year,
-              nos: g.nos,
-              missing: allMissing(g),
-              pages: g.pages,
-            })
-          }
-          className="mt-1 px-2 py-1 border border-primary/40 text-primary rounded text-xs font-medium hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        >
-          🔁 이 구간 다시 파싱
-        </button>
       )}
     </div>
   )

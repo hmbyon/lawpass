@@ -575,6 +575,18 @@ export function buildParseReview(questions: Question[]): ParseReview {
   }
 }
 
+// 덩어리가 가리키는 번호들. 화면 표시와 재파싱 요청에 쓴다
+export function gapNumbers(gap: Gap): number[] {
+  const out: number[] = []
+  for (let n = gap.from; n <= gap.to; n++) out.push(n)
+  return out
+}
+
+// 덩어리를 사람이 읽는 번호 표기로. 한 개짜리는 물결표를 붙이지 않는다
+export function gapLabel(gap: Gap): string {
+  return gap.from === gap.to ? `${gap.from}번` : `${gap.from}~${gap.to}번`
+}
+
 // 앞·중간·뒤에서 빠진 번호를 한 줄로 모은다. 재파싱 대상 구간을 잡을 때 쓴다
 export function allMissing(g: GroupCheck): number[] {
   const head = Array.from({ length: g.headMissing }, (_, i) => i + 1)

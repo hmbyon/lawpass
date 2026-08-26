@@ -908,7 +908,16 @@ export function PdfTab({
       // 기록된 실제 페이지가 있으면 그것만 쓴다.
       // 없으면 비워 둔다 — 어림값을 채워 넣으면 사용자는 그게 근거 있는 값인 줄 안다.
       // 예전에는 여기서 estimatePageRange를 무조건 채워 242쪽 문서에 1~111쪽이 들어갔다
-      const hit = gapPageRange(req.pages, req.missing, pageCount)
+      //
+      // 검토 화면이 덩어리의 쪽을 짚어 보냈으면 그걸 그대로 쓴다. 어디가 비었는지 이미
+      // 알고 누른 버튼이라 다시 어림잡을 이유가 없다 (양끝은 문서 범위로만 자른다)
+      const hit = req.pageHint
+        ? {
+            from: Math.max(1, Math.min(req.pageHint.from, pageCount)),
+            to: Math.max(1, Math.min(req.pageHint.to, pageCount)),
+            exact: true,
+          }
+        : gapPageRange(req.pages, req.missing, pageCount)
       const confirmed = req.pages.length > 0
         ? {
             from: Math.min(...req.pages.map((p) => p.from)),
