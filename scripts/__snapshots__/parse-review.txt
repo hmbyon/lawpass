@@ -75,6 +75,15 @@ total=81 unknownYear=0 singletons=1 groups=2 hasWarning=true
   units: 민법총칙=81
   years: 2024=40 2023=1 2022=40
 
+### 10. 발췌본 (회차마다 이 단원 문제만)
+# 세 회차에서 이 단원에 해당하는 문제만 골라 담았다. 어느 런도 1번부터 시작하지 않는다. "모든 런은 1번부터"라는 전제로 세면 앞부분 결번이 무더기로 잡힌다.
+total=26 unknownYear=0 groups=3 hasWarning=true
+  민법|변호사시험|2014 count=9 5~17 head=0 interior=[6,7,13,14] expMax=- tail=0 sparse=false ok=false
+  민법|변호사시험|2015 count=10 3~26 head=0 interior=[5,6,7,8,10,11,12,13,14,15,16,17 +2] expMax=17 tail=0 sparse=true ok=false
+  민법|변호사시험|2016 count=7 2~20 head=0 interior=[3,4,5,6,9,10,11,12,15,16,17,18] expMax=- tail=0 sparse=true ok=false
+  units: 민법총칙=26
+  years: 2016=7 2015=10 2014=9
+
 ### 순서 결정 (orderForRuns)
 
 - 전부 페이지 있음

@@ -193,6 +193,17 @@ const FIXTURES: Fixture[] = [
       ...block({ nos: range(1, 40), year: 2024, startPage: 22 }),
     ]),
   },
+  {
+    name: '10. 발췌본 (회차마다 이 단원 문제만)',
+    note:
+      '세 회차에서 이 단원에 해당하는 문제만 골라 담았다. 어느 런도 1번부터 시작하지 않는다. ' +
+      '"모든 런은 1번부터"라는 전제로 세면 앞부분 결번이 무더기로 잡힌다.',
+    questions: questions('민법총칙-발췌.pdf', [
+      ...block({ nos: [5, 8, 9, 10, 11, 12, 15, 16, 17], year: 2014, startPage: 1 }),
+      ...block({ nos: [3, 4, 9, 20, 21, 22, 23, 24, 25, 26], year: 2015, startPage: 6 }),
+      ...block({ nos: [2, 7, 8, 13, 14, 19, 20], year: 2016, startPage: 11 }),
+    ]),
+  },
 ]
 
 // ── 순서 결정 케이스 (orderForRuns) ─────────────────────────────
@@ -314,7 +325,7 @@ function renderRuns(f: Fixture, review: ParseReview): string {
     lines.push(
       `  ${g.runId} count=${g.count} ${g.min}~${g.max} ${pages} ` +
         `year=${g.year === UNKNOWN_YEAR ? '미상' : g.year}${g.yearMixed ? '(섞임)' : ''} ` +
-        `file=${g.sourceFile ?? '-'}`
+        `expMin=${g.expectedMin ?? '-'} file=${g.sourceFile ?? '-'}`
     )
   }
   return lines.join('\n')

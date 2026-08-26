@@ -10,9 +10,9 @@ const MIN_COUNT_FOR_GAP_CHECK = 2
 // 예전에는 이때 검사를 통째로 건너뛰었는데, 그러면 많이 잃을수록 조용해지는 정반대 동작이 됐다.
 // 이제는 건너뛰지 않고 '비연속 의심'이라는 다른 문구로 표시한다
 const SPARSE_RATIO = 1
-// 뒷부분이 잘렸는지는 번호만으로는 알 수 없다. 같은 과목·시험구분의 다른 회차가
-// 이만큼 있으면 그 회차들의 마지막 번호를 기준으로 삼는다
-const MIN_SIBLINGS_FOR_TAIL = 2
+// 앞뒤가 잘렸는지는 번호만으로는 알 수 없다. 같은 과목·시험구분의 다른 회차가
+// 이만큼 있으면 그 회차들의 첫 번호·마지막 번호를 기준으로 삼는다
+const MIN_SIBLINGS_FOR_EDGE = 2
 // 형제들의 마지막 번호가 이 비율을 넘게 벌어져 있으면 "이 시험은 몇 번까지"라는
 // 전제 자체가 없는 것이다. 단원별 문제집이 그렇다 — 단원마다 문항 수가 다른 게 정상이다.
 // 그럴 땐 추정을 포기한다 (UI가 '마지막 번호는 확인 불가'로 밝힌다)
@@ -63,7 +63,8 @@ export interface GroupCheck {
   pageTo: number | null // 가장 늦은 쪽
   sourceFile: string | null // 이 런이 나온 파일. 런은 정의상 한 파일에서만 나온다
   interior: number[] // min~max 사이에서 빠진 번호 (전체)
-  headMissing: number // 1번부터 min-1번까지 몇 개가 없는지
+  expectedMin: number | null // 형제 런들로 추정한 첫 번호. null이면 '몇 번부터인지 알 수 없음'
+  headMissing: number // expectedMin부터 min-1번까지 몇 개가 없는지 (근거가 없으면 0)
   expectedMax: number | null // 형제 런들로 추정한 마지막 번호
   tailMissing: number // expectedMax까지 몇 개가 없는지
   sparse: boolean // 결번이 확인된 문항 수보다 많음
@@ -173,27 +174,42 @@ export function orderForRuns<T extends PagedItem>(list: T[]): T[] {
  * 그래서 연도가 하나로 정해지는 런만 형제로 인정한다. 여러 해가 섞인 런은 회차가 아니라
  * 단원 토막일 가능성이 높고, 그런 토막끼리는 문항 수를 견줄 근거가 없다.
  */
-function siblingMaxesFor(r: Run, runs: Run[]): number[] {
+function siblingsOf(r: Run, runs: Run[]): Run[] {
   if (r.yearMixed || r.year === UNKNOWN_YEAR) return []
-  return runs
-    .filter(
-      (o) =>
-        o.subject === r.subject &&
-        o.examType === r.examType &&
-        !o.yearMixed &&
-        o.year !== UNKNOWN_YEAR &&
-        o.year !== r.year
-    )
-    .map((o) => o.nos[o.nos.length - 1])
+  return runs.filter(
+    (o) =>
+      o.subject === r.subject &&
+      o.examType === r.examType &&
+      !o.yearMixed &&
+      o.year !== UNKNOWN_YEAR &&
+      o.year !== r.year
+  )
 }
 
 // 형제가 충분하고, 그 형제들이 서로 비슷할 때만 마지막 번호를 추정한다
 function estimateExpectedMax(siblingMaxes: number[]): number | null {
-  if (siblingMaxes.length < MIN_SIBLINGS_FOR_TAIL) return null
+  if (siblingMaxes.length < MIN_SIBLINGS_FOR_EDGE) return null
   const low = Math.min(...siblingMaxes)
   const high = Math.max(...siblingMaxes)
   if (high - low > low * TAIL_SPREAD_RATIO) return null
   return lowerMedian(siblingMaxes)
+}
+
+/**
+ * 이 런이 몇 번부터 시작해야 하는지.
+ *
+ * 예전에는 묻지도 않고 1번이라고 봤다 (headMissing = min - 1). 회차별 기출에서는 맞지만
+ * 발췌본에서는 틀린 전제다 — 한 회차에서 이 단원 문제만 골라 담으면 5번부터 시작하는 게 정상이다.
+ * 실제 문제집에서 결번으로 지목된 173개 중 126개가 이 전제 하나에서 나왔다.
+ *
+ * 뒷부분(expectedMax)은 이미 '형제가 있고 고를 때만' 추정하도록 고쳤는데 앞부분만 무조건이었다.
+ * 그 비대칭을 없앤다. 형제들의 과반이 1번부터 시작할 때만 이 런도 1번부터일 것으로 본다.
+ * 회차별 문제집은 모든 회차가 1번부터라 그대로 걸리고, 발췌본은 시작 번호가 제각각이라 빠져나간다.
+ */
+function estimateExpectedMin(siblingMins: number[]): number | null {
+  if (siblingMins.length < MIN_SIBLINGS_FOR_EDGE) return null
+  const startAtOne = siblingMins.filter((m) => m === 1).length
+  return startAtOne * 2 >= siblingMins.length ? 1 : null
 }
 
 // 런 하나. GroupCheck를 만들기 전 단계 — 형제 런의 마지막 번호를 참조해야 해서 둘로 나눠 둔다
@@ -316,11 +332,13 @@ export function buildParseReview(questions: Question[]): ParseReview {
     const present = new Set(r.nos)
     const interior = missingBetween(present, min, max)
 
-    // 뒷부분 잘림은 같은 시험의 다른 회차와 견줘야만 보인다.
+    // 앞뒤 잘림은 같은 시험의 다른 회차와 견줘야만 보인다.
     // 견줄 런이 없거나 서로 들쭉날쭉하면 판단 근거가 없어 검사하지 않는다 (UI에서 그 사실을 밝힌다)
-    const expectedMax = estimateExpectedMax(siblingMaxesFor(r, runs))
+    const sibs = siblingsOf(r, runs)
+    const expectedMin = estimateExpectedMin(sibs.map((o) => o.nos[0]))
+    const expectedMax = estimateExpectedMax(sibs.map((o) => o.nos[o.nos.length - 1]))
 
-    const headMissing = min - 1
+    const headMissing = expectedMin !== null && min > expectedMin ? min - expectedMin : 0
     const tailMissing = expectedMax !== null && expectedMax > max ? expectedMax - max : 0
 
     return {
@@ -339,6 +357,7 @@ export function buildParseReview(questions: Question[]): ParseReview {
       pageFrom: r.pages.length > 0 ? Math.min(...r.pages.map((p) => p.from)) : null,
       pageTo: r.pages.length > 0 ? Math.max(...r.pages.map((p) => p.to)) : null,
       interior,
+      expectedMin,
       headMissing,
       expectedMax,
       tailMissing,
