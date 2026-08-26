@@ -117,8 +117,12 @@ export interface YearCount {
 export interface ParseReview {
   total: number
   groups: GroupCheck[]
-  // 연도를 모르면 어느 회차의 몇 번인지 알 수 없어 결번 검사에서 뺀 문항 수
-  skippedUnknownYear: number
+  // 연도를 확인하지 못한 문항 수.
+  // 예전에는 이 문제들을 결번 검사에서 통째로 뺐다. 연도가 그룹을 나누는 기준이었기 때문인데,
+  // 런으로 자르는 지금은 연도가 기준이 아니므로 뺄 이유가 없다. 오히려 빼면 그 번호들이
+  // 가짜 결번으로 잡히거나(사이사이 섞인 경우) 검사 자체가 반쪽이 된다(뒤쪽이 통째로 미상인 경우).
+  // 이제는 함께 검사하고, 이 수는 '연도를 지정해달라'는 안내로만 쓴다
+  unknownYearCount: number
   // 번호가 하나뿐이라 연속성을 논할 수 없어 검사에서 뺀 런의 수.
   // 이걸 세지 않으면 '많이 잃을수록 조용해지는' 함정으로 되돌아간다
   singletonRuns: number
@@ -421,15 +425,14 @@ function cutRuns(key: string, list: Question[]): Run[] {
 // 청크 겹침으로 생긴 중복은 addQuestions가 이미 병합했으므로 여기서 다시 다루지 않는다
 export function buildParseReview(questions: Question[]): ParseReview {
   // ── A. 번호 연속성 ──
-  // 연도 미상은 어느 회차인지 알 수 없다. 별도 그룹으로 두면 그 안에서만 연속인지 보게 되어
-  // "1~25는 2023, 26~50은 미상"처럼 갈린 경우 양쪽 다 통과해버린다. 그래서 아예 검사에서 뺀다
-  const skippedUnknownYear = questions.filter((q) => (q.year || UNKNOWN_YEAR) === UNKNOWN_YEAR).length
+  const unknownYearCount = questions.filter((q) => (q.year || UNKNOWN_YEAR) === UNKNOWN_YEAR).length
 
   // 파일·과목·시험구분으로 먼저 나눈다. 이때 저장 배열 순서를 그대로 유지해야
-  // orderForRuns의 옛 데이터 폴백이 근거를 잃지 않는다
+  // orderForRuns의 옛 데이터 폴백이 근거를 잃지 않는다.
+  // 연도 미상도 함께 넣는다 — 연도는 더 이상 나누는 기준이 아니고, 빼면 그 자리가
+  // 가짜 결번이 되거나 검사가 반쪽이 된다
   const byBucket = new Map<string, Question[]>()
   for (const q of questions) {
-    if ((q.year || UNKNOWN_YEAR) === UNKNOWN_YEAR) continue
     const key = bucketKey(q)
     const list = byBucket.get(key)
     if (list) list.push(q)
@@ -558,7 +561,7 @@ export function buildParseReview(questions: Question[]): ParseReview {
   return {
     total: questions.length,
     groups,
-    skippedUnknownYear,
+    unknownYearCount,
     singletonRuns,
     units,
     years,
@@ -567,7 +570,7 @@ export function buildParseReview(questions: Question[]): ParseReview {
       // 발췌로 판정된 런은 경고가 아니다. 반대로 판단 보류는 경고로 친다 —
       // 근거가 없다는 이유로 넘어가면 '많이 잃을수록 조용해지는' 그 함정이 다시 열린다
       groups.some((g) => g.verdict === 'suspect' || g.verdict === 'unknown') ||
-      skippedUnknownYear > 0 ||
+      unknownYearCount > 0 ||
       singletonRuns > 0 ||
       units.some((u) => !u.valid) ||
       years.some((y) => y.problem !== null) ||

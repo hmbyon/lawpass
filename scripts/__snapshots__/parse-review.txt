@@ -52,9 +52,9 @@ total=120 unknownYear=0 groups=3 hasWarning=false
   years: 2024=40 2023=40 2022=40
 
 ### 7. 연도 미상 반쪽
-# 1~25번은 2023년, 26~50번은 연도 미상. 지금은 미상 쪽이 검사에서 통째로 빠진다.
+# 1~25번은 2023년, 26~50번은 연도 미상. 미상을 검사에서 빼면 앞 25개만 보고 통과해버린다 — 뒤쪽 절반이 온전한지 아닌지는 묻지도 않은 채로.
 total=50 unknownYear=25 groups=1 hasWarning=true
-  민법|변호사시험|2023 count=25 1~25 head=0 interior=[] expMax=- tail=0 verdict=ok ok=true
+  민법|변호사시험|2023 count=50 1~50 head=0 interior=[] expMax=- tail=0 verdict=ok ok=true
   units: 민법총칙=50
   years: 2023=25 미상=25(unknown)
 
@@ -97,6 +97,13 @@ total=38 unknownYear=0 groups=1 hasWarning=true
   민법|변호사시험|2019 count=38 1~40 head=0 interior=[17,18] expMax=- tail=0 verdict=unknown ok=false
   units: 민법총칙=38
   years: 2019=38
+
+### 13. 연도 미상이 사이사이 섞임
+# 짝수 번호만 연도를 확인하지 못했다. 미상을 검사에서 빼면 홀수만 남아 짝수 전부가 빠진 번호로 잡힌다 — 실제로는 하나도 잃지 않았는데.
+total=40 unknownYear=20 groups=1 hasWarning=true
+  민법|변호사시험|2023 count=40 1~40 head=0 interior=[] expMax=- tail=0 verdict=ok ok=true
+  units: 민법총칙=40
+  years: 2023=20 미상=20(unknown)
 
 ### 순서 결정 (orderForRuns)
 

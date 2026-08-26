@@ -168,7 +168,9 @@ const FIXTURES: Fixture[] = [
   },
   {
     name: '7. 연도 미상 반쪽',
-    note: '1~25번은 2023년, 26~50번은 연도 미상. 지금은 미상 쪽이 검사에서 통째로 빠진다.',
+    note:
+      '1~25번은 2023년, 26~50번은 연도 미상. 미상을 검사에서 빼면 앞 25개만 보고 통과해버린다 — ' +
+      '뒤쪽 절반이 온전한지 아닌지는 묻지도 않은 채로.',
     questions: questions('변시-민법-기출.pdf', [
       ...block({ nos: range(1, 25), year: 2023, startPage: 1 }),
       ...block({ nos: range(26, 50), year: UNKNOWN_YEAR, startPage: 14 }),
@@ -225,6 +227,15 @@ const FIXTURES: Fixture[] = [
       '조용히 넘기지 않고 판단 보류로 남겨야 한다.',
     questions: questions('옛-문제집.pdf', [
       ...block({ nos: without(range(1, 40), [17, 18]), year: 2019 }),
+    ]),
+  },
+  {
+    name: '13. 연도 미상이 사이사이 섞임',
+    note:
+      '짝수 번호만 연도를 확인하지 못했다. 미상을 검사에서 빼면 홀수만 남아 짝수 전부가 ' +
+      '빠진 번호로 잡힌다 — 실제로는 하나도 잃지 않았는데.',
+    questions: questions('변시-민법-기출.pdf', [
+      ...block({ nos: range(1, 40), year: [2023, UNKNOWN_YEAR], startPage: 1 }),
     ]),
   },
 ]
@@ -318,7 +329,7 @@ function render(f: Fixture, review: ParseReview): string {
   // '회차별 케이스는 그대로'를 스냅샷 diff로 보이는 이 하네스의 쓸모가 준다
   const singletons = review.singletonRuns > 0 ? ` singletons=${review.singletonRuns}` : ''
   lines.push(
-    `total=${review.total} unknownYear=${review.skippedUnknownYear}${singletons} ` +
+    `total=${review.total} unknownYear=${review.unknownYearCount}${singletons} ` +
       `groups=${review.groups.length} hasWarning=${review.hasWarning}`
   )
   if (review.groups.length === 0) lines.push('  (그룹 없음)')

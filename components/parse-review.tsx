@@ -87,10 +87,10 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
       {/* A. 번호 연속성 */}
       <div className="px-3 py-2 space-y-1.5">
         <p className="text-xs text-muted-foreground">번호 연속성</p>
-        {review.skippedUnknownYear > 0 && (
+        {review.unknownYearCount > 0 && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
-            ⚠ 연도 미상 {review.skippedUnknownYear}문제는 어느 회차인지 알 수 없어 검사에서 뺐습니다.
-            아래 &apos;출제연도 분포&apos;에서 연도를 지정한 뒤 다시 확인해주세요
+            ⚠ 연도를 확인하지 못한 문제가 {review.unknownYearCount}개 있습니다. 번호 연속성 검사에는 함께
+            넣었지만, 아래 &apos;출제연도 분포&apos;에서 연도를 지정해주세요
           </p>
         )}
         {review.singletonRuns > 0 && (
