@@ -307,6 +307,9 @@ export function PdfTab({
     if (scroll) requestAnimationFrame(() => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
+  // 지금 도는 것이 '이어서 처리 대기' 목록의 작업인지. 그렇다면 중단 버튼은 그 박스 안에만 둔다
+  const resumeQueueRunning = isRunning && resumeJobs.some((j) => j.sourceFile === runningKey)
+
   const reviewQuestions = useMemo(
     () => (reviewFiles.length === 0 ? [] : getQuestions().filter((q) => q.sourceFile && reviewFiles.includes(q.sourceFile))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1540,6 +1543,18 @@ export function PdfTab({
                     <p className="text-xs text-red-400 break-all">{j.view.error}</p>
                   )}
                   <ActiveRangeNote view={j.view} />
+                  {/* 처음 업로드할 때와 같은 진행 표시. 이어서 처리도 같은 파이프라인을 타는데
+                      여기만 진행 상황이 비어 있어서, 도는 중인지 멈춘 건지 알 수 없었다 */}
+                  {j.view.status === 'uploading' && j.view.chunkTotal && (
+                    <p className="text-xs text-primary animate-pulse">
+                      청크 {j.view.chunkIndex ?? 1}/{j.view.chunkTotal} 업로드 중...
+                    </p>
+                  )}
+                  {j.view.status === 'analyzing' && (
+                    <p className="text-xs text-yellow-400 animate-pulse">
+                      청크 {j.view.chunkIndex ?? 1}/{j.view.chunkTotal ?? j.saved.chunkTotal} Gemini 분석 중...
+                    </p>
+                  )}
                   <SkippedNote pages={j.view.skippedPages} />
                   {!j.file && (
                     <p className="text-xs text-muted-foreground">
@@ -1547,55 +1562,59 @@ export function PdfTab({
                     </p>
                   )}
 
-                  <div className="flex gap-2 items-center flex-wrap">
-                    {j.file ? (
-                      <button
-                        type="button"
-                        onClick={() => handleResumeJob(j.sourceFile)}
-                        disabled={isRunning}
-                        className="text-xs text-primary border border-primary/30 rounded-lg px-3 py-1 hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                      >
-                        {`${Math.max(0, j.saved.chunkIndex + 1)}/${j.saved.chunkTotal} 청크부터 이어서 처리하기`}
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => requestResumeFromDisk(j.sourceFile)}
-                        disabled={isRunning}
-                        className="text-xs text-primary border border-primary/30 rounded-lg px-3 py-1 hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                      >
-                        파일 다시 선택
-                      </button>
-                    )}
-
-                    {/* 💡 [청크 건너뛰기 버튼 추가] */}
+                  {/* 도는 동안에는 그 자리에 '중단'만 남긴다. 지금 할 수 있는 일이 그것뿐이고,
+                      나머지 버튼은 어차피 disabled로 회색이 되어 자리만 차지했다 */}
+                  {busy && (
                     <button
                       type="button"
-                      onClick={() => skipCurrentChunk(j.sourceFile)}
-                      disabled={isRunning}
-                      className="text-xs text-yellow-500 border border-yellow-500/30 rounded-lg px-2.5 py-1 hover:bg-yellow-500/10 disabled:opacity-40 transition-colors"
+                      onClick={stopAnalysis}
+                      className="text-xs text-orange-400 border border-orange-500/40 rounded-lg px-3 py-1 hover:bg-orange-500/10 transition-colors"
                     >
-                      이 청크 건너뛰기
+                      ⏸ 중단
                     </button>
+                  )}
+                  {!busy && (
+                    <div className="flex gap-2 items-center flex-wrap">
+                      {j.file ? (
+                        <button
+                          type="button"
+                          onClick={() => handleResumeJob(j.sourceFile)}
+                          disabled={isRunning}
+                          className="text-xs text-primary border border-primary/30 rounded-lg px-3 py-1 hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          {`${Math.max(0, j.saved.chunkIndex + 1)}/${j.saved.chunkTotal} 청크부터 이어서 처리하기`}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => requestResumeFromDisk(j.sourceFile)}
+                          disabled={isRunning}
+                          className="text-xs text-primary border border-primary/30 rounded-lg px-3 py-1 hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          파일 다시 선택
+                        </button>
+                      )}
 
-                    {isRunning && runningKey === j.sourceFile && (
+                      {/* 💡 [청크 건너뛰기 버튼 추가] */}
                       <button
                         type="button"
-                        onClick={stopAnalysis}
-                        className="text-xs text-orange-400 border border-orange-500/40 rounded-lg px-3 py-1 hover:bg-orange-500/10 transition-colors"
+                        onClick={() => skipCurrentChunk(j.sourceFile)}
+                        disabled={isRunning}
+                        className="text-xs text-yellow-500 border border-yellow-500/30 rounded-lg px-2.5 py-1 hover:bg-yellow-500/10 disabled:opacity-40 transition-colors"
                       >
-                        ⏸ 중단
+                        이 청크 건너뛰기
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => discardResumeJob(j.sourceFile)}
-                      disabled={isRunning}
-                      className="text-xs text-muted-foreground hover:text-red-400 disabled:opacity-40 transition-colors ml-auto"
-                    >
-                      기록 삭제
-                    </button>
-                  </div>
+
+                      <button
+                        type="button"
+                        onClick={() => discardResumeJob(j.sourceFile)}
+                        disabled={isRunning}
+                        className="text-xs text-muted-foreground hover:text-red-400 disabled:opacity-40 transition-colors ml-auto"
+                      >
+                        기록 삭제
+                      </button>
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -1727,7 +1746,9 @@ export function PdfTab({
               >
                 {isRunning ? '분석 중...' : '분석 시작'}
               </button>
-              {isRunning && (
+              {/* 재개 큐가 도는 중이면 그쪽 박스에 중단이 있다. 여기까지 띄우면 같은 버튼이 둘이 되고,
+                  어느 작업을 멈추는 것인지도 흐려진다 */}
+              {isRunning && !resumeQueueRunning && (
                 <button
                   type="button"
                   onClick={stopAnalysis}
@@ -2059,5 +2080,6 @@ function StatusChip({ status, count }: { status: FileState['status']; count?: nu
     paused: { label: '중단됨', cls: 'text-orange-400' },
     resumable: { label: '재개 대기', cls: 'text-orange-400' },
   }[status]
-  return <span className={`font-medium ${map.cls}`}>{map.label}</span>
+  // 크기를 지정하지 않으면 부모에서 물려받아 옆 글자(text-xs)보다 크게 뜬다
+  return <span className={`text-xs font-medium ${map.cls}`}>{map.label}</span>
 }
