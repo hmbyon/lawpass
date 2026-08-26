@@ -307,9 +307,6 @@ export function PdfTab({
     if (scroll) requestAnimationFrame(() => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
-  // 지금 도는 것이 '이어서 처리 대기' 목록의 작업인지. 그렇다면 중단 버튼은 그 박스 안에만 둔다
-  const resumeQueueRunning = isRunning && resumeJobs.some((j) => j.sourceFile === runningKey)
-
   const reviewQuestions = useMemo(
     () => (reviewFiles.length === 0 ? [] : getQuestions().filter((q) => q.sourceFile && reviewFiles.includes(q.sourceFile))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1562,17 +1559,8 @@ export function PdfTab({
                     </p>
                   )}
 
-                  {/* 도는 동안에는 그 자리에 '중단'만 남긴다. 지금 할 수 있는 일이 그것뿐이고,
-                      나머지 버튼은 어차피 disabled로 회색이 되어 자리만 차지했다 */}
-                  {busy && (
-                    <button
-                      type="button"
-                      onClick={stopAnalysis}
-                      className="text-xs text-orange-400 border border-orange-500/40 rounded-lg px-3 py-1 hover:bg-orange-500/10 transition-colors"
-                    >
-                      ⏸ 중단
-                    </button>
-                  )}
+                  {/* 도는 동안에는 버튼을 감추고 그 자리를 진행 표시에 내준다.
+                      중단은 아래 '분석 중…' 옆 한 자리로 모았다 (직접 업로드와 같은 배치) */}
                   {!busy && (
                     <div className="flex gap-2 items-center flex-wrap">
                       {j.file ? (
@@ -1746,9 +1734,8 @@ export function PdfTab({
               >
                 {isRunning ? '분석 중...' : '분석 시작'}
               </button>
-              {/* 재개 큐가 도는 중이면 그쪽 박스에 중단이 있다. 여기까지 띄우면 같은 버튼이 둘이 되고,
-                  어느 작업을 멈추는 것인지도 흐려진다 */}
-              {isRunning && !resumeQueueRunning && (
+              {/* 이어서 처리든 새 파싱이든 멈추는 자리는 여기 하나다 */}
+              {isRunning && (
                 <button
                   type="button"
                   onClick={stopAnalysis}
@@ -1806,7 +1793,9 @@ export function PdfTab({
               >
                 {uriStatus === 'analyzing' ? 'Gemini 분석 중...' : '분석 시작'}
               </button>
-              {uriStatus === 'analyzing' && (
+              {/* isRunning까지 보는 이유: '이어서 처리 대기' 목록은 모드와 무관하게 늘 떠 있어서,
+                  URI 모드에서 이어서 처리를 시작할 수 있다. 그때 이 버튼이 없으면 멈출 방법이 없다 */}
+              {(uriStatus === 'analyzing' || isRunning) && (
                 <button
                   type="button"
                   onClick={stopAnalysis}
