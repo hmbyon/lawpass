@@ -25,6 +25,11 @@ const MAX_UPLOAD_BYTES = 4_000_000
 // 안 되는 실패 사유. 페이지 내용이 아니라 통신·플랫폼이 원인이라 다음에는 멀쩡히 될 수 있다
 const TRANSPORT_REASONS = ['UPLOAD_TIMEOUT', 'ACTIVE_TIMEOUT']
 const CHUNK_BUDGET_BYTES = 3_600_000
+// 무료 티어는 분당 15회다. 청크 하나를 과목·시험구분 조합 수만큼 분석하므로 전과목을 고르면
+// 요청이 연달아 나가 한도를 넘긴다. 429가 난 뒤 물러서는 것보다 처음부터 간격을 두는 편이 빠르다 —
+// 429는 개별 요청의 실패가 아니라 분당 예산 소진이라, 재시도가 뒤따르는 요청과 예산을 다툰다.
+// 15회/분이면 4초 간격이 안전선이다
+const MIN_ANALYZE_GAP_MS = 4000
 
 function mb(bytes: number): string {
   return (bytes / 1_000_000).toFixed(1)
@@ -307,6 +312,20 @@ export function PdfTab({
     if (scroll) requestAnimationFrame(() => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
+  // 마지막 분석 요청을 **시작한** 시각. 끝난 시각이 아니다 —
+  // 앞 요청이 이미 4초 넘게 걸렸으면 예산은 그만큼 회복돼 있으므로 더 기다릴 이유가 없다
+  const lastAnalyzeAtRef = useRef(0)
+
+  async function throttleAnalyze(signal?: AbortSignal) {
+    const wait = MIN_ANALYZE_GAP_MS - (Date.now() - lastAnalyzeAtRef.current)
+    if (wait > 0) {
+      await new Promise((resolve) => setTimeout(resolve, wait))
+      // 기다리는 동안 사용자가 중단했을 수 있다
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+    }
+    lastAnalyzeAtRef.current = Date.now()
+  }
+
   const reviewQuestions = useMemo(
     () => (reviewFiles.length === 0 ? [] : getQuestions().filter((q) => q.sourceFile && reviewFiles.includes(q.sourceFile))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -515,6 +534,7 @@ export function PdfTab({
       await waitForFileActive(apiKey, uri, signal)
       for (const s of meta.subjects) {
         for (const et of meta.examTypes) {
+          await throttleAnalyze(signal)
           const questions = await extractQuestionsFromPdf(
             apiKey, uri, s, et, new Date().getFullYear(), signal
           )
@@ -1082,6 +1102,8 @@ export function PdfTab({
       const sourceFile = fileUri.trim().split('/').pop() ?? 'URI 업로드'
       for (const s of activeSubjects) {
         for (const et of examTypes) {
+          // File URI 모드도 같은 이중 루프라 같은 속도 제한을 받는다
+          await throttleAnalyze(controller.signal)
           const questions = await extractQuestionsFromPdf(apiKey, fileUri.trim(), s, et, new Date().getFullYear(), controller.signal)
           const result = addQuestions(questions, sourceFile)
           totalAdded += result.added

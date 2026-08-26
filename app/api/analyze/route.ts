@@ -286,7 +286,10 @@ ${SUBJECT_UNITS_JSON}
       if (!res.ok) {
         const err = await res.text()
         console.error('Gemini API error:', res.status, res.statusText, err)
-        return NextResponse.json({ error: `Gemini generate failed: [${res.status}] ${err}` }, { status: 502 })
+        // Gemini가 낸 상태 코드를 그대로 내려보낸다. 502로 덮으면 클라이언트의 재시도 목록
+        // (429·503·504·408)에 걸리지 않아, 적어둔 재시도가 한 번도 동작하지 않는다.
+        // 실제로 429(분당 한도 초과)가 재시도 없이 사용자에게 그대로 올라왔다
+        return NextResponse.json({ error: `Gemini generate failed: [${res.status}] ${err}` }, { status: res.status })
       }
 
       const data = await res.json()
@@ -420,7 +423,8 @@ Grounding Rule: 입력 자료 외 법률 내용 생성 금지. 불확실하면 "
       if (!res.ok) {
         const err = await res.text()
         console.error('Gemini API error:', res.status, res.statusText, err)
-        return NextResponse.json({ error: `Gemini analyze failed: [${res.status}] ${err}` }, { status: 502 })
+        // 위와 같은 이유로 상태 코드를 그대로 전한다 (오답 분석도 429를 만난다)
+        return NextResponse.json({ error: `Gemini analyze failed: [${res.status}] ${err}` }, { status: res.status })
       }
 
       const data = await res.json()
