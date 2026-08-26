@@ -191,8 +191,23 @@ export async function waitForFileActive(
   }
 }
 
-export async function deleteFile(_apiKey: string, _fileUri: string): Promise<void> {
-  // No-op: handled server-side in /api/analyze
+/**
+ * 다 쓴 업로드본을 지운다. 남겨두면 저장 용량만 먹는다.
+ *
+ * 지우는 시점이 중요하다 — 한 번 올린 파일로 과목·시험구분 조합만큼 분석을 돌리므로,
+ * 그 루프가 다 끝난 뒤여야 한다. 그래서 이 일은 파일을 올린 쪽(extractRange의 finally)이 맡는다.
+ * 예전에는 /api/analyze가 분석 직후 지워버려서 두 번째 호출부터 403이 났다.
+ *
+ * 정리 작업이라 실패해도 파싱에는 영향이 없다 (Gemini가 48시간 뒤 알아서 지운다).
+ * 그래서 재시도하지 않고 조용히 넘어간다
+ */
+export async function deleteFile(apiKey: string, fileUri: string): Promise<void> {
+  knownActive.delete(fileUri)
+  const form = new FormData()
+  form.append('apiKey', apiKey)
+  form.append('fileUri', fileUri)
+  form.append('action', 'delete')
+  await fetch('/api/upload', { method: 'POST', body: form }).catch(() => {})
 }
 
 // ── Parse questions from PDF via server proxy ────────────────────────────────

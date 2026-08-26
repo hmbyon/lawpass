@@ -292,10 +292,10 @@ ${SUBJECT_UNITS_JSON}
       const data = await res.json()
       const raw: string = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '[]'
 
-      // 업로드본 정리는 성공/실패와 무관하게 한다 (남겨두면 저장 용량만 먹는다)
-      const fileName = fileUri.split('/').pop()
-      fetch(`${BASE}/v1beta/files/${fileName}?key=${apiKey}`, { method: 'DELETE' }).catch(() => {})
-
+      // 업로드본 정리는 여기서 하지 않는다.
+      // 한 번 올린 파일로 과목·시험구분 조합만큼 분석을 돌리는데, 첫 호출이 지워버리면
+      // 두 번째부터 "You do not have permission to access the File ... or it may not exist"(403)로 죽는다.
+      // 파일을 올린 쪽(extractRange)이 그 청크를 다 쓰고 나서 지운다
       const cut = incompleteReason(data)
       if (cut) {
         console.error('Gemini finishReason:', cut, 'chars:', raw.length)

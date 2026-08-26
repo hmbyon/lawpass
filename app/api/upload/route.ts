@@ -49,6 +49,17 @@ export async function POST(req: NextRequest) {
     // ── 상태 확인 모드: 업로드는 이미 끝났고 ACTIVE가 됐는지만 묻는다 ──
     // 브라우저가 이 모드를 반복 호출하며 기다린다. 한 번 호출이 1초 남짓이라 함수 제한과 무관하다
     const pendingUri = formData.get('fileUri') as string | null
+
+    // ── 삭제 모드: 그 청크를 다 쓰고 나서 올린 쪽이 정리한다 ──
+    // 예전에는 /api/analyze가 분석 직후에 지웠는데, 한 파일로 과목·시험구분 조합만큼
+    // 분석을 돌리는 통에 두 번째 호출부터 403(없는 파일)이 났다
+    if (pendingUri && formData.get('action') === 'delete') {
+      const fileName = pendingUri.split('/').pop()
+      const res = await fetch(`${BASE}/v1beta/files/${fileName}?key=${apiKey}`, { method: 'DELETE' })
+      // 이미 지워졌으면 404가 온다. 정리 작업이라 그것도 성공으로 친다
+      return NextResponse.json({ deleted: res.ok || res.status === 404 })
+    }
+
     if (pendingUri) {
       const state = await fetchState(apiKey, pendingUri)
       return NextResponse.json({ fileUri: pendingUri, state })
