@@ -7,6 +7,8 @@ import {
   buildParseReview, isMinorUnit, unitOptionsFor, yearOptions, formatMissing, allMissing,
   gapLabel, gapNumbers, UNKNOWN_YEAR,
   type GroupCheck, type UnitCount, type YearCount, type QuestionPage,
+  // 이 파일의 컴포넌트 이름과 겹쳐서 갈아 끼운다
+  type ParseReview as ParseReviewData,
 } from '@/lib/parseReview'
 
 // 결번이 난 회차를 다시 파싱해달라는 요청. 실제 재파싱은 원본 PDF와 API 키를 쥔 상위(pdf-tab)가 한다
@@ -39,6 +41,8 @@ interface Props {
 export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabled }: Props) {
   const [openUnit, setOpenUnit] = useState<string | null>(null)
   const [openYear, setOpenYear] = useState<number | null>(null)
+  // 지문이 길어서 한 번에 하나만 펼친다
+  const [openQuestion, setOpenQuestion] = useState<string | null>(null)
   // 수정 직후에도 화면이 바로 갱신되도록 로컬 변경분을 따로 들고 있는다
   const [editedUnit, setEditedUnit] = useState<Record<string, string>>({})
   const [editedYear, setEditedYear] = useState<Record<string, number>>({})
@@ -91,6 +95,12 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
           <p className="text-xs text-amber-600 dark:text-amber-400">
             ⚠ 연도를 확인하지 못한 문제가 {review.unknownYearCount}개 있습니다. 번호 연속성 검사에는 함께
             넣었지만, 아래 &apos;출제연도 분포&apos;에서 연도를 지정해주세요
+          </p>
+        )}
+        {Object.keys(review.duplicateIds).length > 0 && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            ⚠ 같은 문제가 두 벌 저장된 것이 {Object.keys(review.duplicateIds).length}개 있습니다.
+            아래 &apos;단원 분포&apos;를 펼치면 해당 문제에 &apos;⚠ 중복&apos; 표시가 붙습니다 — 눌러서 지문을 견줘보세요
           </p>
         )}
         {review.singletonRuns > 0 && (
@@ -149,7 +159,15 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
                 </span>
                 {note && <span className="text-amber-600 dark:text-amber-400 shrink-0">{note}</span>}
               </button>
-              {openYear === row.year && <YearQuestionList row={row} onChange={changeYear} />}
+              {openYear === row.year && (
+                <YearQuestionList
+                  row={row}
+                  review={review}
+                  openId={openQuestion}
+                  onOpen={setOpenQuestion}
+                  onChange={changeYear}
+                />
+              )}
             </div>
           )
         })}
@@ -187,7 +205,13 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
                 )}
               </button>
               {openUnit === key && (
-                <UnitQuestionList row={row} onChange={changeUnit} />
+                <UnitQuestionList
+                  row={row}
+                  review={review}
+                  openId={openQuestion}
+                  onOpen={setOpenQuestion}
+                  onChange={changeUnit}
+                />
               )}
             </div>
           )
@@ -202,20 +226,116 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
   )
 }
 
+// 단원·연도 목록의 한 줄. 눌러서 지문 전체를 펼친다.
+// 40자로 잘린 미리보기만으로는 두 판본이 같은 문제인지 가릴 수가 없어서 만들었다
+function QuestionRow({
+  q,
+  duplicates,
+  open,
+  onToggle,
+  children,
+}: {
+  q: Question
+  duplicates: number // 같은 문제가 몇 벌 저장돼 있는지 (2 이상이면 표시)
+  open: boolean
+  onToggle: () => void
+  children: React.ReactNode // 단원/연도 변경 드롭다운
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-2 text-xs">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex-1 flex items-center gap-2 min-w-0 text-left hover:opacity-80 transition-opacity"
+        >
+          <span className="shrink-0 text-muted-foreground">{open ? '▾' : '▸'}</span>
+          <span className="shrink-0 text-muted-foreground tabular-nums w-9">{q.no}번</span>
+          <span className="flex-1 truncate text-foreground">{q.passage.slice(0, 40)}</span>
+          {duplicates >= 2 && (
+            <span className="shrink-0 text-amber-600 dark:text-amber-400">⚠ 중복 {duplicates}건</span>
+          )}
+        </button>
+        {/* 드롭다운 조작이 펼침을 건드리지 않도록 버튼 밖에 둔다 */}
+        {children}
+      </div>
+      {open && <QuestionDetail q={q} duplicates={duplicates} />}
+    </div>
+  )
+}
+
+function QuestionDetail({ q, duplicates }: { q: Question; duplicates: number }) {
+  const pages = q.pageFrom !== undefined ? `${q.pageFrom}~${q.pageTo}쪽` : '쪽 모름'
+  const meta = [
+    q.subject,
+    q.examType,
+    q.year === UNKNOWN_YEAR ? '연도 미상' : `${q.year}년`,
+    q.unit?.trim() || '단원 없음',
+    pages,
+    q.sourceFile ?? '파일 미상',
+  ].join(' · ')
+  const filled = q.choices.filter((c) => c.text?.trim())
+  const explanation = q.explanations?.[0] ?? q.explanation
+  return (
+    <div className="ml-6 mt-1 mb-2 p-2 rounded bg-muted/50 border border-border space-y-1.5 text-xs">
+      <p className="text-muted-foreground">{meta}</p>
+      {duplicates >= 2 && (
+        <p className="text-amber-600 dark:text-amber-400">
+          같은 번호·같은 지문이 {duplicates}벌 저장돼 있습니다. 쪽 번호를 견줘 한쪽을 지워주세요
+        </p>
+      )}
+      <p className="text-foreground whitespace-pre-wrap max-h-64 overflow-y-auto">{q.passage}</p>
+      {filled.length > 0 && (
+        <div className="space-y-0.5">
+          {filled.map((c) => (
+            <p key={c.label} className={c.label === q.answer ? 'text-foreground font-medium' : 'text-muted-foreground'}>
+              {c.label} {c.text}
+              {c.label === q.answer && <span className="text-emerald-600 dark:text-emerald-400"> ← 정답</span>}
+            </p>
+          ))}
+        </div>
+      )}
+      {explanation && (
+        <p className="text-muted-foreground">
+          해설: {typeof explanation === 'string' ? explanation.slice(0, 200) : ''}
+          {typeof explanation === 'string' && explanation.length > 200 ? '…' : ''}
+        </p>
+      )}
+      {(q.subItems?.length || q.passageTable?.length) && (
+        <p className="text-muted-foreground">
+          {q.subItems?.length ? `보기 ${q.subItems.length}개 ` : ''}
+          {q.passageTable?.length ? `표 ${q.passageTable.length}개` : ''}
+        </p>
+      )}
+      <p className="text-[11px] text-muted-foreground break-all">id: {q.id}</p>
+    </div>
+  )
+}
+
 function YearQuestionList({
   row,
+  review,
+  openId,
+  onOpen,
   onChange,
 }: {
   row: YearCount
+  review: ParseReviewData
+  openId: string | null
+  onOpen: (id: string | null) => void
   onChange: (q: Question, year: number) => void
 }) {
   const options = yearOptions()
   return (
     <div className="ml-2 mt-1 mb-1.5 pl-2 border-l-2 border-border space-y-1">
       {row.questions.map((q) => (
-        <div key={q.id} className="flex items-center gap-2 text-xs">
-          <span className="shrink-0 text-muted-foreground tabular-nums w-9">{q.no}번</span>
-          <span className="flex-1 truncate text-foreground">{q.passage.slice(0, 40)}</span>
+        <QuestionRow
+          key={q.id}
+          q={q}
+          duplicates={review.duplicateIds[q.id] ?? 0}
+          open={openId === q.id}
+          onToggle={() => onOpen(openId === q.id ? null : q.id)}
+        >
           <select
             value={options.includes(row.year) ? row.year : ''}
             onChange={(e) => e.target.value && onChange(q, Number(e.target.value))}
@@ -226,7 +346,7 @@ function YearQuestionList({
               <option key={y} value={y}>{y}년</option>
             ))}
           </select>
-        </div>
+        </QuestionRow>
       ))}
     </div>
   )
@@ -234,18 +354,28 @@ function YearQuestionList({
 
 function UnitQuestionList({
   row,
+  review,
+  openId,
+  onOpen,
   onChange,
 }: {
   row: UnitCount
+  review: ParseReviewData
+  openId: string | null
+  onOpen: (id: string | null) => void
   onChange: (q: Question, unit: string) => void
 }) {
   const options = unitOptionsFor(row.subject)
   return (
     <div className="ml-2 mt-1 mb-1.5 pl-2 border-l-2 border-border space-y-1">
       {row.questions.map((q) => (
-        <div key={q.id} className="flex items-center gap-2 text-xs">
-          <span className="shrink-0 text-muted-foreground tabular-nums w-9">{q.no}번</span>
-          <span className="flex-1 truncate text-foreground">{q.passage.slice(0, 40)}</span>
+        <QuestionRow
+          key={q.id}
+          q={q}
+          duplicates={review.duplicateIds[q.id] ?? 0}
+          open={openId === q.id}
+          onToggle={() => onOpen(openId === q.id ? null : q.id)}
+        >
           <select
             value={options.includes(row.unit) ? row.unit : ''}
             onChange={(e) => e.target.value && onChange(q, e.target.value)}
@@ -256,7 +386,7 @@ function UnitQuestionList({
               <option key={u} value={u}>{u}</option>
             ))}
           </select>
-        </div>
+        </QuestionRow>
       ))}
     </div>
   )

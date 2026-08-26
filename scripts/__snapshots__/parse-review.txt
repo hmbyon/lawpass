@@ -105,6 +105,13 @@ total=40 unknownYear=20 groups=1 hasWarning=true
   units: 민법총칙=40
   years: 2023=20 미상=20(unknown)
 
+### 14. 같은 문제가 두 벌 (옛 병합 키의 잔재)
+# 14번이 두 번 저장돼 있다. 2026-08-24 이전에는 병합 키에 연도가 들어 있어서, 같은 문제를 두 청크가 다른 연도로 판정하면 후보가 갈려 비교조차 되지 않았다. 회차별 문제집에서 같은 번호가 여럿인 것(1·3번 fixture)과 헷갈리면 안 되므로 지문까지 같아야 중복으로 센다.
+total=21 unknownYear=1 dupes=2 groups=1 hasWarning=true
+  민법|변호사시험|2016 count=20 1~20 head=0 interior=[] expMax=- tail=0 verdict=ok ok=true
+  units: 민법총칙=21
+  years: 2016=20 미상=1(unknown)
+
 ### 순서 결정 (orderForRuns)
 
 - 전부 페이지 있음

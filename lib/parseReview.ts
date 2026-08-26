@@ -126,10 +126,63 @@ export interface ParseReview {
   // 번호가 하나뿐이라 연속성을 논할 수 없어 검사에서 뺀 런의 수.
   // 이걸 세지 않으면 '많이 잃을수록 조용해지는' 함정으로 되돌아간다
   singletonRuns: number
+  // 같은 문제가 두 벌 저장된 것. 문제 id → 그 무리의 크기.
+  // 2026-08-24 이전에는 병합 키에 연도가 들어 있어서, 같은 문제를 두 청크가 다른 연도로
+  // 판정하면 후보 자체가 갈려 비교조차 되지 않은 채 두 번 저장됐다. 지금 코드는 같은 사고를
+  // 내지 않지만 이미 쌓인 것은 저절로 사라지지 않는다. 사람이 찾아 지울 수 있게 표시만 한다
+  duplicateIds: Record<string, number>
   units: UnitCount[]
   years: YearCount[]
   yearDominant: YearCount | null // 70% 이상을 차지하는 연도 (있을 때만)
   hasWarning: boolean
+}
+
+// 같은 문제인지 보는 최소 규칙. store.ts의 isSameQuestion과 같은 판정이지만,
+// 이 파일은 localStorage를 건드리지 않는 순수 모듈로 두려고 일부러 옮겨 적었다.
+// (규칙을 바꿀 일이 생기면 두 곳을 함께 고쳐야 한다)
+const MIN_PASSAGE_FOR_PREFIX = 40
+
+function sameText(a: Question, b: Question): boolean {
+  const pa = a.passage.replace(/\s+/g, ' ').trim()
+  const pb = b.passage.replace(/\s+/g, ' ').trim()
+  if (pa === pb) return true
+  const [shorter, longer] = pa.length <= pb.length ? [pa, pb] : [pb, pa]
+  return shorter.length >= MIN_PASSAGE_FOR_PREFIX && longer.startsWith(shorter)
+}
+
+/**
+ * 같은 문제가 두 벌 저장된 것을 찾는다.
+ *
+ * 번호만으로는 안 된다 — 회차별 문제집은 회차마다 1번부터 다시 시작하므로 같은 번호가
+ * 여러 벌 있는 게 정상이다. 그래서 과목·시험구분·번호가 같은 것들 중에서 **지문까지 같은**
+ * 것들만 한 무리로 묶는다.
+ */
+function findDuplicates(questions: Question[]): Record<string, number> {
+  const byNo = new Map<string, Question[]>()
+  for (const q of questions) {
+    const no = Number(q.no)
+    if (!Number.isFinite(no) || no <= 0) continue
+    const key = `${q.subject}|${q.examType}|${no}`
+    const list = byNo.get(key)
+    if (list) list.push(q)
+    else byNo.set(key, [q])
+  }
+
+  const out: Record<string, number> = {}
+  for (const list of byNo.values()) {
+    if (list.length < 2) continue
+    const clusters: Question[][] = []
+    for (const q of list) {
+      const found = clusters.find((c) => c.some((o) => sameText(o, q)))
+      if (found) found.push(q)
+      else clusters.push([q])
+    }
+    for (const c of clusters) {
+      if (c.length < 2) continue
+      for (const q of c) out[q.id] = c.length
+    }
+  }
+  return out
 }
 
 // 파일명이 없는 문제들끼리는 한 덩어리로 본다. 파일을 모른다는 것 자체가 하나의 출처다
@@ -426,6 +479,7 @@ function cutRuns(key: string, list: Question[]): Run[] {
 export function buildParseReview(questions: Question[]): ParseReview {
   // ── A. 번호 연속성 ──
   const unknownYearCount = questions.filter((q) => (q.year || UNKNOWN_YEAR) === UNKNOWN_YEAR).length
+  const duplicateIds = findDuplicates(questions)
 
   // 파일·과목·시험구분으로 먼저 나눈다. 이때 저장 배열 순서를 그대로 유지해야
   // orderForRuns의 옛 데이터 폴백이 근거를 잃지 않는다.
@@ -563,6 +617,7 @@ export function buildParseReview(questions: Question[]): ParseReview {
     groups,
     unknownYearCount,
     singletonRuns,
+    duplicateIds,
     units,
     years,
     yearDominant,
@@ -571,6 +626,7 @@ export function buildParseReview(questions: Question[]): ParseReview {
       // 근거가 없다는 이유로 넘어가면 '많이 잃을수록 조용해지는' 그 함정이 다시 열린다
       groups.some((g) => g.verdict === 'suspect' || g.verdict === 'unknown') ||
       unknownYearCount > 0 ||
+      Object.keys(duplicateIds).length > 0 ||
       singletonRuns > 0 ||
       units.some((u) => !u.valid) ||
       years.some((y) => y.problem !== null) ||

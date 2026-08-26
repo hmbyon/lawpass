@@ -84,7 +84,9 @@ function questions(sourceFile: string | undefined, specs: Spec[]): Question[] {
       examType: s.examType,
       year: s.year,
       unit: s.unit ?? '민법총칙',
-      passage: `${sourceFile ?? '?'} ${s.year}년 ${s.no}번 지문`,
+      // 단원까지 넣어야 서로 다른 문제가 같은 지문을 갖지 않는다.
+      // (단원별 문제집 fixture에서 민법총칙 5번과 물권법 5번이 같은 글이 되어 중복으로 잡혔다)
+      passage: `${sourceFile ?? '?'} ${s.unit ?? '민법총칙'} ${s.year}년 ${s.no}번 지문`,
       choices: [],
       answer: '①',
       explanation: null,
@@ -238,6 +240,21 @@ const FIXTURES: Fixture[] = [
       ...block({ nos: range(1, 40), year: [2023, UNKNOWN_YEAR], startPage: 1 }),
     ]),
   },
+  {
+    name: '14. 같은 문제가 두 벌 (옛 병합 키의 잔재)',
+    note:
+      '14번이 두 번 저장돼 있다. 2026-08-24 이전에는 병합 키에 연도가 들어 있어서, 같은 문제를 ' +
+      '두 청크가 다른 연도로 판정하면 후보가 갈려 비교조차 되지 않았다. 회차별 문제집에서 ' +
+      '같은 번호가 여럿인 것(1·3번 fixture)과 헷갈리면 안 되므로 지문까지 같아야 중복으로 센다.',
+    questions: (() => {
+      const qs = questions('유니온-민법.pdf', [
+        ...block({ nos: range(1, 20), year: 2016, startPage: 1 }),
+      ])
+      // 14번의 두 번째 판본. 겹친 쪽에서 다시 읽혀 지문은 같고 연도만 다르게 판정된 상황
+      const twin = { ...qs[13], id: '유니온-민법.pdf#dup', year: UNKNOWN_YEAR }
+      return [...qs, twin]
+    })(),
+  },
 ]
 
 // ── 순서 결정 케이스 (orderForRuns) ─────────────────────────────
@@ -328,8 +345,10 @@ function render(f: Fixture, review: ParseReview): string {
   // 낱개 런은 있을 때만 찍는다. 없을 때도 찍으면 기존 fixture의 줄이 전부 바뀌어,
   // '회차별 케이스는 그대로'를 스냅샷 diff로 보이는 이 하네스의 쓸모가 준다
   const singletons = review.singletonRuns > 0 ? ` singletons=${review.singletonRuns}` : ''
+  const dupes = Object.keys(review.duplicateIds).length
   lines.push(
-    `total=${review.total} unknownYear=${review.unknownYearCount}${singletons} ` +
+    `total=${review.total} unknownYear=${review.unknownYearCount}${singletons}` +
+      `${dupes > 0 ? ` dupes=${dupes}` : ''} ` +
       `groups=${review.groups.length} hasWarning=${review.hasWarning}`
   )
   if (review.groups.length === 0) lines.push('  (그룹 없음)')
