@@ -291,8 +291,11 @@ export function PdfTab({
   const reparsePanelRef = useRef<HTMLDivElement>(null)
   const [reviewFiles, setReviewFiles] = useState<string[]>([])
   const [reviewRefresh, setReviewRefresh] = useState(0)
+  // 검토 패널은 페이지 한참 아래에 있다. 목록에서 '검토'를 눌렀을 때 그리로 데려가지 않으면
+  // 버튼이 아무 일도 안 한 것처럼 보인다
+  const reviewRef = useRef<HTMLDivElement>(null)
 
-  function showReview(names: string[], replace = false) {
+  function showReview(names: string[], replace = false, scroll = false) {
     setReviewFiles((prev) => {
       if (replace) return names
       const next = prev.slice()
@@ -300,6 +303,8 @@ export function PdfTab({
       return next
     })
     setReviewRefresh((v) => v + 1)
+    // 패널이 그려진 뒤에 옮겨야 한다
+    if (scroll) requestAnimationFrame(() => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
   const reviewQuestions = useMemo(
@@ -1256,12 +1261,22 @@ export function PdfTab({
                   <p className="text-xs text-muted-foreground">{count}문제</p>
                 </div>
                 {!mergeMode && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleDeleteSource(name) }}
-                    className="text-xs text-red-400 hover:text-red-300 shrink-0 transition-colors"
-                  >
-                    삭제
-                  </button>
+                  <>
+                    {/* 검토 화면은 파싱 직후에만 떠서, 그때 놓치면 다시 볼 방법이 없었다.
+                        검토에 필요한 건 저장된 문제들뿐이라 이 버튼만으로 그대로 열린다 */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); showReview([name], true, true) }}
+                      className="text-xs text-primary hover:text-primary/80 shrink-0 transition-colors"
+                    >
+                      검토
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeleteSource(name) }}
+                      className="text-xs text-red-400 hover:text-red-300 shrink-0 transition-colors"
+                    >
+                      삭제
+                    </button>
+                  </>
                 )}
               </div>
             ))}
@@ -1938,6 +1953,7 @@ export function PdfTab({
         )}
 
         {reviewFiles.length > 0 && (
+          <div ref={reviewRef}>
           <ParseReview
             questions={reviewQuestions}
             onUnitChanged={() => {
@@ -1947,6 +1963,7 @@ export function PdfTab({
             onReparse={openReparse}
             reparseDisabled={isRunning}
           />
+          </div>
         )}
       </div>
     </div>
