@@ -120,8 +120,11 @@ const FIXTURES: Fixture[] = [
     ]),
   },
   {
-    name: '2. 회차별 + 중간 결번',
-    note: '2023 회차에서 17·18번이 빠졌다. 파싱 누락으로 잡혀야 한다.',
+    name: '2. 회차별 + 중간 결번 (페이지가 붙어 있어 가릴 수 없음)',
+    note:
+      '2023 회차에서 17·18번이 빠졌는데 앞뒤 문제의 쪽이 맞붙어 있다. ' +
+      '지금 설계의 알려진 한계 — 같은 쪽·붙은 쪽 안에서 놓친 문제는 빈 쪽을 남기지 않아 발췌와 구분되지 않는다. ' +
+      '탐지되는 유실은 fixture 11이 맡는다. 나중에 완화책을 넣으면 이 fixture의 판정이 바뀌는 것으로 효과를 확인할 수 있다.',
     questions: questions('변시-민법-기출.pdf', [
       ...block({ nos: range(1, 40), year: 2022, startPage: 1 }),
       ...block({ nos: without(range(1, 40), [17, 18]), year: 2023, startPage: 21 }),
@@ -323,7 +326,7 @@ function render(f: Fixture, review: ParseReview): string {
     lines.push(
       `  ${g.subject}|${g.examType}|${g.year} count=${g.count} ${g.min}~${g.max} ` +
         `head=${g.headMissing} interior=${nums(g.interior)} ` +
-        `expMax=${g.expectedMax ?? '-'} tail=${g.tailMissing} sparse=${g.sparse} ok=${g.ok}`
+        `expMax=${g.expectedMax ?? '-'} tail=${g.tailMissing} verdict=${g.verdict} ok=${g.ok}`
     )
   }
   lines.push(`  units: ${review.units.map((u) => `${u.unit}=${u.count}${u.valid ? '' : '!'}`).join(' ')}`)
@@ -391,6 +394,12 @@ function invariants(f: Fixture, review: ParseReview) {
     check(
       g.ok === (g.interior.length === 0 && g.headMissing === 0 && g.tailMissing === 0),
       where('ok가 결번 상태와 어긋남')
+    )
+    check(g.ok === (g.verdict === 'ok'), where('ok와 verdict가 어긋남'))
+    // 무거운 쪽이 이겨야 한다. 유실 의심 덩어리가 있는데 런이 발췌로 넘어가면 조용해진다
+    check(
+      g.gaps.some((x) => x.verdict === 'suspect') === (g.verdict === 'suspect'),
+      where('suspect 덩어리와 런 verdict가 어긋남')
     )
     check(
       g.pages.every((p) => p.from <= p.to),

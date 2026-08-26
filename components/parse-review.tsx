@@ -277,7 +277,7 @@ function GroupRow({
   const yearLabel = g.yearMixed ? '연도 섞임' : g.year === UNKNOWN_YEAR ? '연도 미상' : `${g.year}년`
   const pageLabel = g.pageFrom !== null ? ` · ${g.pageFrom}~${g.pageTo}쪽` : ''
   const label = `${g.subject} · ${g.examType} · ${yearLabel}${pageLabel}`
-  if (g.ok) {
+  if (g.verdict === 'ok') {
     return (
       <p className="text-xs text-emerald-600 dark:text-emerald-400">
         ✓ {label} <span className="tabular-nums">{g.min}~{g.max}번</span> 연속 ({g.count}문제)
@@ -287,9 +287,23 @@ function GroupRow({
       </p>
     )
   }
+  // 빠진 번호가 전부 '애초에 안 실린 것'으로 판정된 런. 경고가 아니라 사실 확인이다
+  if (g.verdict === 'excerpt') {
+    return (
+      <p className="text-xs text-emerald-600 dark:text-emerald-400">
+        ✓ {label} <span className="tabular-nums">{g.min}~{g.max}번</span> 중 {g.count}문제 (발췌본으로 보입니다)
+        <span className="text-muted-foreground">
+          {' '}
+          · 빠진 번호 자리에 빈 쪽이 없습니다
+        </span>
+      </p>
+    )
+  }
   return (
     <div className="text-xs space-y-0.5">
-      <p className="text-amber-600 dark:text-amber-400 font-medium">⚠ 파싱 누락 의심</p>
+      <p className="text-amber-600 dark:text-amber-400 font-medium">
+        {g.verdict === 'unknown' ? '? 판단 보류' : '⚠ 파싱 누락 의심'}
+      </p>
       <p className="text-muted-foreground">
         {label} · <span className="tabular-nums">{g.min}~{g.max}번</span> 중 {g.count}개 확인
       </p>
@@ -300,7 +314,7 @@ function GroupRow({
       )}
       {g.interior.length > 0 && (
         <p className="text-foreground">
-          {g.sparse ? '확인된 문제보다 빠진 번호가 많습니다' : '빠진 번호'}:{' '}
+          빠진 번호:{' '}
           <span className="tabular-nums">{formatMissing(g.interior)}</span>
         </p>
       )}
@@ -311,8 +325,8 @@ function GroupRow({
         </p>
       )}
       <p className="text-muted-foreground">
-        {g.sparse
-          ? '→ 번호를 골라 담은 교재라면 정상입니다. 아니라면 해당 구간을 다시 파싱해보세요'
+        {g.verdict === 'unknown'
+          ? '→ 페이지 기록이 없어 유실인지 발췌인지 가릴 수 없습니다. 이 문제집을 다시 파싱하면 판정할 수 있습니다'
           : '→ 빠진 번호가 있는 페이지 구간만 다시 파싱할 수 있습니다'}
       </p>
       {onReparse && sourceFile && (

@@ -5,11 +5,6 @@ import { SUBJECT_UNITS, isValidUnit } from './units'
 const MAX_MISSING_SHOWN = 20
 // 번호가 하나뿐이면 연속성을 논할 수 없다
 const MIN_COUNT_FOR_GAP_CHECK = 2
-// 결번이 확인된 문항 수보다 많으면 "번호가 연속인 시험지"라는 전제가 흔들린다.
-// (문제를 골라 담은 교재이거나, 정말로 대량 유실이거나 — 번호만으로는 구분할 수 없다)
-// 예전에는 이때 검사를 통째로 건너뛰었는데, 그러면 많이 잃을수록 조용해지는 정반대 동작이 됐다.
-// 이제는 건너뛰지 않고 '비연속 의심'이라는 다른 문구로 표시한다
-const SPARSE_RATIO = 1
 // 앞뒤가 잘렸는지는 번호만으로는 알 수 없다. 같은 과목·시험구분의 다른 회차가
 // 이만큼 있으면 그 회차들의 첫 번호·마지막 번호를 기준으로 삼는다
 const MIN_SIBLINGS_FOR_EDGE = 2
@@ -92,8 +87,15 @@ export interface GroupCheck {
   headMissing: number // expectedMin부터 min-1번까지 몇 개가 없는지 (근거가 없으면 0)
   expectedMax: number | null // 형제 런들로 추정한 마지막 번호
   tailMissing: number // expectedMax까지 몇 개가 없는지
-  sparse: boolean // 결번이 확인된 문항 수보다 많음
-  ok: boolean
+  // 이 런을 한마디로. 예전의 sparse(결번 비율)를 대신한다.
+  // 비율은 애초에 틀린 도구였다 — 런으로 자르고 나면 발췌본도 국소적으로는 촘촘해서
+  // 어떤 비율을 잡아도 발췌와 유실이 갈리지 않는다. 이제는 덩어리별 판정을 모아서 정한다
+  //   ok       빠진 번호가 없음
+  //   excerpt  빠진 번호는 있으나 전부 '애초에 안 실린 것'으로 판정됨 (경고 아님)
+  //   unknown  판단 근거가 없는 덩어리가 있음 (조용히 넘기지 않는다)
+  //   suspect  파싱에서 놓친 것으로 보이는 덩어리가 있음
+  verdict: 'ok' | 'excerpt' | 'unknown' | 'suspect'
+  ok: boolean // verdict === 'ok'. 빠진 번호가 하나도 없다는 뜻
 }
 
 export interface UnitCount {
@@ -440,6 +442,15 @@ export function buildParseReview(questions: Question[]): ParseReview {
   const runs = allRuns.filter((r) => r.nos.length >= MIN_COUNT_FOR_GAP_CHECK)
   const singletonRuns = allRuns.length - runs.length
 
+  // 덩어리 판정을 런 하나의 결론으로 모은다. 무거운 쪽이 이긴다 —
+  // 발췌로 보이는 덩어리가 아무리 많아도 유실 의심이 하나 있으면 그 런은 유실 의심이다
+  const runVerdict = (gaps: Gap[]): GroupCheck['verdict'] => {
+    if (gaps.length === 0) return 'ok'
+    if (gaps.some((g) => g.verdict === 'suspect')) return 'suspect'
+    if (gaps.some((g) => g.verdict === 'unknown')) return 'unknown'
+    return 'excerpt'
+  }
+
   const groups: GroupCheck[] = runs.map((r) => {
     const min = r.nos[0]
     const max = r.nos[r.nos.length - 1]
@@ -454,6 +465,9 @@ export function buildParseReview(questions: Question[]): ParseReview {
 
     const headMissing = expectedMin !== null && min > expectedMin ? min - expectedMin : 0
     const tailMissing = expectedMax !== null && expectedMax > max ? expectedMax - max : 0
+
+    const gaps = buildGaps(r.nos, r.pages, expectedMin, headMissing, expectedMax, tailMissing)
+    const verdict = runVerdict(gaps)
 
     return {
       runId: r.runId,
@@ -471,13 +485,13 @@ export function buildParseReview(questions: Question[]): ParseReview {
       pageFrom: r.pages.length > 0 ? Math.min(...r.pages.map((p) => p.from)) : null,
       pageTo: r.pages.length > 0 ? Math.max(...r.pages.map((p) => p.to)) : null,
       interior,
-      gaps: buildGaps(r.nos, r.pages, expectedMin, headMissing, expectedMax, tailMissing),
+      gaps,
       expectedMin,
       headMissing,
       expectedMax,
       tailMissing,
-      sparse: interior.length > r.nos.length * SPARSE_RATIO,
-      ok: interior.length === 0 && headMissing === 0 && tailMissing === 0,
+      verdict,
+      ok: verdict === 'ok',
     }
   })
   // 화면에서는 원본을 넘길 때와 같은 순서로 읽히는 게 낫다.
@@ -550,7 +564,9 @@ export function buildParseReview(questions: Question[]): ParseReview {
     years,
     yearDominant,
     hasWarning:
-      groups.some((g) => !g.ok) ||
+      // 발췌로 판정된 런은 경고가 아니다. 반대로 판단 보류는 경고로 친다 —
+      // 근거가 없다는 이유로 넘어가면 '많이 잃을수록 조용해지는' 그 함정이 다시 열린다
+      groups.some((g) => g.verdict === 'suspect' || g.verdict === 'unknown') ||
       skippedUnknownYear > 0 ||
       singletonRuns > 0 ||
       units.some((u) => !u.valid) ||

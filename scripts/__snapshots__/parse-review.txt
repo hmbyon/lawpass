@@ -1,100 +1,100 @@
 ### 1. 회차별 정상
 # 한 파일에 2022~2024 세 회차, 각 1~40번. 페이지 순서대로.
 total=120 unknownYear=0 groups=3 hasWarning=false
-  민법|변호사시험|2022 count=40 1~40 head=0 interior=[] expMax=40 tail=0 sparse=false ok=true
-  민법|변호사시험|2023 count=40 1~40 head=0 interior=[] expMax=40 tail=0 sparse=false ok=true
-  민법|변호사시험|2024 count=40 1~40 head=0 interior=[] expMax=40 tail=0 sparse=false ok=true
+  민법|변호사시험|2022 count=40 1~40 head=0 interior=[] expMax=40 tail=0 verdict=ok ok=true
+  민법|변호사시험|2023 count=40 1~40 head=0 interior=[] expMax=40 tail=0 verdict=ok ok=true
+  민법|변호사시험|2024 count=40 1~40 head=0 interior=[] expMax=40 tail=0 verdict=ok ok=true
   units: 민법총칙=120
   years: 2024=40 2023=40 2022=40
 
-### 2. 회차별 + 중간 결번
-# 2023 회차에서 17·18번이 빠졌다. 파싱 누락으로 잡혀야 한다.
-total=118 unknownYear=0 groups=3 hasWarning=true
-  민법|변호사시험|2022 count=40 1~40 head=0 interior=[] expMax=40 tail=0 sparse=false ok=true
-  민법|변호사시험|2023 count=38 1~40 head=0 interior=[17,18] expMax=40 tail=0 sparse=false ok=false
-  민법|변호사시험|2024 count=40 1~40 head=0 interior=[] expMax=40 tail=0 sparse=false ok=true
+### 2. 회차별 + 중간 결번 (페이지가 붙어 있어 가릴 수 없음)
+# 2023 회차에서 17·18번이 빠졌는데 앞뒤 문제의 쪽이 맞붙어 있다. 지금 설계의 알려진 한계 — 같은 쪽·붙은 쪽 안에서 놓친 문제는 빈 쪽을 남기지 않아 발췌와 구분되지 않는다. 탐지되는 유실은 fixture 11이 맡는다. 나중에 완화책을 넣으면 이 fixture의 판정이 바뀌는 것으로 효과를 확인할 수 있다.
+total=118 unknownYear=0 groups=3 hasWarning=false
+  민법|변호사시험|2022 count=40 1~40 head=0 interior=[] expMax=40 tail=0 verdict=ok ok=true
+  민법|변호사시험|2023 count=38 1~40 head=0 interior=[17,18] expMax=40 tail=0 verdict=excerpt ok=false
+  민법|변호사시험|2024 count=40 1~40 head=0 interior=[] expMax=40 tail=0 verdict=ok ok=true
   units: 민법총칙=118
   years: 2024=40 2023=38 2022=40
 
 ### 3. 회차별 + 앞뒤 잘림
 # 2024 회차가 5~35번만 있다. 앞 4개·뒤 5개가 잘린 것으로 잡혀야 한다.
 total=111 unknownYear=0 groups=3 hasWarning=true
-  민법|변호사시험|2022 count=40 1~40 head=0 interior=[] expMax=35 tail=0 sparse=false ok=true
-  민법|변호사시험|2023 count=40 1~40 head=0 interior=[] expMax=35 tail=0 sparse=false ok=true
-  민법|변호사시험|2024 count=31 5~35 head=4 interior=[] expMax=40 tail=5 sparse=false ok=false
+  민법|변호사시험|2022 count=40 1~40 head=0 interior=[] expMax=35 tail=0 verdict=ok ok=true
+  민법|변호사시험|2023 count=40 1~40 head=0 interior=[] expMax=35 tail=0 verdict=ok ok=true
+  민법|변호사시험|2024 count=31 5~35 head=4 interior=[] expMax=40 tail=5 verdict=suspect ok=false
   units: 민법총칙=111
   years: 2024=31 2023=40 2022=40
 
 ### 4. 단원별 (연도 섞임)
 # 민법총칙 1~30번, 물권법 1~35번. 각 단원 안에서 연도가 섞인다. 연도로 묶으면 번호가 뒤엉킨다.
 total=65 unknownYear=0 groups=2 hasWarning=false
-  민법|변호사시험|2021 count=30 1~30 head=0 interior=[] expMax=- tail=0 sparse=false ok=true
-  민법|변호사시험|2021 count=35 1~35 head=0 interior=[] expMax=- tail=0 sparse=false ok=true
+  민법|변호사시험|2021 count=30 1~30 head=0 interior=[] expMax=- tail=0 verdict=ok ok=true
+  민법|변호사시험|2021 count=35 1~35 head=0 interior=[] expMax=- tail=0 verdict=ok ok=true
   units: 물권법=35 민법총칙=30
   years: 2023=21 2022=22 2021=22
 
 ### 5. 옛 데이터 (페이지 정보 없음)
 # fixture 1과 같은 구성인데 pageFrom/pageTo가 없다. 저장 배열 순서만이 단서다.
 total=120 unknownYear=0 groups=3 hasWarning=false
-  민법|변호사시험|2022 count=40 1~40 head=0 interior=[] expMax=40 tail=0 sparse=false ok=true
-  민법|변호사시험|2023 count=40 1~40 head=0 interior=[] expMax=40 tail=0 sparse=false ok=true
-  민법|변호사시험|2024 count=40 1~40 head=0 interior=[] expMax=40 tail=0 sparse=false ok=true
+  민법|변호사시험|2022 count=40 1~40 head=0 interior=[] expMax=40 tail=0 verdict=ok ok=true
+  민법|변호사시험|2023 count=40 1~40 head=0 interior=[] expMax=40 tail=0 verdict=ok ok=true
+  민법|변호사시험|2024 count=40 1~40 head=0 interior=[] expMax=40 tail=0 verdict=ok ok=true
   units: 민법총칙=120
   years: 2024=40 2023=40 2022=40
 
 ### 6. 페이지 정보 섞임
 # 2023 회차만 페이지를 안다 (1단계 이후 그 구간만 다시 파싱한 문제집).
 total=120 unknownYear=0 groups=3 hasWarning=false
-  민법|변호사시험|2022 count=40 1~40 head=0 interior=[] expMax=40 tail=0 sparse=false ok=true
-  민법|변호사시험|2023 count=40 1~40 head=0 interior=[] expMax=40 tail=0 sparse=false ok=true
-  민법|변호사시험|2024 count=40 1~40 head=0 interior=[] expMax=40 tail=0 sparse=false ok=true
+  민법|변호사시험|2022 count=40 1~40 head=0 interior=[] expMax=40 tail=0 verdict=ok ok=true
+  민법|변호사시험|2023 count=40 1~40 head=0 interior=[] expMax=40 tail=0 verdict=ok ok=true
+  민법|변호사시험|2024 count=40 1~40 head=0 interior=[] expMax=40 tail=0 verdict=ok ok=true
   units: 민법총칙=120
   years: 2024=40 2023=40 2022=40
 
 ### 7. 연도 미상 반쪽
 # 1~25번은 2023년, 26~50번은 연도 미상. 지금은 미상 쪽이 검사에서 통째로 빠진다.
 total=50 unknownYear=25 groups=1 hasWarning=true
-  민법|변호사시험|2023 count=25 1~25 head=0 interior=[] expMax=- tail=0 sparse=false ok=true
+  민법|변호사시험|2023 count=25 1~25 head=0 interior=[] expMax=- tail=0 verdict=ok ok=true
   units: 민법총칙=50
   years: 2023=25 미상=25(unknown)
 
 ### 8. 단원별 (단원마다 문항 수·연도 다름)
 # 민법총칙 30문(2021), 물권법 20문(2022), 채권총론 45문(2023). 단원끼리 문항 수가 다른 건 정상인데, 서로를 형제 회차로 보면 문항 수가 적은 단원에 뒷잘림 오경고가 뜬다.
 total=95 unknownYear=0 groups=3 hasWarning=false
-  민법|변호사시험|2021 count=30 1~30 head=0 interior=[] expMax=- tail=0 sparse=false ok=true
-  민법|변호사시험|2022 count=20 1~20 head=0 interior=[] expMax=- tail=0 sparse=false ok=true
-  민법|변호사시험|2023 count=45 1~45 head=0 interior=[] expMax=- tail=0 sparse=false ok=true
+  민법|변호사시험|2021 count=30 1~30 head=0 interior=[] expMax=- tail=0 verdict=ok ok=true
+  민법|변호사시험|2022 count=20 1~20 head=0 interior=[] expMax=- tail=0 verdict=ok ok=true
+  민법|변호사시험|2023 count=45 1~45 head=0 interior=[] expMax=- tail=0 verdict=ok ok=true
   units: 채권총론=45 민법총칙=30 물권법=20
   years: 2023=45 2022=20 2021=30
 
 ### 9. 낱개 런
 # 두 회차 사이에 5번 한 문제가 끼어 있다 (번호 오독이거나 다른 회차에서 딸려 온 문제). 앞뒤 어느 쪽과도 이어지지 않아 런이 셋으로 갈리고, 가운데 런은 번호가 하나뿐이라 검사에서 빠진다.
 total=81 unknownYear=0 singletons=1 groups=2 hasWarning=true
-  민법|변호사시험|2022 count=40 1~40 head=0 interior=[] expMax=- tail=0 sparse=false ok=true
-  민법|변호사시험|2024 count=40 1~40 head=0 interior=[] expMax=- tail=0 sparse=false ok=true
+  민법|변호사시험|2022 count=40 1~40 head=0 interior=[] expMax=- tail=0 verdict=ok ok=true
+  민법|변호사시험|2024 count=40 1~40 head=0 interior=[] expMax=- tail=0 verdict=ok ok=true
   units: 민법총칙=81
   years: 2024=40 2023=1 2022=40
 
 ### 10. 발췌본 (회차마다 이 단원 문제만)
 # 세 회차에서 이 단원에 해당하는 문제만 골라 담았다. 어느 런도 1번부터 시작하지 않는다. "모든 런은 1번부터"라는 전제로 세면 앞부분 결번이 무더기로 잡힌다.
-total=26 unknownYear=0 groups=3 hasWarning=true
-  민법|변호사시험|2014 count=9 5~17 head=0 interior=[6,7,13,14] expMax=- tail=0 sparse=false ok=false
-  민법|변호사시험|2015 count=10 3~26 head=0 interior=[5,6,7,8,10,11,12,13,14,15,16,17 +2] expMax=17 tail=0 sparse=true ok=false
-  민법|변호사시험|2016 count=7 2~20 head=0 interior=[3,4,5,6,9,10,11,12,15,16,17,18] expMax=- tail=0 sparse=true ok=false
+total=26 unknownYear=0 groups=3 hasWarning=false
+  민법|변호사시험|2014 count=9 5~17 head=0 interior=[6,7,13,14] expMax=- tail=0 verdict=excerpt ok=false
+  민법|변호사시험|2015 count=10 3~26 head=0 interior=[5,6,7,8,10,11,12,13,14,15,16,17 +2] expMax=17 tail=0 verdict=excerpt ok=false
+  민법|변호사시험|2016 count=7 2~20 head=0 interior=[3,4,5,6,9,10,11,12,15,16,17,18] expMax=- tail=0 verdict=excerpt ok=false
   units: 민법총칙=26
   years: 2016=7 2015=10 2014=9
 
 ### 11. 진짜 유실 (빠진 자리에 빈 쪽이 있음)
 # 1~40번 회차인데 17·18번이 없고, 그 둘이 있던 9~11쪽에서 아무 문제도 나오지 않았다. 번호만 보면 밀도 0.95로 촘촘하지만 페이지를 보면 구멍이 뚫려 있다.
 total=38 unknownYear=0 groups=1 hasWarning=true
-  민법|변호사시험|2020 count=38 1~40 head=0 interior=[17,18] expMax=- tail=0 sparse=false ok=false
+  민법|변호사시험|2020 count=38 1~40 head=0 interior=[17,18] expMax=- tail=0 verdict=suspect ok=false
   units: 민법총칙=38
   years: 2020=38
 
 ### 12. 페이지 기록 없는 결번
 # 17·18번이 빠졌는데 페이지 기록이 없어 유실인지 발췌인지 가릴 근거가 없다. 조용히 넘기지 않고 판단 보류로 남겨야 한다.
 total=38 unknownYear=0 groups=1 hasWarning=true
-  민법|변호사시험|2019 count=38 1~40 head=0 interior=[17,18] expMax=- tail=0 sparse=false ok=false
+  민법|변호사시험|2019 count=38 1~40 head=0 interior=[17,18] expMax=- tail=0 verdict=unknown ok=false
   units: 민법총칙=38
   years: 2019=38
 
