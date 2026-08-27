@@ -532,20 +532,22 @@ export function PdfTab({
       )
       uri = await uploadPdfToFileApi(apiKey, chunkFile, undefined, signal)
       await waitForFileActive(apiKey, uri, signal)
-      for (const s of meta.subjects) {
-        for (const et of meta.examTypes) {
-          await throttleAnalyze(signal)
-          const questions = await extractQuestionsFromPdf(
-            apiKey, uri, [s], et, new Date().getFullYear(), signal
-          )
-          // 이 청크의 원본 페이지 구간을 그대로 남긴다. 나중에 결번 재파싱이
-          // 번호 비율로 어림잡지 않고 실제 구간을 다시 보낼 수 있게 하기 위한 것이다
-          const result = addQuestions(questions, sourceFile, {
-            from: startPage + 1,
-            to: endPage,
-          })
-          sink.onCount(result.added, result.merged, questions.length)
-        }
+      // 과목별 반복은 없앴다. 예전에는 같은 청크를 과목 수만큼 다시 분석했는데,
+      // 모델은 과목을 판정하지도 않았으므로 그건 같은 답을 과목 수만큼 받아
+      // 서로 다른 과목으로 도장 찍어 저장하는 일이었다 (중복·429·비용이 모두 여기서 나왔다).
+      // 이제 후보 목록을 한 번에 보내고 모델이 문제마다 고른다
+      for (const et of meta.examTypes) {
+        await throttleAnalyze(signal)
+        const questions = await extractQuestionsFromPdf(
+          apiKey, uri, meta.subjects, et, new Date().getFullYear(), signal
+        )
+        // 이 청크의 원본 페이지 구간을 그대로 남긴다. 나중에 결번 재파싱이
+        // 번호 비율로 어림잡지 않고 실제 구간을 다시 보낼 수 있게 하기 위한 것이다
+        const result = addQuestions(questions, sourceFile, {
+          from: startPage + 1,
+          to: endPage,
+        })
+        sink.onCount(result.added, result.merged, questions.length)
       }
       sink.onProgress(endPage - chunkStart)
       return
@@ -1100,15 +1102,13 @@ export function PdfTab({
       let totalAdded = 0
       let totalMerged = 0
       const sourceFile = fileUri.trim().split('/').pop() ?? 'URI 업로드'
-      for (const s of activeSubjects) {
-        for (const et of examTypes) {
-          // File URI 모드도 같은 이중 루프라 같은 속도 제한을 받는다
-          await throttleAnalyze(controller.signal)
-          const questions = await extractQuestionsFromPdf(apiKey, fileUri.trim(), [s], et, new Date().getFullYear(), controller.signal)
-          const result = addQuestions(questions, sourceFile)
-          totalAdded += result.added
-          totalMerged += result.merged
-        }
+      // extractRange와 같은 이유로 과목 루프를 없앴다 (후보 목록을 한 번에 보낸다)
+      for (const et of examTypes) {
+        await throttleAnalyze(controller.signal)
+        const questions = await extractQuestionsFromPdf(apiKey, fileUri.trim(), activeSubjects, et, new Date().getFullYear(), controller.signal)
+        const result = addQuestions(questions, sourceFile)
+        totalAdded += result.added
+        totalMerged += result.merged
       }
       setSummary({ added: totalAdded, merged: totalMerged, skipped: [] })
       showReview([sourceFile], true)
