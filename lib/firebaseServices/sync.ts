@@ -215,8 +215,17 @@ export async function clearFirebaseSessions(userId: string) {
   })
 }
 
-// Firebase에서 전체 데이터 불러와서 로컬에 저장 (현재 모드 기준)
-export async function pullFromFirebase(userId: string): Promise<{ questions: Question[], wrongNotes: WrongNote[] }> {
+// Firebase에서 전체 데이터 불러와서 로컬에 저장 (현재 모드 기준).
+//
+// 읽기지만 쓰기와 같은 줄에 세운다. readList는 루트에 적힌 판본을 읽고 그 판본의 조각을
+// 하나씩 가져오는데, 그 사이에 push가 끼어들어 정리 단계에서 바로 그 판본(=직전 판본)을
+// 지우면 "조각 N/M을(를) 찾을 수 없습니다"로 죽는다. 지워지는 것은 이전 판본뿐이라
+// 데이터가 사라지지는 않지만, 사용자에게는 동기화 실패로 그대로 보인다
+export function pullFromFirebase(userId: string): Promise<{ questions: Question[], wrongNotes: WrongNote[] }> {
+  return enqueue(() => runPull(userId))
+}
+
+async function runPull(userId: string): Promise<{ questions: Question[], wrongNotes: WrongNote[] }> {
   const mode = getAppMode()
   const pending = hasPendingSync()
   syncLog('pull 시작', { userId, mode, 미동기화: pending })
