@@ -174,6 +174,9 @@ function setApiInfoOpen(open: boolean) {
   localStorage.setItem(API_INFO_OPEN_KEY, String(open))
 }
 
+// 출처 파일명이 없는 문제들을 파일 목록에서 묶어 부르는 이름 (store.ts의 getSourceFiles와 같은 값)
+const NO_SOURCE_FILE_LABEL = '(출처 없음)'
+
 function sourceFileNameOf(f: { file: File; displayName: string }) {
   return f.displayName.trim() || f.file.name.replace(/\.pdf$/i, '')
 }
@@ -345,8 +348,13 @@ export function PdfTab({
     lastAnalyzeAtRef.current = Date.now()
   }
 
+  // 출처 파일명이 없는 옛 문제는 파일 목록에 '(출처 없음)' 한 줄로 묶여 나온다
+  // (store.ts의 getSourceFiles·mergeSourceFiles가 쓰는 이름과 같아야 한다).
+  // 예전에는 이 필터가 sourceFile이 있는 문제만 통과시켜서, 그 줄의 '검토'를 누르면
+  // 결과가 0개가 되고 패널이 통째로 사라졌다 — 문제가 있는데도 없는 것처럼 보였다.
+  // 재파싱은 여전히 안 된다(원본 파일을 알 수 없다). 목록에 보이기만 하면 된다
   const reviewQuestions = useMemo(
-    () => (reviewFiles.length === 0 ? [] : getQuestions().filter((q) => q.sourceFile && reviewFiles.includes(q.sourceFile))),
+    () => (reviewFiles.length === 0 ? [] : getQuestions().filter((q) => reviewFiles.includes(q.sourceFile ?? NO_SOURCE_FILE_LABEL))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [reviewFiles, reviewRefresh]
   )
