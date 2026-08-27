@@ -11,6 +11,33 @@ import {
   type ParseReview as ParseReviewData,
 } from '@/lib/parseReview'
 
+// 화면에 보이는 순서만 문제번호 오름차순으로 바꾼다. 저장 배열은 절대 손대지 않는다 —
+// parseReview.ts의 런 자르기가 페이지 정보 없는 옛 데이터에서 '저장 순서'를 순서의 근거로 쓰고,
+// 그게 결번 검사의 마지막 버팀목이다. 그래서 여기서 사본을 만들어 정렬한다.
+//
+// 번호를 읽지 못한 문제(null·NaN)는 맨 뒤로 보낸다. 번호가 없다는 것 자체가 확인이 필요한
+// 상태라 목록 중간에 끼어 있으면 눈에 띄지 않는다.
+// 정렬은 안정적이므로 같은 번호가 두 벌이면 저장된 순서대로 나란히 붙는다 (중복 대조에 그게 낫다)
+function byQuestionNo(list: Question[]): Question[] {
+  // 타입은 number지만 실제로는 null이 들어올 수 있다 — 모델이 번호를 확인하지 못하면
+  // null을 주도록 프롬프트에 적어두었고, 그 값이 그대로 저장된다.
+  // Number(null)은 0이라 그냥 Number로 바꾸면 번호 미상이 1번보다 앞에 서버린다
+  const no = (q: Question): number => {
+    const raw = q.no as unknown
+    if (raw === null || raw === undefined || raw === '') return NaN
+    const n = Number(raw)
+    return Number.isFinite(n) ? n : NaN
+  }
+  return [...list].sort((a, b) => {
+    const na = no(a)
+    const nb = no(b)
+    if (Number.isNaN(na) && Number.isNaN(nb)) return 0
+    if (Number.isNaN(na)) return 1
+    if (Number.isNaN(nb)) return -1
+    return na - nb
+  })
+}
+
 // 결번이 난 회차를 다시 파싱해달라는 요청. 실제 재파싱은 원본 PDF와 API 키를 쥔 상위(pdf-tab)가 한다
 export interface ReparseRequest {
   sourceFile: string
@@ -162,7 +189,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
             고른 과목 중 첫 번째로 임시로 담아 두었습니다 — 아래에서 실제 과목을 지정해주세요
           </p>
           <div className="ml-2 mt-1 mb-1.5 pl-2 border-l-2 border-border space-y-1">
-            {review.unsureSubjects.map((q) => (
+            {byQuestionNo(review.unsureSubjects).map((q) => (
               <QuestionRow
                 key={q.id}
                 q={q}
@@ -420,7 +447,7 @@ function YearQuestionList({
   const options = yearOptions()
   return (
     <div className="ml-2 mt-1 mb-1.5 pl-2 border-l-2 border-border space-y-1">
-      {row.questions.map((q) => (
+      {byQuestionNo(row.questions).map((q) => (
         <QuestionRow
           key={q.id}
           q={q}
@@ -463,7 +490,7 @@ function UnitQuestionList({
   const options = unitOptionsFor(row.subject)
   return (
     <div className="ml-2 mt-1 mb-1.5 pl-2 border-l-2 border-border space-y-1">
-      {row.questions.map((q) => (
+      {byQuestionNo(row.questions).map((q) => (
         <QuestionRow
           key={q.id}
           q={q}
