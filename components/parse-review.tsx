@@ -66,10 +66,22 @@ interface Props {
 // A: 문제번호가 연속인지 (빠진 번호 = 파싱 누락 의심)
 // B: 단원 분포 (엉뚱한 단원이 섞였는지 육안 확인 + 수정)
 export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabled }: Props) {
-  const [openUnit, setOpenUnit] = useState<string | null>(null)
-  const [openYear, setOpenYear] = useState<number | null>(null)
+  // 여러 줄을 동시에 펼쳐둘 수 있다. 단원 분포와 연도 분포를 오가며 견주는 일이 잦은데,
+  // 하나만 열리면 앞서 본 줄이 계속 접혀 비교가 끊긴다.
+  // 연도는 숫자지만 키를 문자열로 통일해 두 집합이 같은 방식으로 다뤄지게 한다
+  const [openUnits, setOpenUnits] = useState<Set<string>>(new Set())
+  const [openYears, setOpenYears] = useState<Set<string>>(new Set())
   // 지문이 길어서 한 번에 하나만 펼친다
   const [openQuestion, setOpenQuestion] = useState<string | null>(null)
+  // 집합을 제자리에서 고치면 참조가 그대로라 리렌더가 일어나지 않는다. 새 Set으로 바꾼다
+  function toggleIn(setState: (fn: (prev: Set<string>) => Set<string>) => void, key: string) {
+    setState((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(key)) next.add(key)
+      return next
+    })
+  }
+
   // 수정 직후에도 화면이 바로 갱신되도록 로컬 변경분을 따로 들고 있는다
   const [editedUnit, setEditedUnit] = useState<Record<string, string>>({})
   const [editedYear, setEditedYear] = useState<Record<string, number>>({})
@@ -242,7 +254,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
           return (
             <div key={row.year}>
               <button
-                onClick={() => setOpenYear(openYear === row.year ? null : row.year)}
+                onClick={() => toggleIn(setOpenYears, String(row.year))}
                 className="w-full flex items-center gap-2 text-xs py-0.5 hover:opacity-80 transition-opacity"
               >
                 <span className="w-24 text-left truncate text-foreground">{label}</span>
@@ -255,7 +267,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
                 </span>
                 {note && <span className="text-amber-600 dark:text-amber-400 shrink-0">{note}</span>}
               </button>
-              {openYear === row.year && (
+              {openYears.has(String(row.year)) && (
                 <YearQuestionList
                   row={row}
                   review={review}
@@ -284,7 +296,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
           return (
             <div key={key}>
               <button
-                onClick={() => setOpenUnit(openUnit === key ? null : key)}
+                onClick={() => toggleIn(setOpenUnits, key)}
                 className="w-full flex items-center gap-2 text-xs py-0.5 hover:opacity-80 transition-opacity"
               >
                 <span className="w-24 text-left truncate text-foreground">{row.unit}</span>
@@ -301,7 +313,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
                   </span>
                 )}
               </button>
-              {openUnit === key && (
+              {openUnits.has(key) && (
                 <UnitQuestionList
                   row={row}
                   review={review}
