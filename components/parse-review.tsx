@@ -1,10 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import type { Question } from '@/lib/types'
-import { updateQuestionUnit, updateQuestionYear, deleteQuestion } from '@/lib/store'
+import type { Question, Subject } from '@/lib/types'
+import { updateQuestionUnit, updateQuestionYear, updateQuestionSubject, deleteQuestion } from '@/lib/store'
 import {
-  buildParseReview, isMinorUnit, unitOptionsFor, yearOptions, formatMissing, allMissing,
+  buildParseReview, isMinorUnit, unitOptionsFor, subjectOptions, yearOptions, formatMissing, allMissing,
   gapLabel, gapNumbers, UNKNOWN_YEAR,
   type GroupCheck, type UnitCount, type YearCount, type QuestionPage,
   // 이 파일의 컴포넌트 이름과 겹쳐서 갈아 끼운다
@@ -46,13 +46,22 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
   // 수정 직후에도 화면이 바로 갱신되도록 로컬 변경분을 따로 들고 있는다
   const [editedUnit, setEditedUnit] = useState<Record<string, string>>({})
   const [editedYear, setEditedYear] = useState<Record<string, number>>({})
+  const [editedSubject, setEditedSubject] = useState<Record<string, Subject>>({})
 
   const review = buildParseReview(
     questions.map((q) => {
       const unit = editedUnit[q.id]
       const year = editedYear[q.id]
-      if (unit === undefined && year === undefined) return q
-      return { ...q, ...(unit !== undefined && { unit }), ...(year !== undefined && { year }) }
+      const subject = editedSubject[q.id]
+      if (unit === undefined && year === undefined && subject === undefined) return q
+      return {
+        ...q,
+        ...(unit !== undefined && { unit }),
+        ...(year !== undefined && { year }),
+        // 사람이 골랐으면 미판정 표시도 함께 걷는다 (store.updateQuestionSubject와 같은 판단).
+        // 그래야 이 문제가 '과목 미판정' 목록에서 바로 빠진다
+        ...(subject !== undefined && { subject, subjectUnsure: undefined }),
+      }
     })
   )
   if (review.total === 0) return null
@@ -60,6 +69,12 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
   function changeUnit(q: Question, unit: string) {
     updateQuestionUnit(q.id, unit)
     setEditedUnit((prev) => ({ ...prev, [q.id]: unit }))
+    onUnitChanged()
+  }
+
+  function changeSubject(q: Question, subject: Subject) {
+    updateQuestionSubject(q.id, subject)
+    setEditedSubject((prev) => ({ ...prev, [q.id]: subject }))
     onUnitChanged()
   }
 
@@ -106,6 +121,12 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
             넣었지만, 아래 &apos;출제연도 분포&apos;에서 연도를 지정해주세요
           </p>
         )}
+        {review.unsureSubjects.length > 0 && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            ⚠ 과목을 판정하지 못한 문제 {review.unsureSubjects.length}개는 임시로 담긴 과목 기준으로 검사했습니다.
+            아래 &apos;과목 미판정&apos;에서 지정해주세요
+          </p>
+        )}
         {Object.keys(review.duplicateIds).length > 0 && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
             ⚠ 같은 문제가 두 벌 저장된 것이 {Object.keys(review.duplicateIds).length}개 있습니다.
@@ -131,6 +152,45 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
           ))
         )}
       </div>
+
+      {/* 과목 미판정 — 있을 때만 나온다 */}
+      {review.unsureSubjects.length > 0 && (
+        <div className="px-3 py-2 space-y-1.5">
+          <p className="text-xs text-muted-foreground">과목 미판정</p>
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            ⚠ 어느 과목인지 판정할 근거를 찾지 못한 문제가 {review.unsureSubjects.length}개 있습니다.
+            고른 과목 중 첫 번째로 임시로 담아 두었습니다 — 아래에서 실제 과목을 지정해주세요
+          </p>
+          <div className="ml-2 mt-1 mb-1.5 pl-2 border-l-2 border-border space-y-1">
+            {review.unsureSubjects.map((q) => (
+              <QuestionRow
+                key={q.id}
+                q={q}
+                duplicates={review.duplicateIds[q.id] ?? 0}
+                open={openQuestion === q.id}
+                onToggle={() => setOpenQuestion(openQuestion === q.id ? null : q.id)}
+                onDelete={removeQuestion}
+              >
+                {/* 지금 담긴 과목을 선택 상태로 두지 않는다. 판정된 값처럼 보이면 안 되므로 */}
+                <select
+                  value=""
+                  onChange={(e) => e.target.value && changeSubject(q, e.target.value as Subject)}
+                  className="shrink-0 bg-input border border-border rounded px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                  <option value="">과목 지정…</option>
+                  {subjectOptions().map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </QuestionRow>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground pt-1">
+            과목은 번호 연속성 검사에서 문제를 묶는 기준이기도 합니다. 임시로 담긴 채 두면 결번 검사도 함께 어긋납니다.
+            펼치면 지금 담긴 과목과 쪽 번호를 볼 수 있습니다.
+          </p>
+        </div>
+      )}
 
       {/* 연도 분포 */}
       <div className="px-3 py-2 space-y-1.5">

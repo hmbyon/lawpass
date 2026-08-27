@@ -1,6 +1,6 @@
 'use client'
 
-import type { Question, WrongNote } from './types'
+import type { Question, Subject, WrongNote } from './types'
 import { getAppMode } from './appMode'
 
 // apiKey는 개인 인증정보라 모드 공통으로 유지, 나머지는 모드별 접미사(_law/_general)로 분리
@@ -251,6 +251,23 @@ export function updateQuestionYear(questionId: string, year: number) {
   const target = questions.find((q) => q.id === questionId)
   if (!target) return
   target.year = year
+  saveQuestions(questions)
+}
+
+// 파싱 검토 화면에서 과목을 사람이 지정할 때 쓴다.
+// 모델이 후보 중 어느 것인지 가리지 못한 문제는 첫 후보에 담긴 채 subjectUnsure로 표시돼 있다.
+// 사람이 골랐으면 그 표시를 지운다 — 더 이상 미판정이 아니다.
+//
+// 단원은 건드리지 않는다. 과목이 바뀌면 기존 단원이 새 과목의 목록 밖일 수 있는데,
+// 그건 검토 화면의 '단원 분포'가 '⚠ 목록 밖'으로 이미 잡아 고칠 수 있게 해준다.
+// 여기서 비워버리면 맞게 들어 있던 값까지 사라진다.
+// id는 updateQuestionUnit·updateQuestionYear과 마찬가지로 그대로 둔다
+export function updateQuestionSubject(questionId: string, subject: Subject) {
+  const questions = getQuestions()
+  const target = questions.find((q) => q.id === questionId)
+  if (!target) return
+  target.subject = subject
+  delete target.subjectUnsure
   saveQuestions(questions)
 }
 

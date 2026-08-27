@@ -123,6 +123,10 @@ export interface ParseReview {
   // 가짜 결번으로 잡히거나(사이사이 섞인 경우) 검사 자체가 반쪽이 된다(뒤쪽이 통째로 미상인 경우).
   // 이제는 함께 검사하고, 이 수는 '연도를 지정해달라'는 안내로만 쓴다
   unknownYearCount: number
+  // 모델이 과목 후보 중 어느 것인지 가리지 못해 첫 후보에 임시로 담긴 문제들.
+  // 연도 미상과 같은 취지다 — 버리지도, 조용히 넘기지도 않고 사람이 보고 고치게 한다.
+  // 과목은 런을 나누는 기준(bucketKey)이기도 해서, 잘못 담긴 채 두면 결번 검사까지 어긋난다
+  unsureSubjects: Question[]
   // 번호가 하나뿐이라 연속성을 논할 수 없어 검사에서 뺀 런의 수.
   // 이걸 세지 않으면 '많이 잃을수록 조용해지는' 함정으로 되돌아간다
   singletonRuns: number
@@ -479,6 +483,7 @@ function cutRuns(key: string, list: Question[]): Run[] {
 export function buildParseReview(questions: Question[]): ParseReview {
   // ── A. 번호 연속성 ──
   const unknownYearCount = questions.filter((q) => (q.year || UNKNOWN_YEAR) === UNKNOWN_YEAR).length
+  const unsureSubjects = questions.filter((q) => q.subjectUnsure)
   const duplicateIds = findDuplicates(questions)
 
   // 파일·과목·시험구분으로 먼저 나눈다. 이때 저장 배열 순서를 그대로 유지해야
@@ -616,6 +621,7 @@ export function buildParseReview(questions: Question[]): ParseReview {
     total: questions.length,
     groups,
     unknownYearCount,
+    unsureSubjects,
     singletonRuns,
     duplicateIds,
     units,
@@ -626,6 +632,7 @@ export function buildParseReview(questions: Question[]): ParseReview {
       // 근거가 없다는 이유로 넘어가면 '많이 잃을수록 조용해지는' 그 함정이 다시 열린다
       groups.some((g) => g.verdict === 'suspect' || g.verdict === 'unknown') ||
       unknownYearCount > 0 ||
+      unsureSubjects.length > 0 ||
       Object.keys(duplicateIds).length > 0 ||
       singletonRuns > 0 ||
       units.some((u) => !u.valid) ||
@@ -724,4 +731,9 @@ export function isMinorUnit(row: UnitCount, review: ParseReview): boolean {
 
 export function unitOptionsFor(subject: Subject): string[] {
   return SUBJECT_UNITS[subject] ?? []
+}
+
+// 과목 변경 드롭다운의 선택지. 단원 목록의 키가 곧 과목 목록이므로 따로 적지 않는다
+export function subjectOptions(): Subject[] {
+  return Object.keys(SUBJECT_UNITS) as Subject[]
 }
