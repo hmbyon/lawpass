@@ -161,7 +161,12 @@ const API_INFO_OPEN_KEY = 'lawpass_api_info_open'
 
 function getApiInfoOpen(): boolean {
   if (typeof window === 'undefined') return false
-  return localStorage.getItem(API_INFO_OPEN_KEY) === 'true'
+  const saved = localStorage.getItem(API_INFO_OPEN_KEY)
+  // 키가 아예 없다 = 아직 아무 선택도 하지 않은 첫 방문. 이때는 펼쳐서 보여준다 —
+  // API 키가 없으면 아무것도 못 하는 화면이라 발급 방법이 먼저 눈에 띄어야 한다.
+  // 값이 있으면 그건 사용자가 직접 고른 것이므로 접어둔 선택도 그대로 지킨다
+  if (saved === null) return true
+  return saved === 'true'
 }
 
 function setApiInfoOpen(open: boolean) {
