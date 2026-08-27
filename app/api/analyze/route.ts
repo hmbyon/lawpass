@@ -37,16 +37,23 @@ export async function POST(req: NextRequest) {
 
     // ── Mode: extract questions from uploaded PDF ─────────────────────────
     if (mode === 'extract') {
-      const { fileUri, subject, examType, year } = body as {
+      const { subjects, examType, year, fileUri } = body as {
         fileUri: string
-        subject: string
+        // 과목 '후보' 목록이다. 예전에는 여기 온 한 과목을 문제마다 그대로 도장 찍었는데,
+        // 그러면 사용자가 과목을 여러 개 고를 때 같은 PDF를 과목 수만큼 다시 분석하면서
+        // 헌법 문제가 민법·상법 사본으로도 저장됐다. 이제는 모델이 문제마다 판정한다
+        subjects: string[]
         examType: string
         year: number
       }
 
-      if (!fileUri || !subject || !examType) {
+      const subjectList = (Array.isArray(subjects) ? subjects : [])
+        .map((s) => String(s ?? '').trim())
+        .filter(Boolean)
+
+      if (!fileUri || subjectList.length === 0 || !examType) {
         return NextResponse.json(
-          { error: 'fileUri, subject, examType, year are required for extract mode' },
+          { error: 'fileUri, subjects, examType, year are required for extract mode' },
           { status: 400 }
         )
       }
@@ -59,7 +66,7 @@ export async function POST(req: NextRequest) {
 
       const prompt = `당신은 변호사시험 문제 추출 전문가입니다.
 이 PDF에서 모든 문제를 추출하여 JSON 배열만 출력하세요.
-각 항목 형식: {"문제번호": number, "연도": number, "단원": string, "지문": string, "선지": {"①": string, "②": string, "③": string, "④": string,"⑤": string}, "정답": string, "해설": string|null, "선지정오": {"①": boolean, "②": boolean, "③": boolean, "④": boolean, "⑤": boolean}|null, "선지별설명": {"①": [{"type": "text"|"lawBox", "title": string, "content": string}], "②": [...], "③": [...], "④": [...], "⑤": [...]}|null, "선지별설명요약": {"①": string, "②": string, "③": string, "④": string, "⑤": string}|null, "표서식": [{"title": string, "rows": [{"cells": [string]}]}]|null, "보기목록": [{"label": string, "text": string, "isCorrect": boolean, "explanation": [{"type": "text"|"lawBox", "title": string, "content": string}], "explanationSummary": string}]|null}
+각 항목 형식: {"문제번호": number, "연도": number, "과목": string|null, "단원": string, "지문": string, "선지": {"①": string, "②": string, "③": string, "④": string,"⑤": string}, "정답": string, "해설": string|null, "선지정오": {"①": boolean, "②": boolean, "③": boolean, "④": boolean, "⑤": boolean}|null, "선지별설명": {"①": [{"type": "text"|"lawBox", "title": string, "content": string}], "②": [...], "③": [...], "④": [...], "⑤": [...]}|null, "선지별설명요약": {"①": string, "②": string, "③": string, "④": string, "⑤": string}|null, "표서식": [{"title": string, "rows": [{"cells": [string]}]}]|null, "보기목록": [{"label": string, "text": string, "isCorrect": boolean, "explanation": [{"type": "text"|"lawBox", "title": string, "content": string}], "explanationSummary": string}]|null}
 - ★지문/선지 분리 규칙 (가장 중요, 반드시 지킬 것):
   - "지문"에는 문제의 발문만 담으세요. 선지 번호(①②③④⑤)와 선지 본문은 "지문"에 절대로 포함하지 마세요
   - 각 선지의 전체 텍스트는 반드시 "선지" 객체에 라벨별("①"~"⑤")로 빠짐없이 채우세요. 값이 빈 문자열이거나 라벨만 있고 내용이 없는 것은 절대 금지입니다
@@ -88,7 +95,8 @@ export async function POST(req: NextRequest) {
   - 표나 서식이 없는 일반 문제는 "표서식"을 null로 두세요
 - ★단원 분류 규칙 (반드시 지킬 것):
   - "단원"은 아래 매핑에서 **해당 과목에 속한 값 중 하나를 글자 그대로 복사**해서 넣으세요. 아래 목록에 없는 값은 절대 쓰지 마세요
-  - 이번 PDF의 과목은 "${subject}"이므로, "단원"은 반드시 "${subject}"에 나열된 값 중 하나여야 합니다
+  - 기준은 **그 문제에 대해 당신이 판정한 "과목"**입니다. "단원"은 반드시 그 과목에 나열된 값 중 하나여야 합니다
+  - "과목"을 null로 둔 문제는 "단원"도 null로 두세요 (어느 과목의 목록을 써야 할지 알 수 없으므로)
   - 과목명 자체("상법", "민법" 등)를 단원으로 넣지 마세요. 단원은 과목의 하위 분류입니다
   - 임의로 줄이거나 늘리지 마세요. 예: "총칙"(X) → "총칙・상행위"(O), "회사"(X) → "회사법"(O)
   - 가운뎃점 "・", 띄어쓰기까지 목록의 표기를 그대로 유지하세요
@@ -110,6 +118,17 @@ ${SUBJECT_UNITS_JSON}
     8번일 수 있습니다). 실제로 인쇄된 번호를 매번 다시 읽으세요
   - ★해당 문제의 번호를 페이지에서 **실제로 확인할 수 없으면 "문제번호"에 null을 넣으세요.**
     추측해서 채우지 마세요. 모르는 것은 null이 정답입니다
+- ★★과목 판정 규칙 (문제마다 개별 판정 — 연도와 같은 원칙입니다):
+  - 이 PDF에 들어 있을 수 있는 과목 후보는 다음뿐입니다: ${subjectList.join(', ')}
+  - "과목"에는 이 후보 중 하나를 **글자 그대로 복사**해 넣거나, 정할 수 없으면 null을 넣으세요.
+    후보 목록에 없는 과목명은 절대 쓰지 마세요
+  - 판정은 **문제 하나하나마다 따로** 하세요. 그 문제가 인용하는 법률명·조문·판례, 다루는 법 영역,
+    그 페이지의 러닝 헤더에 적힌 과목 표시를 근거로 삼으세요
+  - **직전 문제와 같은 과목일 것이라고 절대 가정하지 마세요.** 한 문제집 안에 여러 과목이 섞여 있을 수 있고,
+    페이지가 넘어가는 중간에 과목이 바뀔 수도 있습니다
+  - 후보가 하나뿐이면 그 값을 그대로 쓰세요
+  - ★근거 없이 추측하지 마세요. 문제 내용만으로 후보 중 어느 것인지 가릴 수 없으면 "과목"에 null을 넣으세요.
+    모르는 것은 null이 정답입니다 (사람이 나중에 고칠 수 있게 표시됩니다)
 - ★★연도 추출 규칙 (문제마다 개별 판정 — 가장 자주 틀리는 항목입니다):
   - "연도"는 **문제 하나하나마다 따로** 판정하세요. 그 문제가 실려 있는 **바로 그 페이지**의 러닝 헤더
     (예: "2023년도 제12회 변호사시험")를 매번 다시 확인하고 거기서 읽으세요
@@ -310,7 +329,7 @@ ${SUBJECT_UNITS_JSON}
         )
       }
 
-      return NextResponse.json({ raw, subject, examType, year })
+      return NextResponse.json({ raw, subjects: subjectList, examType, year })
     }
 
     // ── Mode: analyse a wrong answer ──────────────────────────────────────

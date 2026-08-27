@@ -46,6 +46,9 @@ export interface Question {
   id: string
   no: number
   subject: Subject
+  // 모델이 과목을 판정하지 못했고 후보가 둘 이상이라 첫 후보에 임시로 담은 경우에만 true.
+  // 연도 미상(year=0)과 같은 취지다 — 버리지 않고 눈에 띄게 남겨 사람이 고치게 한다
+  subjectUnsure?: boolean
   examType: ExamType
   year: number
   unit?: string

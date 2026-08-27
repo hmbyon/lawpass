@@ -214,7 +214,10 @@ export async function deleteFile(apiKey: string, fileUri: string): Promise<void>
 export async function extractQuestionsFromPdf(
   apiKey: string,
   fileUri: string,
-  subject: Subject,
+  // 과목 '후보' 목록. 이 중 어느 것인지는 모델이 문제마다 판정한다.
+  // 예전에는 여기 온 한 과목을 그대로 도장 찍어서, 과목을 여러 개 고르면
+  // 같은 문제가 과목 수만큼 서로 다른 사본으로 저장됐다 (병합 키에 과목이 들어 있어 만나지도 못했다)
+  subjects: Subject[],
   examType: ExamType,
   year: number,
   signal?: AbortSignal
@@ -222,7 +225,7 @@ export async function extractQuestionsFromPdf(
   const res = await fetchWithRetry('/api/analyze', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ apiKey, mode: 'extract', fileUri, subject, examType, year }),
+    body: JSON.stringify({ apiKey, mode: 'extract', fileUri, subjects, examType, year }),
     signal,
   })
 
@@ -238,6 +241,7 @@ export async function extractQuestionsFromPdf(
   let parsed: {
     문제번호: number
     연도?: number
+    과목?: string | null
     단원?: string
     지문: string
     선지: Record<string, string>
@@ -351,28 +355,42 @@ export async function extractQuestionsFromPdf(
   const resolveYear = (raw: number | null | undefined): number =>
     typeof raw === 'number' && raw >= 1900 && raw <= 2100 ? raw : 0
 
-  return parsed.map((item) => ({
-    // id에는 실제 판정된 연도를 쓴다. 폴백 연도(호출 시점의 올해)를 박으면
-    // year 필드가 2023인데 id에는 2026이 들어가 데이터가 어긋난다
-    id: `${subject}_${examType}_${resolveYear(item.연도)}_${item.문제번호}_${Date.now()}`,
-    no: item.문제번호,
-    subject,
-    examType,
-    year: resolveYear(item.연도),
-    unit: item.단원 ?? undefined,
-    passage: item.지문,
-    choices: LABELS.map((l) => ({ label: l, text: item.선지?.[l] ?? '' })),
-    answer: item.정답,
-    explanation: item.해설,
-    addedAt: Date.now(),
-    subChoiceAnswers: item.보기정답 ?? undefined,
-    choiceIsCorrectStatement: item.선지정오 ?? undefined,
-    choiceExplanations: toChoiceExplanations(item.선지별설명),
-    choiceExplanationSummaries: item.선지별설명요약 ?? undefined,
-    subChoiceExplanations: item.보기별설명 ?? undefined,
-    subItems: toSubItems(item.보기목록),
-    passageTable: toPassageTables(item.표서식),
-  }))
+  // 과목도 같은 원칙이다. 후보 목록에 정확히 없는 값(null·빈 값·목록 밖 이름)은 판정 실패로 본다.
+  // 후보가 하나뿐이면 그것 말고 답이 없으므로 그대로 쓰고, 여럿 중에서 못 고른 것이면
+  // 첫 후보에 담되 unsure로 표시한다 — 버리면 그 문제가 조용히 사라진 채 '완료'로 기록된다
+  const resolveSubject = (raw: string | null | undefined): { subject: Subject; unsure: boolean } => {
+    const hit = subjects.find((s) => s === String(raw ?? '').trim())
+    if (hit) return { subject: hit, unsure: false }
+    return { subject: subjects[0], unsure: subjects.length > 1 }
+  }
+
+  return parsed.map((item) => {
+    const { subject, unsure } = resolveSubject(item.과목)
+    return {
+      // id에는 실제 판정된 연도를 쓴다. 폴백 연도(호출 시점의 올해)를 박으면
+      // year 필드가 2023인데 id에는 2026이 들어가 데이터가 어긋난다
+      id: `${subject}_${examType}_${resolveYear(item.연도)}_${item.문제번호}_${Date.now()}`,
+      no: item.문제번호,
+      subject,
+      // 판정에 성공했을 때는 키 자체를 만들지 않는다 (기존 저장 형태와 한 글자도 달라지지 않도록)
+      ...(unsure && { subjectUnsure: true as const }),
+      examType,
+      year: resolveYear(item.연도),
+      unit: item.단원 ?? undefined,
+      passage: item.지문,
+      choices: LABELS.map((l) => ({ label: l, text: item.선지?.[l] ?? '' })),
+      answer: item.정답,
+      explanation: item.해설,
+      addedAt: Date.now(),
+      subChoiceAnswers: item.보기정답 ?? undefined,
+      choiceIsCorrectStatement: item.선지정오 ?? undefined,
+      choiceExplanations: toChoiceExplanations(item.선지별설명),
+      choiceExplanationSummaries: item.선지별설명요약 ?? undefined,
+      subChoiceExplanations: item.보기별설명 ?? undefined,
+      subItems: toSubItems(item.보기목록),
+      passageTable: toPassageTables(item.표서식),
+    }
+  })
 }
 
 // ── Error analysis via server proxy ─────────────────────────────────────────

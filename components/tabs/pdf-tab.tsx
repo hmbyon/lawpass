@@ -536,7 +536,7 @@ export function PdfTab({
         for (const et of meta.examTypes) {
           await throttleAnalyze(signal)
           const questions = await extractQuestionsFromPdf(
-            apiKey, uri, s, et, new Date().getFullYear(), signal
+            apiKey, uri, [s], et, new Date().getFullYear(), signal
           )
           // 이 청크의 원본 페이지 구간을 그대로 남긴다. 나중에 결번 재파싱이
           // 번호 비율로 어림잡지 않고 실제 구간을 다시 보낼 수 있게 하기 위한 것이다
@@ -1104,7 +1104,7 @@ export function PdfTab({
         for (const et of examTypes) {
           // File URI 모드도 같은 이중 루프라 같은 속도 제한을 받는다
           await throttleAnalyze(controller.signal)
-          const questions = await extractQuestionsFromPdf(apiKey, fileUri.trim(), s, et, new Date().getFullYear(), controller.signal)
+          const questions = await extractQuestionsFromPdf(apiKey, fileUri.trim(), [s], et, new Date().getFullYear(), controller.signal)
           const result = addQuestions(questions, sourceFile)
           totalAdded += result.added
           totalMerged += result.merged
