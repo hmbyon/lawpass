@@ -155,6 +155,20 @@ interface ParseMeta {
   examTypes: ExamType[]
 }
 
+// "API 키가 왜 필요한가요?" 안내를 펼쳐둔 상태. 기기별 UI 설정이라 로컬에만 남긴다
+// (계정 동기화 대상이 아니다). SSR에서 부르면 안 되므로 store.ts의 getApiKey와 같은 방식으로 막는다
+const API_INFO_OPEN_KEY = 'lawpass_api_info_open'
+
+function getApiInfoOpen(): boolean {
+  if (typeof window === 'undefined') return false
+  return localStorage.getItem(API_INFO_OPEN_KEY) === 'true'
+}
+
+function setApiInfoOpen(open: boolean) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(API_INFO_OPEN_KEY, String(open))
+}
+
 function sourceFileNameOf(f: { file: File; displayName: string }) {
   return f.displayName.trim() || f.file.name.replace(/\.pdf$/i, '')
 }
@@ -273,7 +287,7 @@ export function PdfTab({
 
   const [apiKey, setApiKeyLocal] = useState(() => getApiKey())
   const [apiStatus, setApiStatus] = useState<'untested' | 'ok' | 'error'>('untested')
-  const [showApiKeyInfo, setShowApiKeyInfo] = useState(false)
+  const [showApiKeyInfo, setShowApiKeyInfo] = useState(() => getApiInfoOpen())
   const [uploadMode, setUploadMode] = useState<UploadMode>('file')
   const [files, setFiles] = useState<FileState[]>([])
   const [fileUri, setFileUri] = useState('')
@@ -380,9 +394,21 @@ export function PdfTab({
   }, [])
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // 서버 렌더에서는 저장값을 읽을 수 없으므로 하이드레이션 전에는 접힌 모습으로 둔다
+  // (재개 대기 목록이 hydrated를 쓰는 것과 같은 이유)
+  const apiInfoOpen = hydrated && showApiKeyInfo
+
   const activeSubjects: Subject[] = isGeneral
     ? (generalSubjectText.trim() ? [generalSubjectText.trim() as Subject] : [])
     : subjects
+
+  // 펼침 여부는 새로고침·탭 이동 뒤에도 남는다 (PdfTab은 탭을 옮기면 언마운트된다).
+  // 화면에 보이는 상태(apiInfoOpen)를 기준으로 뒤집는다 — 하이드레이션 전에 눌러도
+  // 사용자가 본 모습과 어긋나지 않는다
+  function toggleApiKeyInfo(open: boolean) {
+    setShowApiKeyInfo(open)
+    setApiInfoOpen(open)
+  }
 
   function refreshSourceFiles() {
     setSourceFiles(getSourceFiles())
@@ -1203,13 +1229,13 @@ export function PdfTab({
 
         <div>
           <button
-            onClick={() => setShowApiKeyInfo((v) => !v)}
+            onClick={() => toggleApiKeyInfo(!apiInfoOpen)}
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
-            <span className={`transition-transform ${showApiKeyInfo ? 'rotate-90' : ''}`}>▶</span>
+            <span className={`transition-transform ${apiInfoOpen ? 'rotate-90' : ''}`}>▶</span>
             API 키가 왜 필요한가요?
           </button>
-          {showApiKeyInfo && (
+          {apiInfoOpen && (
             <div className="mt-2 bg-muted rounded-lg p-3 space-y-1 text-xs text-muted-foreground">
               <p>PDF 문제집에서 문제를 자동으로 추출·분석하기 위해 Google Gemini API를 사용합니다.</p>
               <p className="font-medium text-foreground pt-1">발급 방법 (무료)</p>
