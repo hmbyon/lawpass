@@ -61,6 +61,10 @@ function shardsRef(userId: string, mode: string, name: ListName) {
 async function writeList<T>(userId: string, mode: string, name: ListName, list: T[]) {
   const shards = shardList(list)
   const version = Date.now().toString(36)
+  // 지금 루트가 가리키는 판본. 정리 단계에서 '이것만' 지운다 (아래 이유)
+  const prevSnap = await getDoc(rootRef(userId, mode, name)).catch(() => null)
+  const prevVersion =
+    prevSnap?.exists() && prevSnap.data().sharded ? String(prevSnap.data().version) : null
   syncLog(
     `조각 분할 ${name}:`,
     `${list.length}개 항목 → 조각 ${shards.length}개`,
@@ -79,14 +83,25 @@ async function writeList<T>(userId: string, mode: string, name: ListName, list: 
     count: list.length,
   })
 
-  // 옛 판본 조각 정리. 실패해도 루트가 새 판본을 가리키므로 읽기에는 영향이 없다
-  const existing = await getDocs(shardsRef(userId, mode, name)).catch(() => null)
-  if (existing) {
-    await Promise.all(
-      existing.docs
-        .filter((d) => !d.id.startsWith(`${version}_`))
-        .map((d) => deleteDoc(d.ref).catch(() => {}))
-    )
+  // 내가 대체한 판본의 조각만 지운다.
+  // 예전에는 '내 판본이 아닌 것은 전부' 지웠는데, 그러면 같은 시각에 도는 다른 push가
+  // 방금 올려둔 조각까지 쓸어버린다. 그 push가 뒤이어 루트를 자기 판본으로 갱신하면
+  // 루트가 가리키는 조각이 하나도 없는 상태가 되고, 다음 pull이
+  // "questions 조각 1/N을(를) 찾을 수 없습니다"로 죽는다. 실제로 그렇게 깨졌다.
+  //
+  // 이제 push는 한 줄로 세우지만(enqueue), 정리 범위도 함께 좁혀 둔다 —
+  // 다른 탭·다른 기기처럼 이 프로세스의 큐 밖에서 도는 push는 막을 수 없기 때문이다.
+  // 대신 중간에 끊긴 push가 남긴 조각은 지워지지 않고 남는다. 읽기에는 영향이 없고
+  // (루트가 가리키지 않으므로) 용량만 조금 먹는다 — 남의 판본을 지우는 위험보다 훨씬 싸다
+  if (prevVersion && prevVersion !== version) {
+    const existing = await getDocs(shardsRef(userId, mode, name)).catch(() => null)
+    if (existing) {
+      await Promise.all(
+        existing.docs
+          .filter((d) => d.id.startsWith(`${prevVersion}_`))
+          .map((d) => deleteDoc(d.ref).catch(() => {}))
+      )
+    }
   }
 }
 
@@ -119,8 +134,46 @@ function resolveList<T extends { id: string }>(remote: T[] | null, local: T[], p
   return [...local, ...remote.filter((x) => !localIds.has(x.id))]
 }
 
+// ── 원격 쓰기 직렬화 ────────────────────────────────────────────────────────
+// push 두 개가 겹치면 서로의 조각을 지워 원격이 깨진다(writeList의 정리 단계 주석 참고).
+// 실제로 "유니온 6모객 삭제 → 재파싱"을 반복하는 동안 삭제 push와 파싱 완료 push가
+// 겹쳐서 그 사고가 났다. 그래서 이 프로세스의 쓰기는 한 번에 하나만 돌게 한다
+let writeChain: Promise<void> = Promise.resolve()
+
+function enqueue<T>(task: () => Promise<T>): Promise<T> {
+  // 앞 작업이 실패해도 뒤 작업은 돌아야 한다 (then의 두 인자를 같은 함수로 준다)
+  const result = writeChain.then(task, task)
+  writeChain = result.then(
+    () => {},
+    () => {}
+  )
+  return result
+}
+
+// 대기 중인 push는 하나면 충분하다. push는 '실행 시점의 로컬 전체'를 올리므로
+// 세 번 밀린 push를 세 번 다 돌려도 마지막 한 번과 결과가 같고 시간만 세 배 든다.
+// 그래서 뒤따라온 요청은 이미 대기 중인 push에 묶어 같은 약속을 돌려준다
+let queuedPush: Promise<void> | null = null
+let queuedUserId = ''
+
 // Firebase에 전체 데이터 업로드 (모드별 경로: users/{userId}/{law|general}/*)
-export async function pushToFirebase(userId: string) {
+export function pushToFirebase(userId: string): Promise<void> {
+  // 마지막 요청자의 userId로 올린다 (계정이 바뀌었으면 새 계정이 맞다)
+  queuedUserId = userId
+  if (queuedPush) {
+    syncLog('push 합류 — 이미 줄 서 있는 push에 묶는다')
+    return queuedPush
+  }
+  const p = enqueue(async () => {
+    // 실행이 시작되는 순간 자리를 비운다. 이 실행에 못 들어온 요청은 다음 차례로 줄을 선다
+    queuedPush = null
+    await runPush(queuedUserId)
+  })
+  queuedPush = p
+  return p
+}
+
+async function runPush(userId: string) {
   const mode = getAppMode()
   const quizSession = getSavedSession()
   syncLog('push 시작', { userId, mode, 문제: getQuestions().length, 오답: getWrongNotes().length })
@@ -154,9 +207,12 @@ export async function pushToFirebase(userId: string) {
 
 // Firebase의 임시저장(studySessions) / 진행중인 퀴즈(quizSession) 문서 삭제
 export async function clearFirebaseSessions(userId: string) {
-  const mode = getAppMode()
-  await writeList<SavedStudySession>(userId, mode, 'studySessions', [])
-  await writeList<SavedSession>(userId, mode, 'quizSession', [])
+  // 이것도 조각을 쓰는 작업이라 push와 같은 줄에 세운다
+  return enqueue(async () => {
+    const mode = getAppMode()
+    await writeList<SavedStudySession>(userId, mode, 'studySessions', [])
+    await writeList<SavedSession>(userId, mode, 'quizSession', [])
+  })
 }
 
 // Firebase에서 전체 데이터 불러와서 로컬에 저장 (현재 모드 기준)

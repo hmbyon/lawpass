@@ -21,6 +21,22 @@ import { OnboardingModal } from '@/components/onboarding-modal'
 
 type Tab = 'pdf' | 'cbt' | 'study' | 'wrong' | 'memo'
 
+// 헤더 동기화 배지 규칙. 조건이 서로 얽혀 있어 한 곳에 모으고 테스트로 고정한다.
+// 핵심은 '실패 중에도 올리기가 보여야 한다'는 것 — 실패 버튼은 pull부터 다시 하는데,
+// 원격 조각이 깨져 pull이 죽는 상황에서는 그걸 눌러봐야 같은 자리에서 또 실패한다.
+// 그때 원격을 되살릴 수 있는 유일한 수단이 순수 push다.
+// 예전에는 올리기 버튼이 !syncError에 묶여 있어, 정작 필요한 순간에만 사라졌다
+export function syncBadges(state: { syncing: boolean; syncError: string | null; pendingSync: boolean }): {
+  error: boolean
+  push: 'none' | 'pending' | 'force'
+} {
+  if (state.syncing) return { error: false, push: 'none' }
+  return {
+    error: Boolean(state.syncError),
+    push: state.syncError ? 'force' : state.pendingSync ? 'pending' : 'none',
+  }
+}
+
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'pdf', label: 'PDF 분석', icon: '📄' },
   { id: 'cbt', label: 'CBT 실전', icon: '⚡' },
@@ -182,10 +198,24 @@ export function AppShell({ user }: Props) {
     }
   }, [user.uid, refresh])
 
+  // 불러오기가 실패한 상태에서 누르는 '올리기'. 원격을 이 기기 내용으로 덮어쓰는 일이라
+  // 반드시 확인을 받는다 — 새 기기에서 pull이 실패한 채 이걸 누르면 빈 로컬로 원격을
+  // 지워버릴 수 있다. 그래서 무엇을 올리는지 개수로 밝히고 묻는다
+  const forcePush = useCallback(() => {
+    const ok = confirm(
+      `이 기기의 문제 ${getQuestions().length}개 · 오답노트 ${getWrongNotes().length}개를 ` +
+        '클라우드에 올립니다.\n\n클라우드의 기존 내용은 이 기기 것으로 대체됩니다. ' +
+        '다른 기기에서만 추가한 내용이 있다면 사라질 수 있습니다.\n\n올릴까요?'
+    )
+    if (ok) refreshAndSync()
+  }, [refreshAndSync])
+
   function handleClearAll() {
     clearAll()
     refresh()
   }
+
+  const badges = syncBadges({ syncing, syncError, pendingSync })
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -239,7 +269,7 @@ export function AppShell({ user }: Props) {
             {syncing && <span className="text-primary animate-pulse">동기화 중...</span>}
             {/* 실패(예외)와 미동기화(아직 안 올라감)는 다른 상태다. 예전에는 실패만 표시해서
                 push가 한 번도 안 돌아간 경우엔 아무 표시도 뜨지 않았다 */}
-            {!syncing && syncError && (
+            {badges.error && (
               <button
                 onClick={loadFromFirebase}
                 title={`${syncError} 눌러서 다시 시도합니다.`}
@@ -248,13 +278,17 @@ export function AppShell({ user }: Props) {
                 ⚠️<span className="hidden sm:inline"> 동기화 실패</span>
               </button>
             )}
-            {!syncing && !syncError && pendingSync && (
+            {badges.push !== 'none' && (
               <button
-                onClick={refreshAndSync}
-                title="이 기기에만 저장된 변경이 있습니다. 눌러서 클라우드에 올립니다."
+                onClick={badges.push === 'force' ? forcePush : refreshAndSync}
+                title={
+                  badges.push === 'force'
+                    ? '이 기기의 데이터를 클라우드에 올립니다. 불러오기가 실패한 상태에서도 올릴 수 있습니다.'
+                    : '이 기기에만 저장된 변경이 있습니다. 눌러서 클라우드에 올립니다.'
+                }
                 className="text-amber-400 border border-amber-500/40 bg-amber-500/10 rounded-full px-2 py-0.5 hover:bg-amber-500/20 transition-colors"
               >
-                ☁️<span className="hidden sm:inline"> 미동기화</span>
+                ☁️<span className="hidden sm:inline"> {badges.push === 'force' ? '이 기기 것 올리기' : '미동기화'}</span>
               </button>
             )}
             
