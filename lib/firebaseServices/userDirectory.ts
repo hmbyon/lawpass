@@ -36,6 +36,7 @@ export async function recordUserDirectory(user: {
       displayName: user.displayName ?? null,
       updatedAt: Date.now(),
     })
+    console.log('[userDirectory] 기록 완료', user.uid)
   } catch (e) {
     // 규칙이 아직 배포되지 않았으면 여기서 거부된다. 로그인·동기화와 무관한 부가 기록이므로
     // 실패해도 앱 흐름을 막지 않고, 다음 실행에서 다시 시도할 수 있게 표시만 되돌린다
