@@ -15,7 +15,10 @@ import type { Question, WrongNote } from '@/lib/types'
 // Firestore 문서 하나의 한도는 1MiB다. 문제 목록은 지문·선지별 해설 원문까지 담아
 // 문항당 5~10KB에 이르므로 100문항 남짓이면 한도를 넘고, 그때부터 push가 통째로 실패한다.
 // 그래서 목록은 한 문서에 몰아넣지 않고 여러 조각(shard) 문서로 나눠 저장한다
-const SHARD_BUDGET_BYTES = 700_000
+// 조각 분할 규칙은 공유 문제집 발행(pools.ts)도 그대로 쓴다.
+// 규칙이 두 곳으로 갈리면 한쪽만 고쳐져 1MiB 한도에 걸리는 사고가 난다 —
+// 그래서 export만 열고 분할 로직은 여기 한 곳에 둔다 (동작은 그대로)
+export const SHARD_BUDGET_BYTES = 700_000
 
 // 동기화 단계 추적용 임시 로그. 원인 규명이 끝나면 이 함수와 호출부만 지우면 된다
 function syncLog(...args: unknown[]) {
@@ -24,13 +27,13 @@ function syncLog(...args: unknown[]) {
 
 type ListName = 'questions' | 'wrongNotes' | 'studySessions' | 'quizSession'
 
-function byteLength(value: unknown): number {
+export function byteLength(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).length
 }
 
 // 항목 단위로 예산을 채워 나눈다. 항목 하나가 예산을 넘겨도 어딘가에는 담아야 하므로
 // 그때는 그 항목만 단독 조각으로 내보낸다
-function shardList<T>(list: T[]): T[][] {
+export function shardList<T>(list: T[]): T[][] {
   const shards: T[][] = []
   let current: T[] = []
   let currentBytes = 0

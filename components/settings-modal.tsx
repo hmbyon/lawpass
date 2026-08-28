@@ -6,6 +6,7 @@ import { logout } from '@/lib/firebaseServices/auth'
 import { clearFirebaseSessions } from '@/lib/firebaseServices/sync'
 import { ADMIN_EMAIL } from '@/lib/admin'
 import { AdminFeedbackPanel } from '@/components/admin-feedback-panel'
+import { AdminPoolPanel } from '@/components/admin-pool-panel'
 import type { AppMode } from '@/lib/appMode'
 import { db } from '@/lib/firebase'
 import { collection, doc, deleteDoc, getDocs, writeBatch } from 'firebase/firestore'
@@ -220,6 +221,12 @@ export function SettingsModal({
           </div>
 
           {/* 관리자 모드 */}
+          {isAdmin && (
+            <div className="bg-muted rounded-xl p-4">
+              <AdminPoolPanel ownerUid={userId} />
+            </div>
+          )}
+
           {isAdmin && (
             <div className="bg-muted rounded-xl p-4">
               <AdminFeedbackPanel onWriteFeedback={onWriteFeedback} />
