@@ -74,6 +74,11 @@ export interface Question {
   // 페이지를 알 수 없는 경로(URI 업로드)나 이 필드 도입 이전 데이터에는 없다
   pageFrom?: number
   pageTo?: number
+  // 공유받은 문제집에서 온 문항임을 밝히는 표시 (pools/{poolId}).
+  // 혜민이 발행할 때 '사본에만' 심는다 — 자기 문제에는 붙지 않는다.
+  // 회수해도 오답노트·세션에 남는 사본이 어디서 왔는지 이 값으로 알 수 있어야,
+  // 나중에 정리 정책을 바꿀 여지가 생긴다 (docs/shared-pool-design.md §4.3)
+  poolId?: string
 }
 
 export interface ErrorAnalysis {

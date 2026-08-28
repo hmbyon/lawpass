@@ -6,6 +6,7 @@ import type { Question, WrongNote } from '@/lib/types'
 import { getQuestions, getWrongNotes, clearAll , isInMemoList, hasPendingSync } from '@/lib/store'
 import { logout } from '@/lib/firebaseServices/auth'
 import { pullFromFirebase, pushToFirebase } from '@/lib/firebaseServices/sync'
+import { recordUserDirectory } from '@/lib/firebaseServices/userDirectory'
 import { getAppMode, setAppMode, type AppMode } from '@/lib/appMode'
 import { FeedbackModal } from '@/components/feedback-modal'
 import { isAdminEmail } from '@/lib/admin'
@@ -169,6 +170,13 @@ export function AppShell({ user }: Props) {
   useEffect(() => {
     loadFromFirebase()
   }, [loadFromFirebase])
+
+  // 이메일→uid 대응표에 내 계정을 남긴다. 관리자가 이메일로 문제집 권한을 줄 때
+  // uid를 찾는 유일한 수단이다 (docs/shared-pool-design.md §1.4).
+  // 동기화와 별개의 부가 기록이라 실패해도 조용히 넘어간다 — 규칙 배포 전에는 거부된다
+  useEffect(() => {
+    recordUserDirectory(user)
+  }, [user])
 
   useEffect(() => {
     refreshUnreadFeedback()

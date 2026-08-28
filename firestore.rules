@@ -18,6 +18,46 @@ service cloud.firestore {
           allow delete: if request.auth != null &&
             request.auth.uid == '1Mt7tpI4n2gCn71O6qE1EP2Fns03';
   }
+    // ── 공유 문제집 (docs/shared-pool-design.md) ─────────────────────────
+    // 관리자 판정은 위 feedback 규칙과 같은 uid 하드코딩을 따른다.
+    // lib/admin.ts의 ADMIN_EMAIL은 화면 게이팅 전용이며 보안 판정에는 쓰지 않는다
+    function isPoolOwner() {
+      return request.auth != null
+          && request.auth.uid == '1Mt7tpI4n2gCn71O6qE1EP2Fns03';
+    }
+
+    match /pools/{poolId} {
+      // 소유자와 명단에 든 사람만 읽는다
+      allow read: if isPoolOwner()
+                  || (request.auth != null
+                      && request.auth.uid in resource.data.memberUids);
+      // 발행·명단 수정은 소유자만
+      allow write: if isPoolOwner();
+
+      match /shards/{shardId} {
+        allow read: if isPoolOwner()
+                    || (request.auth != null
+                        && request.auth.uid in
+                           get(/databases/$(database)/documents/pools/$(poolId)).data.memberUids);
+        // 멤버에게 쓰기를 주면 원본이 오염되고 전 멤버에게 전파된다
+        allow write: if isPoolOwner();
+      }
+    }
+
+    // 이메일→uid 대응표. 관리자가 이메일로 권한을 줄 때 uid를 찾는 수단이다.
+    // 필드를 셋으로 제한한다 — lib/firebaseServices/userDirectory.ts가 쓰는 것과 같아야 한다
+    match /userDirectory/{uid} {
+      allow create: if request.auth != null
+                    && request.auth.uid == uid
+                    && request.resource.data.keys().hasOnly(['email', 'displayName', 'updatedAt']);
+      allow update: if request.auth != null
+                    && request.auth.uid == uid
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['email', 'displayName', 'updatedAt']);
+      // 이메일 수집을 막기 위해 조회는 관리자와 본인만
+      allow read: if isPoolOwner() || (request.auth != null && request.auth.uid == uid);
+      allow delete: if false;
+    }
     
   }
 }
