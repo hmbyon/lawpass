@@ -239,6 +239,19 @@ export function addQuestions(
     found.subChoiceExplanations ??= q.subChoiceExplanations
     found.subItems ??= q.subItems
     found.passageTable ??= q.passageTable
+    // 연도도 ??= 가 아니다. 병합 키에서 연도를 뺐기 때문에(questionBucketKey 주석) 같은 문제를
+    // 두 청크가 다른 연도로 판정해도 한 건으로 합쳐지는데, 예전에는 아무것도 하지 않아
+    // '먼저 저장된 값'이 그대로 굳었다 — 못 읽은 값(0)이 먼저 오면 맞는 연도가 뒤에 와도 미상으로 남았다.
+    //
+    // 미상이면 받는다. 둘 다 값이 있고 서로 다르면 어느 쪽이 맞는지 가릴 근거가 없으므로
+    // 값은 그대로 두고 표시만 남겨 검토 화면에서 사람이 고르게 한다
+    if (!found.year && q.year) {
+      found.year = q.year
+    } else if (found.year && q.year && found.year !== q.year) {
+      found.yearConflict = Array.from(new Set([...(found.yearConflict ?? [found.year]), q.year])).sort(
+        (a, b) => a - b
+      )
+    }
     // 페이지만 ??= 가 아니다 — 위 주석 참조
     const inFrom = pages?.from ?? q.pageFrom
     const inTo = pages?.to ?? q.pageTo
@@ -278,6 +291,8 @@ export function updateQuestionYear(questionId: string, year: number) {
   const target = questions.find((q) => q.id === questionId)
   if (!target) return
   target.year = year
+  // 사람이 골랐으면 더 이상 갈린 상태가 아니다 (updateQuestionSubject가 subjectUnsure를 지우는 것과 같다)
+  delete target.yearConflict
   saveQuestions(questions)
 }
 

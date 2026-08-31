@@ -161,6 +161,11 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
             넣었지만, 아래 &apos;출제연도 분포&apos;에서 연도를 지정해주세요
           </p>
         )}
+        {review.yearConflicts.length > 0 && (
+          <p className="text-[11px] text-amber-600 dark:text-amber-400">
+            ⚠ 연도가 갈린 문제 {review.yearConflicts.length}개는 먼저 읽은 연도 기준으로 검사했습니다.
+          </p>
+        )}
         {review.unsureSubjects.length > 0 && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
             ⚠ 과목을 판정하지 못한 문제 {review.unsureSubjects.length}개는 임시로 담긴 과목 기준으로 검사했습니다.
@@ -194,6 +199,46 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
       </div>
 
       {/* 과목 미판정 — 있을 때만 나온다 */}
+      {review.yearConflicts.length > 0 && (
+        <div className="px-3 py-2 space-y-1.5">
+          <p className="text-xs text-muted-foreground">연도 갈림</p>
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            ⚠ 같은 문제를 두 번 읽으면서 연도가 다르게 나온 문제가 {review.yearConflicts.length}개 있습니다.
+            어느 쪽이 맞는지 정할 수 없어 먼저 읽은 값을 그대로 두었습니다 — 아래에서 지정해주세요
+          </p>
+          <div className="ml-2 mt-1 mb-1.5 pl-2 border-l-2 border-border space-y-1">
+            {byQuestionNo(review.yearConflicts).map((q) => (
+              <QuestionRow
+                key={q.id}
+                q={q}
+                duplicates={review.duplicateIds[q.id] ?? 0}
+                open={openQuestion === q.id}
+                onToggle={() => setOpenQuestion(openQuestion === q.id ? null : q.id)}
+                onDelete={removeQuestion}
+              >
+                {/* 후보를 그대로 보여준다. 어느 값들 사이에서 갈렸는지가 판단 근거다 */}
+                <span className="shrink-0 text-[11px] text-amber-600 dark:text-amber-400">
+                  {(q.yearConflict ?? []).map((y) => (y === UNKNOWN_YEAR ? '미상' : `${y}년`)).join(' / ')}
+                </span>
+                <select
+                  value=""
+                  onChange={(e) => e.target.value && changeYear(q, Number(e.target.value))}
+                  className="shrink-0 bg-input border border-border rounded px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                  <option value="">연도 지정…</option>
+                  {yearOptions().map((y) => (
+                    <option key={y} value={y}>{y}년</option>
+                  ))}
+                </select>
+              </QuestionRow>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground pt-1">
+            청크가 겹치는 구간에서 같은 문제를 두 번 읽으면 생깁니다. 지정하면 표시가 사라집니다.
+          </p>
+        </div>
+      )}
+
       {review.unsureSubjects.length > 0 && (
         <div className="px-3 py-2 space-y-1.5">
           <p className="text-xs text-muted-foreground">과목 미판정</p>
