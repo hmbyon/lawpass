@@ -7,6 +7,7 @@ import { clearFirebaseSessions } from '@/lib/firebaseServices/sync'
 import { ADMIN_EMAIL } from '@/lib/admin'
 import { AdminFeedbackPanel } from '@/components/admin-feedback-panel'
 import { AdminPoolPanel } from '@/components/admin-pool-panel'
+import { SharedPoolList } from '@/components/shared-pool-list'
 import type { AppMode } from '@/lib/appMode'
 import { db } from '@/lib/firebase'
 import { collection, doc, deleteDoc, getDocs, writeBatch } from 'firebase/firestore'
@@ -194,6 +195,10 @@ export function SettingsModal({
               </div>
             </div>
           </div>
+
+          {/* 공유받은 문제집 — 받을 것이 없는 사람에게는 스스로 아무것도 그리지 않으므로
+              여기서 감싸지 않는다 (빈 카드가 남지 않게) */}
+          <SharedPoolList userId={userId} />
 
           {/* 로그아웃 */}
           <div className="bg-muted rounded-xl p-4 flex flex-col gap-3">
