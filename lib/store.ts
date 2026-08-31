@@ -12,6 +12,10 @@ const BASE_KEYS = {
   savedStudySession: 'lawpass_saved_study_session',
   savedStudySessions: 'lawpass_saved_study_sessions',
   pendingSync: 'lawpass_pending_sync',
+  // 공유받은 문제집(pools)의 사본. 내 문제(questions)와 한 배열에 두지 않는다 —
+  // push가 올리는 것은 questions뿐이므로, 키를 나누는 것만으로 남의 문제가 내 트리로
+  // 올라가지 않는다 (docs/shared-pool-design.md §1.2)
+  poolQuestions: 'lawpass_pool_questions',
 } as const
 
 const MODE_SCOPED_BASE_KEYS: string[] = [
@@ -105,8 +109,31 @@ export function getQuestions(): Question[] {
 }
 
 export function saveQuestions(questions: Question[]) {
-  safeSet(modeKey(BASE_KEYS.questions), questions)
+  // 공유받은 문제(poolId)는 내 목록에 절대 들어가지 않는다 — 마지막 방어선이다.
+  // 이 목록은 push가 통째로 올리는 배열이라, 남의 문제가 한 번 섞이면 내 것으로 복제된다.
+  // 지금은 섞일 경로가 없지만, 나중에 누가 saveQuestions(props.questions) 한 줄을 쓰는 순간
+  // 사고가 나므로 들어오는 길목에서 막는다 (docs/shared-pool-design.md §3)
+  safeSet(modeKey(BASE_KEYS.questions), questions.filter((q) => !q.poolId))
   markPendingSync()
+}
+
+// ── 공유받은 문제집 ──
+// 내 문제와 저장소를 나눈다. MODE_SCOPED_BASE_KEYS에는 넣지 않는다 — 그 목록은 모드 분리
+// 이전의 접미사 없는 옛 키를 옮겨오기 위한 것인데, 이 키에는 옮겨올 옛 데이터가 없다.
+//
+// 셋 중 어느 것도 markPendingSync()를 부르지 않는다. 공유받은 문제는 올릴 대상이 아니고,
+// 여기서 플래그를 세우면 남의 문제를 받은 것만으로 내 데이터가 미동기화로 표시된다
+export function getPoolQuestions(): Question[] {
+  return safeGet<Question[]>(modeKey(BASE_KEYS.poolQuestions), [])
+}
+
+export function savePoolQuestions(questions: Question[]) {
+  safeSet(modeKey(BASE_KEYS.poolQuestions), questions)
+}
+
+export function clearPoolQuestions() {
+  if (typeof window === 'undefined') return
+  localStorage.removeItem(modeKey(BASE_KEYS.poolQuestions))
 }
 
 // 지문 비교용 정규화 (줄바꿈·공백 차이로 같은 문제가 다르게 보이지 않도록)

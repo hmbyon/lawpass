@@ -209,6 +209,57 @@ export async function listMyPools(ownerUid: string): Promise<PoolMeta[]> {
 }
 
 /**
+ * 나에게 공유된 pool 목록.
+ *
+ * 규칙이 "명단에 든 사람만 읽는다"이므로, 쿼리도 명단으로 스스로를 좁혀야 한다 —
+ * 조건 없이 pools 전체를 훑으면 규칙이 쿼리째 거부한다 (§2 목록 쿼리 안전성).
+ * memberUids 는 단일 필드라 색인이 자동으로 만들어진다
+ */
+export async function listSharedPools(uid: string): Promise<PoolMeta[]> {
+  const snap = await getDocs(query(collection(db, POOLS), where('memberUids', 'array-contains', uid)))
+  return snap.docs
+    .map((d) => {
+      const data = d.data() as Omit<PoolMeta, 'id'>
+      return { ...data, memberUids: data.memberUids ?? [], id: d.id }
+    })
+    .sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0))
+}
+
+/**
+ * 공유받은 문제집의 문항을 읽어온다. sync.ts 의 readList 와 같은 형태다 —
+ * 루트에 적힌 판본의 조각을 하나씩 getDoc 으로 읽고, 하나라도 비면 던진다.
+ * 반쪽짜리 목록을 돌려주면 받는 쪽이 그걸 저장해 문제집이 깎인다.
+ *
+ * 목록 쿼리가 아니라 문서를 하나씩 읽는 것은 조각 규칙 때문이기도 하다 —
+ * 조각 규칙은 pools 루트를 get() 으로 확인하는데, 단일 문서 읽기면 그 확인이 한 번뿐이다.
+ *
+ * 루트가 없으면 권한이 회수됐거나 발행이 취소된 것이다. 조각이 없으면 읽는 도중에
+ * 재발행이 끼어든 것이니, 두 경우 모두 조용히 빈 목록을 주지 않고 오류로 알린다
+ */
+export async function readPoolQuestions(poolId: string): Promise<Question[]> {
+  const snap = await getDoc(rootRef(poolId))
+  if (!snap.exists()) {
+    throw new Error('이 문제집을 더 이상 볼 수 없습니다. 권한이 회수됐거나 발행이 취소됐습니다.')
+  }
+  const data = snap.data()
+  const title = String(data.title ?? '공유 문제집')
+  const shardCount = Number(data.shardCount ?? 0)
+  const version = String(data.version ?? '')
+
+  const out: Question[] = []
+  for (let i = 0; i < shardCount; i++) {
+    const shardSnap = await getDoc(doc(shardsRef(poolId), `${version}_${i}`))
+    if (!shardSnap.exists()) {
+      throw new Error(`"${title}" 조각 ${i + 1}/${shardCount}을(를) 찾을 수 없습니다. 잠시 뒤 다시 받아보세요.`)
+    }
+    out.push(...((shardSnap.data().list as Question[]) ?? []))
+  }
+  // 발행할 때 심어 두지만, 여기서 한 번 더 확인한다. 이 표시가 있어야 store 의 방어선이
+  // 남의 문제를 내 목록에서 걸러낸다 — 표시가 빠진 사본이 섞이면 그 방어가 통하지 않는다
+  return out.map((q) => (q.poolId === poolId ? q : { ...q, poolId }))
+}
+
+/**
  * 이메일로 uid 를 찾는다. 대응표는 로그인할 때 각자가 남긴다(userDirectory.ts).
  * 한 번도 로그인한 적 없는 사람은 여기서 걸린다 — 추측하지 않고 null 을 돌려준다
  */
