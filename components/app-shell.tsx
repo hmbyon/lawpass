@@ -423,11 +423,12 @@ export function AppShell({ user }: Props) {
         {/* PdfTab만 key를 주지 않는다. 파싱 큐·재개 목록·검토 패널은 동기화가 끝났다고 해서
             버려도 되는 상태가 아니다. 대신 syncedAt을 넘겨 필요한 값만 다시 읽게 한다 */}
         {tab === 'pdf' && <PdfTab syncedAt={syncedAt} onQuestionsAdded={refreshAndSync} />}
-        {/* CBT에만 공유받은 문제를 합쳐 넘긴다. 합치는 것은 화면에 보여줄 배열뿐이고,
-            문항에 붙은 poolId 가 그대로 따라가 오답노트 사본에도 출처가 남는다.
-            선학습은 판본이 바뀌면 저장된 진도 인덱스가 어긋나 따로 다뤄야 하므로 내 문제만 본다 */}
+        {/* 공유받은 문제를 합쳐 넘긴다. 합치는 것은 화면에 보여줄 배열뿐이고,
+            문항에 붙은 poolId 가 그대로 따라가 오답노트·학습 세션 사본에도 출처가 남는다.
+            선학습은 세션을 시작할 때 이 배열에서 고른 문항을 통째로 스냅샷으로 잡으므로,
+            진행 중에 공유 문제집이 재발행돼도 그 세션의 문제 구성은 그대로다 */}
         {tab === 'cbt' && <CbtTab key={syncedAt} questions={[...questions, ...poolQuestions]} onDone={refreshAndSync} />}
-        {tab === 'study' && <StudyTab key={syncedAt} questions={questions} onDone={refreshAndSync} onSync={refreshAndSync} />}
+        {tab === 'study' && <StudyTab key={syncedAt} questions={[...questions, ...poolQuestions]} onDone={refreshAndSync} onSync={refreshAndSync} />}
         {tab === 'wrong' && <WrongTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
         {tab === 'memo' && <MemoTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
       </main>
