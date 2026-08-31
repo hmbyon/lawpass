@@ -45,9 +45,34 @@ interface QuizFilterProps {
   onStart: (selected: Question[], timeLimitSeconds: number | null) => void
 }
 
-export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
+export function QuizFilter({ questions: incomingQuestions, mode, onStart }: QuizFilterProps) {
   const [appMode] = useState(() => getAppMode())
   const isGeneral = appMode === 'general'
+
+  // 출처: 'all' 전체 · 'mine' 내 문제만 · 그 밖에는 공유받은 문제집의 poolId
+  const [source, setSource] = useState<string>('all')
+
+  // 공유받은 문제집 후보. 이름은 문항에 적힌 sourceFile 을 쓴다 — 발행할 때 그 이름이 제목이 된다
+  const poolOptions = useMemo(() => {
+    const byPool = new Map<string, { label: string; count: number }>()
+    for (const q of incomingQuestions) {
+      if (!q.poolId) continue
+      const found = byPool.get(q.poolId)
+      if (found) found.count++
+      else byPool.set(q.poolId, { label: q.sourceFile ?? '공유받은 문제집', count: 1 })
+    }
+    return Array.from(byPool.entries()).map(([id, v]) => ({ id, ...v }))
+  }, [incomingQuestions])
+
+  const mineCount = useMemo(() => incomingQuestions.filter((q) => !q.poolId).length, [incomingQuestions])
+
+  // 아래 모든 계산(과목·연도·단원 후보, 하이라이트, 최종 선별)이 이 배열 하나만 본다.
+  // 출처를 여기서 한 번 좁혀 두면 나머지 로직은 출처를 몰라도 된다
+  const questions = useMemo(() => {
+    if (source === 'all') return incomingQuestions
+    if (source === 'mine') return incomingQuestions.filter((q) => !q.poolId)
+    return incomingQuestions.filter((q) => q.poolId === source)
+  }, [incomingQuestions, source])
 
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [generalSubjects, setGeneralSubjects] = useState<string[]>([])
@@ -244,6 +269,32 @@ export function QuizFilter({ questions, mode, onStart }: QuizFilterProps) {
 
   return (
     <div className="space-y-5 max-w-2xl mx-auto">
+      {/* 출처 — 공유받은 문제집이 하나도 없으면 고를 것이 없으므로 아예 보여주지 않는다 */}
+      {poolOptions.length > 0 && (
+        <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+          <label className="text-xs font-medium text-muted-foreground">출처</label>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: 'all', label: '전체', count: incomingQuestions.length },
+              { id: 'mine', label: '내 문제', count: mineCount },
+              ...poolOptions.map((p) => ({ id: p.id, label: `📥 ${p.label}`, count: p.count })),
+            ].map((opt) => (
+              <button
+                key={opt.id}
+                onClick={() => setSource(opt.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                  source === opt.id
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-muted text-muted-foreground border-border hover:border-primary/40'
+                }`}
+              >
+                {opt.label} <span className="tabular-nums opacity-70">{opt.count}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 과목 */}
       <div className="bg-card border border-border rounded-xl p-4 space-y-3">
         <label className="text-xs font-medium text-muted-foreground">과목</label>

@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { User } from 'firebase/auth'
 import type { Question, WrongNote } from '@/lib/types'
-import { getQuestions, getWrongNotes, clearAll , isInMemoList, hasPendingSync } from '@/lib/store'
+import { getQuestions, getPoolQuestions, getWrongNotes, clearAll , isInMemoList, hasPendingSync } from '@/lib/store'
 import { logout } from '@/lib/firebaseServices/auth'
 import { pullFromFirebase, pushToFirebase } from '@/lib/firebaseServices/sync'
 import { recordUserDirectory } from '@/lib/firebaseServices/userDirectory'
@@ -53,6 +53,9 @@ interface Props {
 export function AppShell({ user }: Props) {
   const [tab, setTab] = useState<Tab>('pdf')
   const [questions, setQuestions] = useState<Question[]>([])
+  // 공유받은 문제는 내 문제와 한 배열에 담지 않는다. 화면에 넘길 때만 합치고,
+  // 저장·동기화 경로에는 끝까지 따로 둔다 (docs/shared-pool-design.md §3)
+  const [poolQuestions, setPoolQuestions] = useState<Question[]>([])
   const [wrongNotes, setWrongNotes] = useState<WrongNote[]>([])
   const [syncing, setSyncing] = useState(false)
   const [syncedAt, setSyncedAt] = useState(0)
@@ -143,6 +146,7 @@ export function AppShell({ user }: Props) {
 
   const refresh = useCallback(() => {
     setQuestions(getQuestions())
+    setPoolQuestions(getPoolQuestions())
     setWrongNotes(getWrongNotes())
     setPendingSync(hasPendingSync())
   }, [])
@@ -306,6 +310,13 @@ export function AppShell({ user }: Props) {
                 <span>문제</span>
                 <span className="tabular-nums font-semibold text-foreground">{questions.length}개</span>
               </div>
+              {/* 공유받은 문제는 내 문제와 합쳐 세지 않는다 — 내가 만든 것이 몇 개인지가 흐려진다 */}
+              {poolQuestions.length > 0 && (
+                <div className="flex flex-col sm:flex-row items-center gap-0.5 sm:gap-1">
+                  <span>공유</span>
+                  <span className="tabular-nums font-semibold text-foreground">{poolQuestions.length}개</span>
+                </div>
+              )}
               <div className="flex flex-col sm:flex-row items-center gap-0.5 sm:gap-1">
                 <span>오답</span>
                 <span className="tabular-nums font-semibold text-foreground">{wrongNotes.length}개</span>
@@ -412,7 +423,10 @@ export function AppShell({ user }: Props) {
         {/* PdfTab만 key를 주지 않는다. 파싱 큐·재개 목록·검토 패널은 동기화가 끝났다고 해서
             버려도 되는 상태가 아니다. 대신 syncedAt을 넘겨 필요한 값만 다시 읽게 한다 */}
         {tab === 'pdf' && <PdfTab syncedAt={syncedAt} onQuestionsAdded={refreshAndSync} />}
-        {tab === 'cbt' && <CbtTab key={syncedAt} questions={questions} onDone={refreshAndSync} />}
+        {/* CBT에만 공유받은 문제를 합쳐 넘긴다. 합치는 것은 화면에 보여줄 배열뿐이고,
+            문항에 붙은 poolId 가 그대로 따라가 오답노트 사본에도 출처가 남는다.
+            선학습은 판본이 바뀌면 저장된 진도 인덱스가 어긋나 따로 다뤄야 하므로 내 문제만 본다 */}
+        {tab === 'cbt' && <CbtTab key={syncedAt} questions={[...questions, ...poolQuestions]} onDone={refreshAndSync} />}
         {tab === 'study' && <StudyTab key={syncedAt} questions={questions} onDone={refreshAndSync} onSync={refreshAndSync} />}
         {tab === 'wrong' && <WrongTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
         {tab === 'memo' && <MemoTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
@@ -446,6 +460,7 @@ export function AppShell({ user }: Props) {
       {showSettingsModal && (
         <SettingsModal
           questionCount={questions.length}
+          poolQuestionCount={poolQuestions.length}
           wrongNoteCount={wrongNotes.length}
           userId={user.uid}
           userEmail={user.email}

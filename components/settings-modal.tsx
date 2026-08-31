@@ -14,6 +14,8 @@ import { collection, doc, deleteDoc, getDocs, writeBatch } from 'firebase/firest
 
 interface Props {
   questionCount: number
+  // 공유받은 문제. 내 문제와 합쳐 세지 않고 따로 보여준다
+  poolQuestionCount?: number
   wrongNoteCount: number
   userId: string
   userEmail: string | null
@@ -26,6 +28,7 @@ interface Props {
 
 export function SettingsModal({
   questionCount,
+  poolQuestionCount = 0,
   wrongNoteCount,
   userId,
   userEmail,
@@ -189,6 +192,12 @@ export function SettingsModal({
                 <span>문제</span>
                 <span className="tabular-nums">{questionCount}개</span>
               </div>
+              {poolQuestionCount > 0 && (
+                <div className="flex justify-between">
+                  <span>공유</span>
+                  <span className="tabular-nums">{poolQuestionCount}개</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span>오답</span>
                 <span className="tabular-nums">{wrongNoteCount}개</span>
