@@ -7,6 +7,7 @@ import { getQuestions, getPoolQuestions, getWrongNotes, clearAll , isInMemoList,
 import { logout } from '@/lib/firebaseServices/auth'
 import { pullFromFirebase, pushToFirebase } from '@/lib/firebaseServices/sync'
 import { recordUserDirectory } from '@/lib/firebaseServices/userDirectory'
+import { isAccountSwitch, rememberUid, unsyncedModes, clearAccountData } from '@/lib/accountSwitch'
 import { getAppMode, setAppMode, type AppMode } from '@/lib/appMode'
 import { FeedbackModal } from '@/components/feedback-modal'
 import { isAdminEmail } from '@/lib/admin'
@@ -56,6 +57,9 @@ export function AppShell({ user }: Props) {
   // 공유받은 문제는 내 문제와 한 배열에 담지 않는다. 화면에 넘길 때만 합치고,
   // 저장·동기화 경로에는 끝까지 따로 둔다 (docs/shared-pool-design.md §3)
   const [poolQuestions, setPoolQuestions] = useState<Question[]>([])
+  // 계정이 바뀌어 이전 데이터를 치우고 새로 받아오는 중. 그동안은 화면을 열지 않는다 —
+  // 반쯤 지워진 상태를 보여주면 그 위에서 조작이 일어나 다시 오염된다
+  const [switching, setSwitching] = useState(false)
   const [wrongNotes, setWrongNotes] = useState<WrongNote[]>([])
   const [syncing, setSyncing] = useState(false)
   const [syncedAt, setSyncedAt] = useState(0)
@@ -152,6 +156,31 @@ export function AppShell({ user }: Props) {
   }, [])
 
   const loadFromFirebase = useCallback(async () => {
+    // 계정이 바뀌었으면 pull보다 먼저 이전 계정의 흔적을 치운다.
+    // 순서가 뒤바뀌면 안 된다 — pull이 먼저 돌면 미동기화 상태에서 로컬이 원격에 합쳐지고,
+    // 그 직후 아래 push가 앞 계정의 데이터를 새 계정 트리에 올린다
+    if (isAccountSwitch(user.uid)) {
+      const unsynced = unsyncedModes()
+      if (
+        unsynced.length > 0 &&
+        !confirm(
+          '이 기기에 아직 올리지 못한 이전 계정의 변경 사항이 있습니다.\n\n' +
+            '계속하면 그 변경은 이 기기에서 사라집니다. 되돌릴 수 없습니다.\n' +
+            '지우지 않으려면 취소하고 이전 계정으로 다시 로그인해 동기화한 뒤에 계정을 바꿔주세요.\n\n' +
+            '지우고 계속할까요?'
+        )
+      ) {
+        // 이 계정으로는 진행하지 않는다. 앞 계정으로 돌아가 올릴 기회를 준다
+        logout()
+        return
+      }
+      setSwitching(true)
+      clearAccountData()
+      refresh()
+    }
+    // 지운 뒤에 기록한다. 중간에 멈춰도 다음 로그인에서 다시 '계정이 바뀌었다'로 걸린다
+    rememberUid(user.uid)
+
     setSyncing(true)
     try {
       await pullFromFirebase(user.uid)
@@ -167,6 +196,7 @@ export function AppShell({ user }: Props) {
     } finally {
       refresh()
       setSyncing(false)
+      setSwitching(false)
       setSyncedAt(Date.now())
     }
   }, [user.uid, refresh])
@@ -228,6 +258,15 @@ export function AppShell({ user }: Props) {
   }
 
   const badges = syncBadges({ syncing, syncError, pendingSync })
+
+  if (switching) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-2 bg-background">
+        <p className="text-sm text-foreground">계정이 바뀌어 이 기기의 데이터를 정리하고 있습니다</p>
+        <p className="text-xs text-muted-foreground">클라우드에서 새 계정의 데이터를 불러오는 중…</p>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-background">

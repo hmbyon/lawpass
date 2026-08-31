@@ -132,3 +132,15 @@ export async function deletePdfFile(sourceFile: string): Promise<void> {
     console.error('[pdfCache] PDF 원본 삭제 실패', e)
   }
 }
+
+/**
+ * 캐시를 통째로 비운다. 계정이 바뀔 때 이전 사용자가 올린 PDF 원본이 남지 않게 한다.
+ * 파싱 중이던 파일까지 사라지지만, 그 진행 상황 기록도 함께 지워지므로 어긋나지 않는다
+ */
+export async function clearPdfCache(): Promise<void> {
+  try {
+    await withStore<undefined>('readwrite', (store) => store.clear())
+  } catch (e) {
+    console.error('[pdfCache] 캐시 비우기 실패', e)
+  }
+}
