@@ -12,6 +12,8 @@ import type { Question } from '@/lib/types'
 
 // 여러 개를 한 번에 올리는 동안의 busy 표시. 파일 이름과 겹칠 수 없는 값이어야 한다
 const BATCH = ' batch'
+// 여러 문제집에 한 번에 권한을 주는 동안의 표시. poolId 와 겹칠 수 없는 값이어야 한다
+const BATCH_GRANT = ' batch-grant'
 
 // store.ts 의 getSourceFiles 가 sourceFile 없는 문제를 묶는 이름
 const NO_SOURCE_FILE = '(출처 없음)'
@@ -34,6 +36,8 @@ export function AdminPoolPanel({ ownerUid }: { ownerUid: string }) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [progress, setProgress] = useState<string | null>(null)
   const [bySource, setBySource] = useState<Record<string, Question[]>>({})
+  const [selectedPools, setSelectedPools] = useState<Set<string>>(new Set())
+  const [batchEmail, setBatchEmail] = useState('')
 
   const refresh = useCallback(async () => {
     setError(null)
@@ -68,6 +72,8 @@ export function AdminPoolPanel({ ownerUid }: { ownerUid: string }) {
 
   // 목록에 없는 이름이 선택에 남아 있을 수 있다(고른 뒤 원본을 지운 경우). 실제 목록 기준으로 센다
   const selectedCount = files.filter((f) => selected.has(f.name)).length
+  // 발행 취소된 문제집이 선택에 남아 있을 수 있어 같은 방식으로 센다
+  const selectedPoolCount = pools.filter((p) => selectedPools.has(p.id)).length
 
   // 발행본과 원본의 연결은 sourceFile 문자열 일치뿐이다. 원본을 지웠거나 이름을 바꾸면
   // (문제집 합치기 포함) 그 연결이 조용히 끊긴다 — 재발행한 줄 알았는데 실제로는 새 pool 이
@@ -264,6 +270,54 @@ export function AdminPoolPanel({ ownerUid }: { ownerUid: string }) {
     }
   }
 
+  function togglePool(poolId: string) {
+    setSelectedPools((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(poolId)) next.add(poolId)
+      return next
+    })
+  }
+
+  /**
+   * 고른 문제집들에 한 사람 권한을 한 번에 준다.
+   * 카드마다 같은 이메일을 다시 치지 않으려는 것뿐이라, 주는 일 자체는 카드별 '권한 주기'와
+   * 똑같이 grantAccess 를 부른다 — 순차로 도는 것도 발행과 같은 이유다
+   */
+  async function handleGrantSelected() {
+    const targets = pools.filter((p) => selectedPools.has(p.id))
+    const email = batchEmail.trim()
+    if (targets.length === 0 || !email) return
+
+    setBusy(BATCH_GRANT)
+    setError(null)
+    setNotice(null)
+    const done: string[] = []
+    const failed: { title: string; why: string }[] = []
+    for (let i = 0; i < targets.length; i++) {
+      const pool = targets[i]
+      setProgress(`${i + 1}/${targets.length} · ${pool.title}`)
+      try {
+        await grantAccess(pool.id, email)
+        done.push(pool.title)
+      } catch (e) {
+        // 로그인 기록이 없는 이메일이면 첫 번째부터 같은 이유로 다 실패한다.
+        // 그래도 하나씩 다 시도해 결과를 모은다 — 어디까지 됐는지 사람이 봐야 한다
+        failed.push({ title: pool.title, why: e instanceof Error ? e.message : String(e) })
+      }
+    }
+    setProgress(null)
+    setBusy(null)
+    // 실패한 것만 선택에 남긴다 — 이메일을 고쳐 그대로 다시 누르면 재시도가 된다
+    const failedTitles = new Set(failed.map((f) => f.title))
+    setSelectedPools(new Set(targets.filter((p) => failedTitles.has(p.title)).map((p) => p.id)))
+    if (failed.length === 0) setBatchEmail('')
+    if (done.length > 0) setNotice(`${email} 에게 권한을 주었습니다 ${done.length}개\n${done.join('\n')}`)
+    if (failed.length > 0) {
+      setError(`권한 주기 실패 ${failed.length}개\n${failed.map((f) => `${f.title} — ${f.why}`).join('\n')}`)
+    }
+    await refresh()
+  }
+
   async function handleGrant(pool: PoolMeta) {
     const email = (emailInput[pool.id] ?? '').trim()
     if (!email) return
@@ -374,6 +428,14 @@ export function AdminPoolPanel({ ownerUid }: { ownerUid: string }) {
         {pools.map((pool) => (
           <div key={pool.id} className="rounded-lg border border-border p-2.5 space-y-2">
             <div className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={selectedPools.has(pool.id)}
+                disabled={busy !== null}
+                onChange={() => togglePool(pool.id)}
+                aria-label={`${pool.title} 선택`}
+                className="shrink-0 accent-primary disabled:opacity-40"
+              />
               <span className="flex-1 truncate font-medium text-foreground">{pool.title}</span>
               <span className="shrink-0 tabular-nums text-muted-foreground">
                 {pool.count}문제 · 조각 {pool.shardCount}
@@ -461,6 +523,35 @@ export function AdminPoolPanel({ ownerUid }: { ownerUid: string }) {
             </div>
           </div>
         ))}
+
+        {/* 여러 문제집에 같은 사람 권한을 한 번에 준다. 카드별 '권한 주기'는 그대로 두고,
+            같은 이메일을 카드 수만큼 다시 치지 않게 하는 것이 전부다.
+            고른 것이 없으면 아예 보여주지 않는다 — 늘 떠 있으면 카드별 입력란과 헷갈린다 */}
+        {selectedPoolCount > 0 && (
+          <div className="rounded-lg border border-primary/30 bg-primary/5 p-2.5 space-y-2">
+            <p className="text-[11px] text-muted-foreground">
+              선택한 {selectedPoolCount}개에 한 번에 권한 주기
+              {busy === BATCH_GRANT && progress && ` · ${progress}`}
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="email"
+                value={batchEmail}
+                onChange={(e) => setBatchEmail(e.target.value)}
+                placeholder="권한을 줄 이메일"
+                className="flex-1 min-w-0 bg-input border border-border rounded px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+              <button
+                type="button"
+                disabled={busy !== null || !batchEmail.trim()}
+                onClick={handleGrantSelected}
+                className="shrink-0 px-2 py-1 border border-primary/40 text-primary rounded text-xs font-medium hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {busy === BATCH_GRANT ? '주는 중…' : `${selectedPoolCount}개에 권한 주기`}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <p className="text-[11px] text-muted-foreground">
