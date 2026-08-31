@@ -34,11 +34,77 @@ export interface PoolMeta {
   shardCount: number
   count: number
   publishedAt: number
+  // 원본 재연결 단서. 이 필드가 생기기 전에 발행된 pool 에는 없다 (그때는 이름으로만 판정한다)
+  questionIds?: string[]
+  fingerprints?: string[]
 }
 
 export interface PoolMember {
   uid: string
   email: string | null
+}
+
+// ── 원본 재연결 ─────────────────────────────────────────────────────────────
+// 발행본과 원본의 연결은 sourceFile 문자열 일치뿐이라, 이름을 바꾸거나(문제집 합치기)
+// 지웠다 다시 올리면 조용히 끊긴다. 그래서 발행할 때 내용 쪽 단서를 함께 남긴다.
+//
+// 두 가지를 같이 적는 이유가 있다.
+// - questionIds: 이름만 바뀐 경우를 잡는다. 재파싱 병합에서 id 는 기존 것이 유지되므로
+//   (store.ts 의 addQuestions — "id는 유지하므로 오답노트·형광펜 연결이 끊기지 않는다")
+//   이름이 바뀌어도 id 는 그대로다.
+// - fingerprints: 지웠다 다시 올린 경우를 잡는다. 그때는 id 가 전부 새로 생기고(gemini.ts 가
+//   id 에 Date.now() 를 넣는다) 남는 단서는 지문뿐이다.
+
+const FINGERPRINT_PREFIX = 40
+
+// store.ts 의 normalizePassage 와 같은 정규화다. 거기 있는 것은 export 되어 있지 않고
+// 이번 단계에서 store.ts 는 손대지 않기로 했으므로 같은 식을 여기 둔다.
+// 한쪽만 고치면 판정이 어긋나므로, 둘 중 하나를 바꿀 일이 생기면 반드시 같이 고쳐야 한다
+function normalizePassage(passage: string): string {
+  return passage.replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * 지문 지문(fingerprint). 정규화한 지문의 앞 40자만 해싱한다.
+ *
+ * 앞부분만 쓰는 것은 store.ts 의 isSameQuestion 과 같은 이유다 — 청크 경계에서 뒤가 잘린
+ * 판본과 온전한 판본이 같은 문제로 인정돼야 한다. 거기서 "짧은 쪽이 40자 이상이고 긴 쪽의
+ * 앞부분이면 같다"고 보므로, 40자를 경계로 삼으면 그 판정과 어긋나지 않는다.
+ *
+ * FNV-1a 32비트. 250개 남짓에서 충돌 확률은 1000만분의 7 수준이고, 어차피 겹침 비율로
+ * 판단한 뒤 사람이 확인하므로 암호학적 강도는 필요 없다
+ */
+export function fingerprintOf(q: { passage?: string }): string {
+  const head = normalizePassage(q.passage ?? '').slice(0, FINGERPRINT_PREFIX)
+  let h = 0x811c9dc5
+  for (let i = 0; i < head.length; i++) {
+    h ^= head.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return (h >>> 0).toString(36)
+}
+
+/** 이 비율 이상 겹치면 같은 문제집으로 '의심'한다. 확정은 사람이 한다 */
+export const RECONNECT_THRESHOLD = 0.5
+
+/**
+ * 발행본과 로컬 문제집이 얼마나 겹치는가. 옛 판본(단서가 없는 pool)은 null 을 돌려준다 —
+ * 모르는 것을 0%로 답하면 "안 겹친다"는 판정이 되어버린다.
+ *
+ * 분모를 양쪽 중 큰 쪽으로 잡는다. 발행본 문제 수로만 나누면 12문제짜리 작은 문제집이
+ * 244문제 발행본에 100% 겹치는 것으로 나온다
+ */
+export function overlapWith(
+  pool: Pick<PoolMeta, 'questionIds' | 'fingerprints' | 'count'>,
+  questions: Question[]
+): { matched: number; ratio: number } | null {
+  const ids = new Set(pool.questionIds ?? [])
+  const fps = new Set(pool.fingerprints ?? [])
+  if (ids.size === 0 && fps.size === 0) return null
+
+  const matched = questions.filter((q) => ids.has(q.id) || fps.has(fingerprintOf(q))).length
+  const denom = Math.max(pool.count ?? ids.size, questions.length)
+  return { matched, ratio: denom === 0 ? 0 : matched / denom }
 }
 
 function rootRef(poolId: string) {
@@ -88,6 +154,10 @@ export async function publishPool(opts: {
     shardCount: shards.length,
     count: copies.length,
     publishedAt: Date.now(),
+    // 이름이 바뀌거나 원본을 지웠다 다시 올렸을 때 이 발행본을 도로 찾아낼 단서.
+    // 이미 순회한 배열에서 뽑을 뿐이라 따로 모을 것이 없다 (244문항이면 합쳐서 12KB 남짓)
+    questionIds: copies.map((q) => q.id),
+    fingerprints: copies.map(fingerprintOf),
   }
   if (prev?.exists()) {
     // 재발행: 이미 준 권한(memberUids)을 덮어쓰지 않는다
