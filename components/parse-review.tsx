@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import type { Question, Subject } from '@/lib/types'
 import { updateQuestionUnit, updateQuestionYear, updateQuestionSubject, deleteQuestion } from '@/lib/store'
+import { canonicalUnit } from '@/lib/units'
 import {
   buildParseReview, unitWarning, unitOptionsFor, subjectOptions, yearOptions, formatMissing, allMissing,
   gapLabel, gapNumbers, UNKNOWN_YEAR,
@@ -508,6 +509,9 @@ function UnitQuestionList({
   onChange: (q: Question, unit: string) => void
 }) {
   const options = unitOptionsFor(row.subject)
+  // 과목명이 앞에 붙은 값("행정법총론")은 저장된 그대로는 목록에 없다. 가리키는 정식 단원을
+  // 골라 둬야 드롭다운이 "단원 변경…"이 아니라 그 단원을 가리킨다
+  const selected = canonicalUnit(row.subject, row.unit) ?? ''
   return (
     <div className="ml-2 mt-1 mb-1.5 pl-2 border-l-2 border-border space-y-1">
       {byQuestionNo(row.questions).map((q) => (
@@ -520,7 +524,7 @@ function UnitQuestionList({
           onDelete={onDelete}
         >
           <select
-            value={options.includes(row.unit) ? row.unit : ''}
+            value={selected}
             onChange={(e) => e.target.value && onChange(q, e.target.value)}
             className="shrink-0 bg-input border border-border rounded px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           >

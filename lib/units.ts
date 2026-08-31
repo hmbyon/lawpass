@@ -30,8 +30,34 @@ function normalizeUnit(unit: string): string {
   return unit.replace(/\s+/g, '')
 }
 
-export function isValidUnit(subject: Subject, unit: string | undefined): boolean {
-  if (!unit?.trim()) return false
+/**
+ * 이 단원 값이 가리키는 정식 단원. 없으면 null.
+ *
+ * 정확 일치를 먼저 본다. 그다음에만 과목명 접두어를 떼고 한 번 더 본다 —
+ * 모델이 행정법의 "총론"을 "행정법총론"으로 적어 보내는 일이 있는데, 프롬프트가 금지한
+ * 형태이긴 해도 어느 단원을 말하는지는 분명하다.
+ *
+ * 순서가 뒤바뀌면 안 된다. "민법총칙"은 민법의 정식 단원인데, 접두어부터 떼면 "총칙"이
+ * 되어 목록에 없는 값이 되어버린다.
+ *
+ * 접두어를 뗀 나머지가 비면(단원이 과목명 그 자체이면) 인정하지 않는다.
+ * 프롬프트가 따로 금지하고 있는 형태이고, 어느 단원인지도 알 수 없다.
+ */
+export function canonicalUnit(subject: Subject, unit: string | undefined): string | null {
+  if (!unit?.trim()) return null
+  const list = SUBJECT_UNITS[subject] ?? []
   const key = normalizeUnit(unit)
-  return (SUBJECT_UNITS[subject] ?? []).some((u) => normalizeUnit(u) === key)
+
+  const exact = list.find((u) => normalizeUnit(u) === key)
+  if (exact) return exact
+
+  const prefix = normalizeUnit(subject)
+  if (!key.startsWith(prefix)) return null
+  const rest = key.slice(prefix.length)
+  if (!rest) return null
+  return list.find((u) => normalizeUnit(u) === rest) ?? null
+}
+
+export function isValidUnit(subject: Subject, unit: string | undefined): boolean {
+  return canonicalUnit(subject, unit) !== null
 }
