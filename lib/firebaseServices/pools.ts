@@ -111,6 +111,22 @@ export async function publishPool(opts: {
   return poolId
 }
 
+/**
+ * 발행 취소 — 조각을 전부 지운 뒤 루트 문서를 지운다. 되돌릴 수 없다.
+ *
+ * 조각을 먼저 지우는 이유는 중간에 실패했을 때를 위해서다. 루트가 남아 있으면 목록에 계속
+ * 보여 다시 시도할 수 있지만, 루트를 먼저 지우면 남은 조각은 어느 목록에도 안 잡혀
+ * 지울 방법이 사라진다.
+ *
+ * 루트가 사라지는 순간 권한을 받은 사람의 읽기는 규칙에서 막힌다 — 규칙이 memberUids 를
+ * 루트 문서에서 읽기 때문이다. 따로 알려주는 절차는 없다.
+ */
+export async function unpublishPool(poolId: string): Promise<void> {
+  const shards = await getDocs(shardsRef(poolId))
+  await Promise.all(shards.docs.map((d) => deleteDoc(d.ref)))
+  await deleteDoc(rootRef(poolId))
+}
+
 /** 내가 발행한 pool 목록. 규칙상 소유자는 자기 pool 을 전부 읽을 수 있다 */
 export async function listMyPools(ownerUid: string): Promise<PoolMeta[]> {
   const snap = await getDocs(query(collection(db, POOLS), where('ownerUid', '==', ownerUid)))
