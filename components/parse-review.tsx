@@ -2,12 +2,14 @@
 
 import { useState } from 'react'
 import type { Question, Subject } from '@/lib/types'
-import { updateQuestionUnit, updateQuestionYear, updateQuestionSubject, deleteQuestion } from '@/lib/store'
+import {
+  updateQuestionUnit, updateQuestionYear, updateQuestionSubject, deleteQuestion, mergeQuestionInto,
+} from '@/lib/store'
 import { canonicalUnit } from '@/lib/units'
 import {
   buildParseReview, unitWarning, unitOptionsFor, subjectOptions, yearOptions, formatMissing, allMissing,
   gapLabel, gapNumbers, UNKNOWN_YEAR,
-  type GroupCheck, type UnitCount, type YearCount, type QuestionPage,
+  type GroupCheck, type UnitCount, type YearCount, type QuestionPage, type SimilarPair,
   // 이 파일의 컴포넌트 이름과 겹쳐서 갈아 끼운다
   type ParseReview as ParseReviewData,
 } from '@/lib/parseReview'
@@ -118,6 +120,26 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
     onUnitChanged()
   }
 
+  // 사람이 "이 둘은 다른 문제"라고 판단한 쌍. 이 화면에서만 기억한다 —
+  // 검토 화면은 한 번 보고 닫는 자리라 굳이 저장까지 할 일이 아니다
+  const [ignoredPairs, setIgnoredPairs] = useState<Set<string>>(new Set())
+  const pairKey = (p: SimilarPair) => `${p.a.id}|${p.b.id}`
+
+  function mergePair(p: SimilarPair) {
+    if (
+      !confirm(
+        `${p.a.no}번 두 문제를 하나로 합칩니다.\n\n` +
+          '아래쪽 문제가 지워지고 그 해설은 위쪽으로 옮겨집니다.\n' +
+          '되돌릴 수 없습니다 — 두 지문이 정말 같은 문제인지 확인하고 눌러주세요.'
+      )
+    ) {
+      return
+    }
+    mergeQuestionInto(p.a.id, p.b.id)
+    setIgnoredPairs((prev) => new Set(prev).add(pairKey(p)))
+    onUnitChanged()
+  }
+
   function changeYear(q: Question, year: number) {
     updateQuestionYear(q.id, year)
     setEditedYear((prev) => ({ ...prev, [q.id]: year }))
@@ -161,6 +183,11 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
             넣었지만, 아래 &apos;출제연도 분포&apos;에서 연도를 지정해주세요
           </p>
         )}
+        {review.similarPairs.length > 0 && (
+          <p className="text-[11px] text-amber-600 dark:text-amber-400">
+            ⚠ 지문이 거의 같은 쌍 {review.similarPairs.length}건은 합치지 않고 따로 세었습니다.
+          </p>
+        )}
         {review.yearConflicts.length > 0 && (
           <p className="text-[11px] text-amber-600 dark:text-amber-400">
             ⚠ 연도가 갈린 문제 {review.yearConflicts.length}개는 먼저 읽은 연도 기준으로 검사했습니다.
@@ -199,6 +226,54 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
       </div>
 
       {/* 과목 미판정 — 있을 때만 나온다 */}
+      {review.similarPairs.filter((p) => !ignoredPairs.has(pairKey(p))).length > 0 && (
+        <div className="px-3 py-2 space-y-1.5">
+          <p className="text-xs text-muted-foreground">유사 후보</p>
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            ⚠ 지문이 거의 같은 문제가{' '}
+            {review.similarPairs.filter((p) => !ignoredPairs.has(pairKey(p))).length}쌍 있습니다.
+            글자가 조금 달라 자동으로 합치지 않았습니다 — 두 지문을 보고 같은 문제인지 정해주세요
+          </p>
+          {review.similarPairs
+            .filter((p) => !ignoredPairs.has(pairKey(p)))
+            .map((p) => (
+              <div key={pairKey(p)} className="rounded border border-border p-2 space-y-1.5">
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <span className="flex-1">
+                    {p.a.subject} · {p.a.no}번 · {p.distance}글자 다름
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => mergePair(p)}
+                    className="shrink-0 px-2 py-0.5 border border-primary/40 text-primary rounded hover:bg-primary/10 transition-colors"
+                  >
+                    같은 문제 — 합치기
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIgnoredPairs((prev) => new Set(prev).add(pairKey(p)))}
+                    className="shrink-0 px-2 py-0.5 border border-border text-muted-foreground rounded hover:bg-muted transition-colors"
+                  >
+                    다른 문제
+                  </button>
+                </div>
+                {/* 두 지문을 그대로 나란히 놓는다. 어디가 다른지는 사람이 봐야 안다 */}
+                <p className="text-[11px] text-foreground whitespace-pre-wrap break-all">
+                  <span className="text-muted-foreground">위 </span>
+                  {p.a.passage}
+                </p>
+                <p className="text-[11px] text-foreground whitespace-pre-wrap break-all">
+                  <span className="text-muted-foreground">아래 </span>
+                  {p.b.passage}
+                </p>
+              </div>
+            ))}
+          <p className="text-[11px] text-muted-foreground pt-1">
+            합치면 아래쪽이 지워지고 해설은 위쪽으로 옮겨집니다. 되돌릴 수 없습니다.
+          </p>
+        </div>
+      )}
+
       {review.yearConflicts.length > 0 && (
         <div className="px-3 py-2 space-y-1.5">
           <p className="text-xs text-muted-foreground">연도 갈림</p>

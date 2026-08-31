@@ -2,6 +2,7 @@
 
 import type { Question, Subject, WrongNote } from './types'
 import { getAppMode } from './appMode'
+import { normalizePassage, isSamePassage } from './passageMatch'
 
 // apiKey는 개인 인증정보라 모드 공통으로 유지, 나머지는 모드별 접미사(_law/_general)로 분리
 const BASE_KEYS = {
@@ -136,11 +137,6 @@ export function clearPoolQuestions() {
   localStorage.removeItem(modeKey(BASE_KEYS.poolQuestions))
 }
 
-// 지문 비교용 정규화 (줄바꿈·공백 차이로 같은 문제가 다르게 보이지 않도록)
-function normalizePassage(passage: string): string {
-  return passage.replace(/\s+/g, ' ').trim()
-}
-
 // 중복 판정 1차 후보 키. 문제번호가 있으면 그것으로 좁히고, 없으면 지문 전체로 좁힌다.
 // 문제번호만으로 병합하면 서로 다른 회차끼리 충돌하므로 2차 확인(isSameQuestion)을 반드시 거친다.
 //
@@ -154,14 +150,10 @@ function questionBucketKey(q: Question): string {
     : `psg:${normalizePassage(q.passage)}`
 }
 
-// 2차 확인: 정말 같은 문제인가.
-// 청크 겹침으로 한쪽이 페이지 경계에서 잘린 경우 짧은 쪽이 긴 쪽의 앞부분이 되므로 같은 문제로 인정한다
+// 2차 확인: 정말 같은 문제인가. 규칙은 passageMatch.ts 한곳에 있다
+// (청크 겹침으로 한쪽이 페이지 경계에서 잘린 경우도 같은 문제로 인정한다)
 function isSameQuestion(a: Question, b: Question): boolean {
-  const pa = normalizePassage(a.passage)
-  const pb = normalizePassage(b.passage)
-  if (pa === pb) return true
-  const [shorter, longer] = pa.length <= pb.length ? [pa, pb] : [pb, pa]
-  return shorter.length >= 40 && longer.startsWith(shorter)
+  return isSamePassage(a.passage, b.passage)
 }
 
 // 더 온전한 판본을 고르기 위한 점수 (채워진 선지 수 우선, 그다음 지문 길이)
@@ -271,6 +263,41 @@ export function addQuestions(
 
   saveQuestions(result)
   return { added, merged }
+}
+
+/**
+ * 검토 화면에서 사람이 "이 둘은 같은 문제"라고 판단했을 때, 한쪽을 남기고 다른 쪽을 지운다.
+ *
+ * 자동 병합은 하지 않는다 — "상계/예약"(편집 거리 2), "동시이행/물권"(4)처럼 가까우면서
+ * 전혀 다른 문제가 실제로 있고, 병합은 되돌릴 수 없다. 그래서 사람이 두 지문을 나란히 본 뒤에만
+ * 여기로 온다.
+ *
+ * 지우는 쪽의 해설은 남는 쪽으로 옮긴다. 청크마다 해설이 갈려 들어오는 일이 있어,
+ * 그냥 지우면 한쪽에만 있던 해설이 함께 사라진다 (addQuestions 의 병합과 같은 취지)
+ */
+export function mergeQuestionInto(keepId: string, dropId: string) {
+  if (keepId === dropId) return
+  const questions = getQuestions()
+  const keep = questions.find((q) => q.id === keepId)
+  const drop = questions.find((q) => q.id === dropId)
+  if (!keep || !drop) return
+
+  const expl = new Set([
+    ...(keep.explanations ?? (keep.explanation ? [keep.explanation] : [])),
+    ...(drop.explanations ?? (drop.explanation ? [drop.explanation] : [])),
+  ])
+  keep.explanations = Array.from(expl)
+  keep.explanation = Array.from(expl)[0] ?? null
+  // 연도가 갈렸다면 그 사실도 옮긴다. 합쳤다고 해서 판정이 선 것은 아니다
+  if (keep.year !== drop.year && keep.year && drop.year) {
+    keep.yearConflict = Array.from(new Set([...(keep.yearConflict ?? [keep.year]), drop.year])).sort(
+      (a, b) => a - b
+    )
+  } else if (!keep.year && drop.year) {
+    keep.year = drop.year
+  }
+
+  saveQuestions(questions.filter((q) => q.id !== dropId))
 }
 
 // 파싱 검토 화면에서 AI가 잘못 분류한 단원을 사람이 고칠 때 쓴다.

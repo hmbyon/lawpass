@@ -1,5 +1,6 @@
 import type { Question, Subject } from './types'
 import { SUBJECT_UNITS, isValidUnit } from './units'
+import { isSamePassage, passageDistance } from './passageMatch'
 
 // 결번 목록이 길어지면 UI가 감당하지 못하므로 표시 개수를 제한한다
 const MAX_MISSING_SHOWN = 20
@@ -98,6 +99,13 @@ export interface GroupCheck {
   ok: boolean // verdict === 'ok'. 빠진 번호가 하나도 없다는 뜻
 }
 
+/** 지문이 가까운 두 문제. distance 는 정규화한 지문 사이의 편집 거리 */
+export interface SimilarPair {
+  a: Question
+  b: Question
+  distance: number
+}
+
 export interface UnitCount {
   subject: Subject
   unit: string
@@ -131,6 +139,10 @@ export interface ParseReview {
   // 연도 미상과 같은 취지다 — 코드가 고를 근거가 없으니 조용히 덮지 않고 사람에게 보인다.
   // 연도는 화면 표시뿐 아니라 CBT 필터의 기준이기도 해서, 틀린 채 두면 그 문제가 검색에서 샌다
   yearConflicts: Question[]
+  // 같다고 판정되지는 않았지만 지문이 가까운 쌍. 자동으로 합치지 않는다 —
+  // 가까우면서 전혀 다른 문제가 실제로 있고("상계/예약" 편집 거리 2), 병합은 되돌릴 수 없다.
+  // 후보만 짚어주고 사람이 두 지문을 나란히 본 뒤 정한다
+  similarPairs: SimilarPair[]
   // 번호가 하나뿐이라 연속성을 논할 수 없어 검사에서 뺀 런의 수.
   // 이걸 세지 않으면 '많이 잃을수록 조용해지는' 함정으로 되돌아간다
   singletonRuns: number
@@ -145,17 +157,10 @@ export interface ParseReview {
   hasWarning: boolean
 }
 
-// 같은 문제인지 보는 최소 규칙. store.ts의 isSameQuestion과 같은 판정이지만,
-// 이 파일은 localStorage를 건드리지 않는 순수 모듈로 두려고 일부러 옮겨 적었다.
-// (규칙을 바꿀 일이 생기면 두 곳을 함께 고쳐야 한다)
-const MIN_PASSAGE_FOR_PREFIX = 40
-
+// 같은 문제인지 보는 규칙은 passageMatch.ts 한곳에 있다.
+// 예전에는 store.ts와 여기에 같은 판정이 따로 적혀 있어 한쪽만 고치면 갈라졌다
 function sameText(a: Question, b: Question): boolean {
-  const pa = a.passage.replace(/\s+/g, ' ').trim()
-  const pb = b.passage.replace(/\s+/g, ' ').trim()
-  if (pa === pb) return true
-  const [shorter, longer] = pa.length <= pb.length ? [pa, pb] : [pb, pa]
-  return shorter.length >= MIN_PASSAGE_FOR_PREFIX && longer.startsWith(shorter)
+  return isSamePassage(a.passage, b.passage)
 }
 
 /**
@@ -191,6 +196,38 @@ function findDuplicates(questions: Question[]): Record<string, number> {
     }
   }
   return out
+}
+
+/**
+ * 지문이 가까운 쌍을 찾는다.
+ *
+ * 같은 과목·시험구분·문제번호끼리만 견준다. 전수 비교는 문항 수의 제곱이라 244문항이면
+ * 3만 쌍이고, 애초에 번호가 다른 문제를 중복으로 볼 이유가 없다.
+ * 이미 같다고 판정되는 쌍(완전 일치·접두어)은 병합되므로 후보에서 뺀다
+ */
+function findSimilarPairs(questions: Question[]): SimilarPair[] {
+  const buckets = new Map<string, Question[]>()
+  for (const q of questions) {
+    const no = Number(q.no)
+    if (!Number.isFinite(no) || no <= 0) continue
+    const key = `${q.subject}|${q.examType}|${no}`
+    const list = buckets.get(key)
+    if (list) list.push(q)
+    else buckets.set(key, [q])
+  }
+
+  const out: SimilarPair[] = []
+  for (const list of buckets.values()) {
+    if (list.length < 2) continue
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        if (sameText(list[i], list[j])) continue
+        const distance = passageDistance(list[i].passage, list[j].passage)
+        if (distance !== null) out.push({ a: list[i], b: list[j], distance })
+      }
+    }
+  }
+  return out.sort((x, y) => x.distance - y.distance || x.a.no - y.a.no)
 }
 
 // 파일명이 없는 문제들끼리는 한 덩어리로 본다. 파일을 모른다는 것 자체가 하나의 출처다
@@ -488,6 +525,7 @@ export function buildParseReview(questions: Question[]): ParseReview {
   // ── A. 번호 연속성 ──
   const unknownYearCount = questions.filter((q) => (q.year || UNKNOWN_YEAR) === UNKNOWN_YEAR).length
   const yearConflicts = questions.filter((q) => (q.yearConflict?.length ?? 0) > 1)
+  const similarPairs = findSimilarPairs(questions)
   const unsureSubjects = questions.filter((q) => q.subjectUnsure)
   const duplicateIds = findDuplicates(questions)
 
@@ -627,6 +665,7 @@ export function buildParseReview(questions: Question[]): ParseReview {
     groups,
     unknownYearCount,
     yearConflicts,
+    similarPairs,
     unsureSubjects,
     singletonRuns,
     duplicateIds,
@@ -640,6 +679,7 @@ export function buildParseReview(questions: Question[]): ParseReview {
       unknownYearCount > 0 ||
       unsureSubjects.length > 0 ||
       yearConflicts.length > 0 ||
+      similarPairs.length > 0 ||
       Object.keys(duplicateIds).length > 0 ||
       singletonRuns > 0 ||
       units.some((u) => !u.valid) ||
