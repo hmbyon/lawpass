@@ -209,19 +209,35 @@ export async function listMyPools(ownerUid: string): Promise<PoolMeta[]> {
 }
 
 /**
- * 나에게 공유된 pool 목록.
+ * 발행본이 어느 앱 모드의 것인가.
+ *
+ * mode 필드가 없는 문서는 law 로 본다. 이 필드는 pools 를 만들 때부터 있었지만,
+ * 없는 문서를 만나면 어딘가에 두어야 하고 이 앱은 LawPass 로 시작해 나중에 ExamPass 가
+ * 붙었다 — 저장 키도 접미사 없는 옛 값을 _law 로 옮긴다(store.ts 의 migrateLegacyKeys).
+ * 같은 관례를 따른다. 목록과 읽기가 같은 함수를 써야 "목록에는 뜨는데 못 받는" 일이 없다
+ */
+function poolMode(data: { mode?: AppMode }): AppMode {
+  return data.mode ?? 'law'
+}
+
+/**
+ * 나에게 공유된 pool 목록 중 지금 모드의 것.
  *
  * 규칙이 "명단에 든 사람만 읽는다"이므로, 쿼리도 명단으로 스스로를 좁혀야 한다 —
  * 조건 없이 pools 전체를 훑으면 규칙이 쿼리째 거부한다 (§2 목록 쿼리 안전성).
- * memberUids 는 단일 필드라 색인이 자동으로 만들어진다
+ * memberUids 는 단일 필드라 색인이 자동으로 만들어진다.
+ *
+ * 모드는 쿼리가 아니라 받아온 뒤에 거른다. where 를 하나 더 걸면 복합 색인이 필요해지고,
+ * 한 사람이 받는 문제집 수는 색인을 세울 만큼 많지 않다
  */
-export async function listSharedPools(uid: string): Promise<PoolMeta[]> {
+export async function listSharedPools(uid: string, mode: AppMode): Promise<PoolMeta[]> {
   const snap = await getDocs(query(collection(db, POOLS), where('memberUids', 'array-contains', uid)))
   return snap.docs
     .map((d) => {
       const data = d.data() as Omit<PoolMeta, 'id'>
-      return { ...data, memberUids: data.memberUids ?? [], id: d.id }
+      return { ...data, mode: poolMode(data), memberUids: data.memberUids ?? [], id: d.id }
     })
+    .filter((p) => p.mode === mode)
     .sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0))
 }
 
@@ -236,12 +252,21 @@ export async function listSharedPools(uid: string): Promise<PoolMeta[]> {
  * 루트가 없으면 권한이 회수됐거나 발행이 취소된 것이다. 조각이 없으면 읽는 도중에
  * 재발행이 끼어든 것이니, 두 경우 모두 조용히 빈 목록을 주지 않고 오류로 알린다
  */
-export async function readPoolQuestions(poolId: string): Promise<Question[]> {
+export async function readPoolQuestions(poolId: string, mode: AppMode): Promise<Question[]> {
   const snap = await getDoc(rootRef(poolId))
   if (!snap.exists()) {
     throw new Error('이 문제집을 더 이상 볼 수 없습니다. 권한이 회수됐거나 발행이 취소됐습니다.')
   }
   const data = snap.data()
+  // 목록이 이미 걸러주므로 정상 경로에서는 걸리지 않는다. 다른 경로가 생겼을 때를 위한
+  // 마지막 방어선이다 — 모드가 다른 문제집을 받으면 변시 문제가 ExamPass 저장소에 들어가고
+  // 정작 LawPass 화면에서는 보이지 않는다 (store 의 저장 키가 '지금 화면의 모드'로 정해지므로)
+  if (poolMode(data as { mode?: AppMode }) !== mode) {
+    throw new Error(
+      `이 문제집은 ${poolMode(data as { mode?: AppMode }) === 'law' ? 'LawPass' : 'ExamPass'} 문제집입니다. ` +
+        '그 모드로 바꾼 뒤에 받아주세요.'
+    )
+  }
   const title = String(data.title ?? '공유 문제집')
   const shardCount = Number(data.shardCount ?? 0)
   const version = String(data.version ?? '')

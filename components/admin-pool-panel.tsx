@@ -42,7 +42,11 @@ export function AdminPoolPanel({ ownerUid }: { ownerUid: string }) {
   const refresh = useCallback(async () => {
     setError(null)
     try {
-      const list = await listMyPools(ownerUid)
+      // 지금 모드의 발행본만 다룬다. 두 모드가 섞여 있으면 이름이 같은 문제집끼리
+      // 재발행 대상으로 잡혀(poolOf 는 sourceFile 만 본다) LawPass 발행본을 ExamPass
+      // 문제로 갈아끼우게 된다. 여기서 거르면 겹침 판정도 같은 모드 안에서만 일어난다
+      const mode = getAppMode()
+      const list = (await listMyPools(ownerUid)).filter((p) => (p.mode ?? 'law') === mode)
       setPools(list)
       // 명단에는 uid만 있어 누구인지 알 수 없다. 이메일을 붙여 보여준다
       const named: Record<string, PoolMember[]> = {}
@@ -423,7 +427,9 @@ export function AdminPoolPanel({ ownerUid }: { ownerUid: string }) {
         <p className="text-xs text-muted-foreground">발행된 문제집</p>
         {!loaded && <p className="text-xs text-muted-foreground">불러오는 중…</p>}
         {loaded && pools.length === 0 && (
-          <p className="text-xs text-muted-foreground">아직 발행한 문제집이 없습니다</p>
+          <p className="text-xs text-muted-foreground">
+            이 모드에서 발행한 문제집이 없습니다 (다른 모드의 발행본은 그 모드로 바꾸면 보입니다)
+          </p>
         )}
         {pools.map((pool) => (
           <div key={pool.id} className="rounded-lg border border-border p-2.5 space-y-2">

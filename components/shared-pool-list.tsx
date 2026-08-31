@@ -65,7 +65,9 @@ export function SharedPoolList({ userId }: { userId: string }) {
   const refresh = useCallback(async () => {
     setError(null)
     try {
-      const list = await listSharedPools(userId)
+      // 지금 모드의 문제집만 받는다. 모드가 다른 것을 받으면 저장 키가 화면 모드로 정해져
+      // 엉뚱한 쪽에 들어간다 (변시 문제가 ExamPass 저장소로)
+      const list = await listSharedPools(userId, getAppMode())
       setPools(list)
       countOrphans(list)
     } catch (e) {
@@ -85,7 +87,7 @@ export function SharedPoolList({ userId }: { userId: string }) {
     setError(null)
     setNotice(null)
     try {
-      const questions = await readPoolQuestions(pool.id)
+      const questions = await readPoolQuestions(pool.id, getAppMode())
       // 이 문제집 것만 갈아끼운다. 다른 문제집에서 받아둔 것을 쓸어내면 안 된다
       const others = getPoolQuestions().filter((q) => q.poolId !== pool.id)
       savePoolQuestions([...others, ...questions])
