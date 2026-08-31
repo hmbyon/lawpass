@@ -4,7 +4,7 @@ import { useState } from 'react'
 import type { Question, Subject } from '@/lib/types'
 import { updateQuestionUnit, updateQuestionYear, updateQuestionSubject, deleteQuestion } from '@/lib/store'
 import {
-  buildParseReview, isMinorUnit, unitOptionsFor, subjectOptions, yearOptions, formatMissing, allMissing,
+  buildParseReview, unitWarning, unitOptionsFor, subjectOptions, yearOptions, formatMissing, allMissing,
   gapLabel, gapNumbers, UNKNOWN_YEAR,
   type GroupCheck, type UnitCount, type YearCount, type QuestionPage,
   // 이 파일의 컴포넌트 이름과 겹쳐서 갈아 끼운다
@@ -292,25 +292,27 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
         <p className="text-xs text-muted-foreground">단원 분포</p>
         {review.units.map((row) => {
           const key = `${row.subject}|${row.unit}`
-          const suspicious = !row.valid || isMinorUnit(row, review)
+          const warning = unitWarning(row, review)
           return (
             <div key={key}>
               <button
                 onClick={() => toggleIn(setOpenUnits, key)}
                 className="w-full flex items-center gap-2 text-xs py-0.5 hover:opacity-80 transition-opacity"
               >
-                <span className="w-24 text-left truncate text-foreground">{row.unit}</span>
+                {/* 과목까지 적는다. '총론'은 형법·헌법·행정법에, '증거'는 두 소송법에 다 있어서
+                    단원 이름만 찍으면 여러 과목이 섞인 파일에서 같은 줄이 여러 번 나온 것처럼 보인다 */}
+                <span className="w-36 text-left truncate text-foreground">
+                  <span className="text-muted-foreground">{row.subject}</span> · {row.unit}
+                </span>
                 <span className="w-8 text-right tabular-nums text-muted-foreground">{row.count}</span>
                 <span className="flex-1 h-1.5 bg-muted rounded overflow-hidden">
                   <span
-                    className={`block h-full rounded ${suspicious ? 'bg-amber-500' : 'bg-primary'}`}
+                    className={`block h-full rounded ${warning ? 'bg-amber-500' : 'bg-primary'}`}
                     style={{ width: `${(row.count / maxCount) * 100}%` }}
                   />
                 </span>
-                {suspicious && (
-                  <span className="text-amber-600 dark:text-amber-400 shrink-0">
-                    {row.valid ? '⚠ 소수' : '⚠ 목록 밖'}
-                  </span>
+                {warning && (
+                  <span className="text-amber-600 dark:text-amber-400 shrink-0">⚠ {warning}</span>
                 )}
               </button>
               {openUnits.has(key) && (
@@ -326,9 +328,15 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
             </div>
           )
         })}
-        {review.units.some((u) => !u.valid) && (
+        {review.units.some((u) => unitWarning(u, review) === '목록 밖') && (
           <p className="text-[11px] text-muted-foreground pt-1">
             &apos;목록 밖&apos;은 AI가 정해진 단원 목록에 없는 값을 넣은 경우입니다. 눌러서 고쳐주세요.
+          </p>
+        )}
+        {review.units.some((u) => unitWarning(u, review) === '과목 미판정') && (
+          <p className="text-[11px] text-muted-foreground pt-1">
+            &apos;과목 미판정&apos;은 AI가 과목을 정하지 못해 임시로 담아둔 문제입니다. 단원이 아니라 위쪽
+            &apos;과목 미판정&apos; 목록에서 과목부터 고쳐주세요.
           </p>
         )}
       </div>

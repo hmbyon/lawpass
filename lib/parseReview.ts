@@ -721,12 +721,33 @@ export function yearOptions(): number[] {
   return out
 }
 
-// 특정 단원이 "소수라 의심스러운지". 전체의 20% 미만이면서 최다 단원이 따로 있을 때만 표시한다.
-// 고르게 섞인 파일에서 모든 단원에 경고가 붙는 것을 막는다
+// 특정 단원이 "소수라 의심스러운지". 같은 과목 안에서 20% 미만이면서
+// 그 과목의 최다 단원이 따로 있을 때만 표시한다.
+//
+// 기준을 파일 전체가 아니라 과목별로 잡는다. 전체로 재면 과목이 늘어날수록 각 행의 몫이
+// 1/N로 줄어드는데 문턱은 그대로라, 7과목을 한 번에 올리면 최다 행 하나만 빼고 전부
+// 경고가 붙었다(실측 14/15행). 과목이 하나뿐이면 과목별 합계가 곧 전체 합계이므로
+// 예전과 같은 결과가 나온다
 export function isMinorUnit(row: UnitCount, review: ParseReview): boolean {
-  if (review.units.length < 2) return false
-  const top = review.units[0].count
-  return row.count < top && row.count / review.total < 0.2
+  // units는 개수 내림차순으로 정렬돼 있고 filter가 그 순서를 지키므로 첫 항목이 그 과목의 최다다
+  const sameSubject = review.units.filter((u) => u.subject === row.subject)
+  if (sameSubject.length < 2) return false
+  const top = sameSubject[0].count
+  const subjectTotal = sameSubject.reduce((sum, u) => sum + u.count, 0)
+  return row.count < top && row.count / subjectTotal < 0.2
+}
+
+/**
+ * 단원 행에 붙일 경고. 없으면 null.
+ *
+ * '과목 미판정'을 '목록 밖'과 가른다. 과목을 못 정한 문제는 첫 후보 과목으로 담기므로
+ * (gemini.ts의 resolveSubject) 그 과목의 단원 목록과 안 맞는 게 당연한데, 그걸 두고
+ * "AI가 이상한 단원을 넣었다"고 하면 고칠 곳을 잘못 짚게 된다 — 고칠 것은 과목이다
+ */
+export function unitWarning(row: UnitCount, review: ParseReview): '과목 미판정' | '목록 밖' | '소수' | null {
+  if (row.questions.length > 0 && row.questions.every((q) => q.subjectUnsure)) return '과목 미판정'
+  if (!row.valid) return '목록 밖'
+  return isMinorUnit(row, review) ? '소수' : null
 }
 
 export function unitOptionsFor(subject: Subject): string[] {

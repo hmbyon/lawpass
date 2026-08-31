@@ -24,7 +24,14 @@ export const SUBJECT_UNITS_JSON =
     .join(',\n') +
   '\n}'
 
+// 비교 전 공백만 지운다. "총 론"과 "총론"은 같은 단원이지만, 그 이상 느슨하게 풀면
+// (구분자·괄호까지 지우면) 서로 다른 단원이 같은 것으로 뭉개질 수 있다
+function normalizeUnit(unit: string): string {
+  return unit.replace(/\s+/g, '')
+}
+
 export function isValidUnit(subject: Subject, unit: string | undefined): boolean {
   if (!unit?.trim()) return false
-  return (SUBJECT_UNITS[subject] ?? []).includes(unit.trim())
+  const key = normalizeUnit(unit)
+  return (SUBJECT_UNITS[subject] ?? []).some((u) => normalizeUnit(u) === key)
 }
