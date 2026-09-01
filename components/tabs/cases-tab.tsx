@@ -5,6 +5,7 @@ import type { Question } from '@/lib/types'
 import type { Subject } from '@/lib/types'
 import { SUBJECT_UNITS } from '@/lib/units'
 import { FilterChips } from '@/components/filter-chips'
+import { groupBySource } from '@/lib/questionSource'
 import {
   buildCaseDigest, filterCases, sortCases, periodLabel, PERIOD_OPTIONS,
   type CaseGroup, type CaseSort,
@@ -91,17 +92,22 @@ function CaseCard({
         {group.otherSummaries > 0 && ` · 다른 요약 ${group.otherSummaries}가지`}
       </p>
 
-      <div className="flex flex-wrap gap-1.5">
-        {[...group.questions]
-          .sort((a, b) => Number(a.no) - Number(b.no))
-          .map((q) => (
-            <QuestionLine
-              key={q.id}
-              q={q}
-              open={openId === `${group.key}|${q.id}`}
-              onToggle={() => onOpen(openId === `${group.key}|${q.id}` ? null : `${group.key}|${q.id}`)}
-            />
-          ))}
+      {/* 출처별로 묶는다. 판례 하나가 여러 회차에 걸쳐 나오는 것이 이 화면의 핵심이라,
+          문제번호만 늘어놓으면 어느 시험 것인지 알 수 없다 */}
+      <div className="space-y-1.5">
+        {groupBySource(group.questions).map((bucket) => (
+          <div key={bucket.label} className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-muted-foreground shrink-0">{bucket.label}</span>
+            {bucket.questions.map((q) => (
+              <QuestionLine
+                key={q.id}
+                q={q}
+                open={openId === `${group.key}|${q.id}`}
+                onToggle={() => onOpen(openId === `${group.key}|${q.id}` ? null : `${group.key}|${q.id}`)}
+              />
+            ))}
+          </div>
+        ))}
       </div>
     </div>
   )
