@@ -230,6 +230,16 @@ function findSimilarPairs(questions: Question[]): SimilarPair[] {
   return out.sort((x, y) => x.distance - y.distance || x.a.no - y.a.no)
 }
 
+// 과목을 세우는 순서. 단원 목록의 키 순서가 곧 과목 순서다
+// (민법 → 민사소송법 → 상법 → 형법 → 형사소송법 → 헌법 → 행정법).
+// 따로 배열을 두면 과목이 늘었을 때 한쪽만 고쳐져 목록 밖 과목이 조용히 맨 뒤로 밀린다
+const SUBJECT_ORDER = Object.keys(SUBJECT_UNITS) as Subject[]
+
+function subjectRank(subject: Subject): number {
+  const i = SUBJECT_ORDER.indexOf(subject)
+  return i < 0 ? SUBJECT_ORDER.length : i
+}
+
 // 파일명이 없는 문제들끼리는 한 덩어리로 본다. 파일을 모른다는 것 자체가 하나의 출처다
 const NO_SOURCE_FILE = '(파일 미상)'
 
@@ -630,8 +640,15 @@ export function buildParseReview(questions: Question[]): ParseReview {
       })
     }
   }
+  // 과목끼리 묶어서 보여준다. 개수순으로만 세우면 민법 다음에 행정법이 오는 식으로
+  // 과목이 계속 섞여 한 과목의 분포를 한눈에 볼 수 없다.
+  // 과목 안에서는 종전대로 개수 내림차순이다 — isMinorUnit 이 그 과목 행들의 첫 항목을
+  // '그 과목의 최다'로 보고 판정하므로, 이 순서가 깨지면 소수 판정이 함께 어긋난다
   const units = Array.from(byUnit.values()).sort(
-    (a, b) => b.count - a.count || a.unit.localeCompare(b.unit, 'ko')
+    (a, b) =>
+      subjectRank(a.subject) - subjectRank(b.subject) ||
+      b.count - a.count ||
+      a.unit.localeCompare(b.unit, 'ko')
   )
 
   // ── 연도 분포 ──

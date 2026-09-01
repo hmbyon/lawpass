@@ -158,7 +158,10 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
   // 검토 대상 파일명 (문제에 기록된 sourceFile에서 뽑는다)
   const reviewedFiles = Array.from(new Set(questions.map((q) => q.sourceFile).filter(Boolean))) as string[]
 
-  const maxCount = review.units[0]?.count ?? 1
+  // 막대의 기준은 '가장 큰 행'이다. 예전에는 units[0] 을 그대로 썼는데, 단원 분포를
+  // 과목순으로 세우면서 units[0] 이 첫 과목의 최다일 뿐 전체 최다가 아니게 됐다 —
+  // 그대로 두면 뒤 과목에 더 큰 행이 있을 때 막대가 100%를 넘어 삐져나간다
+  const maxCount = review.units.reduce((max, u) => (u.count > max ? u.count : max), 1)
 
   return (
     <div className="border border-border rounded-lg divide-y divide-border text-sm">
