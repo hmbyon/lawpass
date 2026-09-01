@@ -1,6 +1,6 @@
 import type { Question, Subject } from './types'
 import { SUBJECT_UNITS, isValidUnit } from './units'
-import { isSamePassage, passageDistance } from './passageMatch'
+import { isSameQuestionText, passageDistance } from './passageMatch'
 
 // 결번 목록이 길어지면 UI가 감당하지 못하므로 표시 개수를 제한한다
 const MAX_MISSING_SHOWN = 20
@@ -158,24 +158,28 @@ export interface ParseReview {
 }
 
 // 같은 문제인지 보는 규칙은 passageMatch.ts 한곳에 있다.
-// 예전에는 store.ts와 여기에 같은 판정이 따로 적혀 있어 한쪽만 고치면 갈라졌다
+// 예전에는 store.ts와 여기에 같은 판정이 따로 적혀 있어 한쪽만 고치면 갈라졌다.
+// 과목이 다른 짝에는 길이 하한이 걸린다 (지문이 거의 안 남은 문제끼리 뭉치지 않도록)
 function sameText(a: Question, b: Question): boolean {
-  return isSamePassage(a.passage, b.passage)
+  return isSameQuestionText(a, b)
 }
 
 /**
  * 같은 문제가 두 벌 저장된 것을 찾는다.
  *
  * 번호만으로는 안 된다 — 회차별 문제집은 회차마다 1번부터 다시 시작하므로 같은 번호가
- * 여러 벌 있는 게 정상이다. 그래서 과목·시험구분·번호가 같은 것들 중에서 **지문까지 같은**
+ * 여러 벌 있는 게 정상이다. 그래서 시험구분·번호가 같은 것들 중에서 **지문까지 같은**
  * 것들만 한 무리로 묶는다.
+ *
+ * 후보를 좁히는 데 과목은 쓰지 않는다. 같은 문제를 두 청크가 다른 과목으로 판정하면
+ * 버킷이 갈려 중복이라는 사실 자체가 화면에 안 뜬다 (store.ts의 questionBucketKey와 같은 이유)
  */
 function findDuplicates(questions: Question[]): Record<string, number> {
   const byNo = new Map<string, Question[]>()
   for (const q of questions) {
     const no = Number(q.no)
     if (!Number.isFinite(no) || no <= 0) continue
-    const key = `${q.subject}|${q.examType}|${no}`
+    const key = `${q.examType}|${no}`
     const list = byNo.get(key)
     if (list) list.push(q)
     else byNo.set(key, [q])
@@ -201,8 +205,9 @@ function findDuplicates(questions: Question[]): Record<string, number> {
 /**
  * 지문이 가까운 쌍을 찾는다.
  *
- * 같은 과목·시험구분·문제번호끼리만 견준다. 전수 비교는 문항 수의 제곱이라 244문항이면
+ * 같은 시험구분·문제번호끼리만 견준다. 전수 비교는 문항 수의 제곱이라 244문항이면
  * 3만 쌍이고, 애초에 번호가 다른 문제를 중복으로 볼 이유가 없다.
+ * 과목은 후보를 좁히는 데 쓰지 않는다 — 과목이 갈린 같은 문제를 놓치는 것이 이 화면의 결함이었다.
  * 이미 같다고 판정되는 쌍(완전 일치·접두어)은 병합되므로 후보에서 뺀다
  */
 function findSimilarPairs(questions: Question[]): SimilarPair[] {
@@ -210,7 +215,7 @@ function findSimilarPairs(questions: Question[]): SimilarPair[] {
   for (const q of questions) {
     const no = Number(q.no)
     if (!Number.isFinite(no) || no <= 0) continue
-    const key = `${q.subject}|${q.examType}|${no}`
+    const key = `${q.examType}|${no}`
     const list = buckets.get(key)
     if (list) list.push(q)
     else buckets.set(key, [q])

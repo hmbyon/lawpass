@@ -36,13 +36,34 @@ export function normalizePassage(passage: string): string {
 // 이보다 짧은 조각은 우연히 앞부분이 겹칠 수 있어 접두어 비교를 하지 않는다
 export const MIN_PASSAGE_FOR_PREFIX = 40
 
-/** 두 지문이 같은 문제의 것인가. 완전 일치이거나, 짧은 쪽이 긴 쪽의 앞부분이면 같다 */
-export function isSamePassage(a: string, b: string): boolean {
+/**
+ * 두 지문이 같은 문제의 것인가. 완전 일치이거나, 짧은 쪽이 긴 쪽의 앞부분이면 같다.
+ *
+ * minLength 는 완전 일치에도 길이를 요구하고 싶을 때 쓴다. 파싱이 깨져 지문이 발문만
+ * 남거나("다음 중 옳은 것은?") 아예 비면, 서로 다른 문제도 완전 일치로 판정된다.
+ * 같은 과목·같은 번호끼리라면 그래도 같은 문제일 가능성이 높지만, 과목까지 다른 짝을
+ * 그렇게 합치면 전혀 다른 문제가 한 벌로 뭉친다 — 그 자리에서만 하한을 건다
+ */
+export function isSamePassage(a: string, b: string, minLength = 0): boolean {
   const pa = normalizePassage(a)
   const pb = normalizePassage(b)
-  if (pa === pb) return true
+  if (pa === pb) return pa.length >= minLength
   const [shorter, longer] = pa.length <= pb.length ? [pa, pb] : [pb, pa]
-  return shorter.length >= MIN_PASSAGE_FOR_PREFIX && longer.startsWith(shorter)
+  return shorter.length >= Math.max(MIN_PASSAGE_FOR_PREFIX, minLength) && longer.startsWith(shorter)
+}
+
+/**
+ * 같은 문제인가 — 과목이 다르면 완전 일치에도 길이 하한을 요구한다.
+ *
+ * 과목은 모델이 문제마다 새로 판정하는 값이라 갈릴 수 있다. 그래서 동일성 판정의 기준으로
+ * 삼지 않지만(그러면 같은 문제가 두 벌 저장된다), 과목까지 다른 짝을 합칠 때는 지문이
+ * 충분히 남아 있는지 확인한다
+ */
+export function isSameQuestionText(
+  a: { subject: string; passage: string },
+  b: { subject: string; passage: string }
+): boolean {
+  return isSamePassage(a.passage, b.passage, a.subject === b.subject ? 0 : MIN_PASSAGE_FOR_PREFIX)
 }
 
 /**

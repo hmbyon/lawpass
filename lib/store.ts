@@ -2,7 +2,7 @@
 
 import type { Question, Subject, WrongNote } from './types'
 import { getAppMode } from './appMode'
-import { normalizePassage, isSamePassage } from './passageMatch'
+import { normalizePassage, isSameQuestionText } from './passageMatch'
 
 // apiKey는 개인 인증정보라 모드 공통으로 유지, 나머지는 모드별 접미사(_law/_general)로 분리
 const BASE_KEYS = {
@@ -140,20 +140,21 @@ export function clearPoolQuestions() {
 // 중복 판정 1차 후보 키. 문제번호가 있으면 그것으로 좁히고, 없으면 지문 전체로 좁힌다.
 // 문제번호만으로 병합하면 서로 다른 회차끼리 충돌하므로 2차 확인(isSameQuestion)을 반드시 거친다.
 //
-// 키에 연도를 넣지 않는다. 청크 겹침 구간의 같은 문제를 한 청크는 2023으로, 다른 청크는
-// 연도 미상(0)으로 판정하면 후보 자체가 갈려 병합이 실패하고 같은 문제가 두 번 저장됐다.
-// 어차피 진짜 동일성은 지문으로 판정하므로, 후보를 넓게 잡아도 잘못 합쳐지지 않는다
+// 키에 연도도 과목도 넣지 않는다. 둘 다 모델이 문제마다 새로 판정하는 값이라 청크마다
+// 갈릴 수 있는데, 키에 넣으면 후보 자체가 갈려 병합이 시도조차 되지 않는다 —
+// 같은 문제가 한 청크에서는 민사소송법, 다른 청크에서는 민법으로 판정되면 두 벌로 저장됐다.
+// 어차피 진짜 동일성은 지문으로 판정한다 (과목이 다른 짝에는 길이 하한이 걸린다)
 function questionBucketKey(q: Question): string {
   const no = Number(q.no)
   return Number.isFinite(no) && no > 0
-    ? `no:${q.subject}|${q.examType}|${no}`
+    ? `no:${q.examType}|${no}`
     : `psg:${normalizePassage(q.passage)}`
 }
 
 // 2차 확인: 정말 같은 문제인가. 규칙은 passageMatch.ts 한곳에 있다
 // (청크 겹침으로 한쪽이 페이지 경계에서 잘린 경우도 같은 문제로 인정한다)
 function isSameQuestion(a: Question, b: Question): boolean {
-  return isSamePassage(a.passage, b.passage)
+  return isSameQuestionText(a, b)
 }
 
 // 더 온전한 판본을 고르기 위한 점수 (채워진 선지 수 우선, 그다음 지문 길이)
