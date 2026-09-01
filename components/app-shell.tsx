@@ -19,9 +19,10 @@ import { CbtTab } from '@/components/tabs/cbt-tab'
 import { StudyTab } from '@/components/tabs/study-tab'
 import { WrongTab } from '@/components/tabs/wrong-tab'
 import { MemoTab } from '@/components/tabs/memo-tab'
+import { CasesTab } from '@/components/tabs/cases-tab'
 import { OnboardingModal } from '@/components/onboarding-modal'
 
-type Tab = 'pdf' | 'cbt' | 'study' | 'wrong' | 'memo'
+type Tab = 'pdf' | 'cbt' | 'study' | 'wrong' | 'memo' | 'cases'
 
 // 헤더 동기화 배지 규칙. 조건이 서로 얽혀 있어 한 곳에 모으고 테스트로 고정한다.
 // 핵심은 '실패 중에도 올리기가 보여야 한다'는 것 — 실패 버튼은 pull부터 다시 하는데,
@@ -45,6 +46,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'study', label: '선학습', icon: '📖' },
   { id: 'wrong', label: '오답노트', icon: '📝' },
   { id: 'memo', label: 'D-1 암기장', icon: '⭐' },
+  { id: 'cases', label: '최신판례', icon: '⚖️' },
 ]
 
 interface Props {
@@ -470,6 +472,8 @@ export function AppShell({ user }: Props) {
         {tab === 'study' && <StudyTab key={syncedAt} questions={[...questions, ...poolQuestions]} onDone={refreshAndSync} onSync={refreshAndSync} />}
         {tab === 'wrong' && <WrongTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
         {tab === 'memo' && <MemoTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
+        {/* 판례는 내 문제의 해설에서 뽑은 것만 센다. 공유받은 문제집은 이번 범위가 아니다 */}
+        {tab === 'cases' && <CasesTab key={syncedAt} questions={questions} />}
       </main>
 
       {showOnboarding && (
