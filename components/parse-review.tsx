@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { Question, Subject } from '@/lib/types'
 import {
   updateQuestionUnit, updateQuestionYear, updateQuestionSubject, deleteQuestion, mergeQuestionInto,
@@ -124,7 +124,40 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
   // 사람이 "이 둘은 다른 문제"라고 판단한 쌍. 이 화면에서만 기억한다 —
   // 검토 화면은 한 번 보고 닫는 자리라 굳이 저장까지 할 일이 아니다
   const [ignoredPairs, setIgnoredPairs] = useState<Set<string>>(new Set())
+  // 전체 목록은 기본으로 접어 둔다. 244문제를 늘 펼쳐두면 다른 섹션이 화면 밖으로 밀린다
+  const [showAllNumbered, setShowAllNumbered] = useState(false)
   const pairKey = (p: SimilarPair) => `${p.a.id}|${p.b.id}`
+
+  /**
+   * 번호순으로 훑어보기 위한 한 줄짜리 목록. 문제 사이사이에 빠진 번호를 끼워 넣는다.
+   *
+   * 결번은 이미 런별로 계산돼 있다(review.groups[].gaps). 여기서는 그 번호들을 모아
+   * 번호 순서에 맞는 자리에 세우기만 한다 — 새로 세지 않는다.
+   * 여러 런에서 같은 번호가 빠졌으면 한 번만 보여준다 (한 줄에 한 번호)
+   */
+  const numberedView = useMemo(() => {
+    const present = new Set(
+      questions.map((q) => Number(q.no)).filter((n) => Number.isFinite(n) && n > 0)
+    )
+    const missing = new Set<number>()
+    for (const g of review.groups) {
+      for (const gap of g.gaps) {
+        // 실제로 저장된 번호는 결번이 아니다 (다른 런에 같은 번호가 있는 경우)
+        for (const n of gapNumbers(gap)) if (!present.has(n)) missing.add(n)
+      }
+    }
+    const rows: ({ kind: 'q'; q: Question } | { kind: 'gap'; no: number })[] = byQuestionNo(questions).map(
+      (q) => ({ kind: 'q' as const, q })
+    )
+    // 빠진 번호를 제자리에 끼운다. 번호가 없는 문제는 byQuestionNo가 이미 맨 뒤로 보냈다
+    for (const no of Array.from(missing).sort((a, b) => a - b)) {
+      const at = rows.findIndex((r) => r.kind === 'q' && Number(r.q.no) > no)
+      const row = { kind: 'gap' as const, no }
+      if (at < 0) rows.push(row)
+      else rows.splice(at, 0, row)
+    }
+    return rows
+  }, [questions, review.groups])
 
   /**
    * 해설 조각을 붙일 후보. 같은 파일에서 번호가 있는 문제만, 번호순으로 세운다.
@@ -541,6 +574,41 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
           </p>
         )}
       </div>
+
+      {/* 전체 번호순 — 무엇으로도 묶지 않고 번호 순서대로만 세운다.
+          "1~70번을 쭉 훑으며 빠진 게 있는지" 보려면 과목·단원으로 갈린 목록으로는 안 된다 */}
+      <div className="px-3 py-2 space-y-1.5 border-t border-border">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">전체 번호순</p>
+          <button
+            onClick={() => setShowAllNumbered((v) => !v)}
+            className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {showAllNumbered ? '접기' : `펼치기 (${review.total}문제)`}
+          </button>
+        </div>
+        {showAllNumbered && (
+          <div className="ml-2 mt-1 mb-1.5 pl-2 border-l-2 border-border space-y-1">
+            {numberedView.map((row) =>
+              row.kind === 'gap' ? (
+                // 빠진 자리를 그 자리에 남긴다. 목록이 그냥 이어지면 빠진 것을 눈치챌 수 없다
+                <p key={`gap-${row.no}`} className="text-[11px] text-amber-600 dark:text-amber-400 pl-1">
+                  {row.no}번 없음
+                </p>
+              ) : (
+                <QuestionRow
+                  key={row.q.id}
+                  q={row.q}
+                  duplicates={review.duplicateIds[row.q.id] ?? 0}
+                  open={openQuestion === row.q.id}
+                  onToggle={() => setOpenQuestion(openQuestion === row.q.id ? null : row.q.id)}
+                  onDelete={removeQuestion}
+                />
+              )
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -560,7 +628,8 @@ function QuestionRow({
   open: boolean
   onToggle: () => void
   onDelete: (q: Question) => void
-  children: React.ReactNode // 단원/연도 변경 드롭다운
+  // 단원/연도 변경 드롭다운. 전체 번호순 목록처럼 고칠 것이 없는 자리에서는 넘기지 않는다
+  children?: React.ReactNode
 }) {
   return (
     <div>
