@@ -301,6 +301,38 @@ export function mergeQuestionInto(keepId: string, dropId: string) {
   saveQuestions(questions.filter((q) => q.id !== dropId))
 }
 
+/**
+ * 문제가 아니라 해설 조각으로 보이는 항목을, 사람이 고른 문제의 해설에 붙이고 조각은 지운다.
+ *
+ * mergeQuestionInto 와 같은 자리의 일이지만 옮기는 것이 다르다 — 거기서는 두 문제의 해설을
+ * 합치고, 여기서는 조각의 **지문**(실제로는 해설 텍스트)을 상대의 해설로 옮긴다.
+ * 모델이 그 텍스트를 문제 지문 자리에 담았기 때문이다.
+ *
+ * 어느 문제의 해설인지는 코드가 알 수 없다. 청크가 해설 한복판에서 시작하면 그 앞 문제가
+ * 이번 배치에 아예 없을 수도 있다. 그래서 자동으로 붙이지 않고 이 함수는 사람이 고른
+ * 뒤에만 불린다
+ */
+export function attachAsExplanation(targetId: string, orphanId: string) {
+  if (targetId === orphanId) return
+  const questions = getQuestions()
+  const target = questions.find((q) => q.id === targetId)
+  const orphan = questions.find((q) => q.id === orphanId)
+  if (!target || !orphan) return
+
+  // 조각이 들고 있던 글은 지문에 담겨 있고, 해설 자리에도 뭔가 있으면 그것도 함께 옮긴다
+  const moved = [orphan.passage, orphan.explanation, ...(orphan.explanations ?? [])]
+    .map((t) => (t ?? '').trim())
+    .filter(Boolean)
+  const expl = new Set([
+    ...(target.explanations ?? (target.explanation ? [target.explanation] : [])),
+    ...moved,
+  ])
+  target.explanations = Array.from(expl)
+  target.explanation = Array.from(expl)[0] ?? null
+
+  saveQuestions(questions.filter((q) => q.id !== orphanId))
+}
+
 // 파싱 검토 화면에서 AI가 잘못 분류한 단원을 사람이 고칠 때 쓴다.
 // 단원만 바꾸고 id는 그대로 두므로 오답노트·형광펜 연결이 끊기지 않는다
 export function updateQuestionUnit(questionId: string, unit: string) {

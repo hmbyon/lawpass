@@ -143,6 +143,10 @@ export interface ParseReview {
   // 가까우면서 전혀 다른 문제가 실제로 있고("상계/예약" 편집 거리 2), 병합은 되돌릴 수 없다.
   // 후보만 짚어주고 사람이 두 지문을 나란히 본 뒤 정한다
   similarPairs: SimilarPair[]
+  // 문제가 아니라 해설 조각으로 보이는 항목. 청크가 해설 한복판에서 시작하면 모델이
+  // 앞 문제를 못 본 채 "번호 없는 새 문제"를 만든다.
+  // 자동으로 지우거나 붙이지 않는다 — 어느 문제의 해설인지 코드가 알 근거가 없다
+  notQuestions: Question[]
   // 번호가 하나뿐이라 연속성을 논할 수 없어 검사에서 뺀 런의 수.
   // 이걸 세지 않으면 '많이 잃을수록 조용해지는' 함정으로 되돌아간다
   singletonRuns: number
@@ -200,6 +204,25 @@ function findDuplicates(questions: Question[]): Record<string, number> {
     }
   }
   return out
+}
+
+/** 실제로 글자가 들어 있는 선지 수. choices 는 언제나 5칸이라 length 로는 셀 수 없다 */
+function filledChoiceCount(q: Question): number {
+  return q.choices.filter((c) => c.text?.trim()).length
+}
+
+/**
+ * 문제가 아니라 해설 조각으로 보이는가.
+ *
+ * 두 조건을 **모두** 요구한다. 선지가 안 채워진 것만으로는 안 된다 — 청크 경계에서
+ * 선지가 잘린 판본이 먼저 저장됐다가 다음 청크에서 보강되는 정상 흐름이 있고
+ * (store.ts 의 completenessScore), 그런 문제는 번호를 갖고 있다.
+ * 번호가 있는 항목은 어떤 경우에도 여기 걸리지 않는다
+ */
+export function isNotQuestion(q: Question): boolean {
+  const no = Number(q.no)
+  const hasNumber = Number.isFinite(no) && no > 0
+  return !hasNumber && filledChoiceCount(q) === 0
 }
 
 /**
@@ -541,6 +564,7 @@ export function buildParseReview(questions: Question[]): ParseReview {
   const unknownYearCount = questions.filter((q) => (q.year || UNKNOWN_YEAR) === UNKNOWN_YEAR).length
   const yearConflicts = questions.filter((q) => (q.yearConflict?.length ?? 0) > 1)
   const similarPairs = findSimilarPairs(questions)
+  const notQuestions = questions.filter(isNotQuestion)
   const unsureSubjects = questions.filter((q) => q.subjectUnsure)
   const duplicateIds = findDuplicates(questions)
 
@@ -688,6 +712,7 @@ export function buildParseReview(questions: Question[]): ParseReview {
     unknownYearCount,
     yearConflicts,
     similarPairs,
+    notQuestions,
     unsureSubjects,
     singletonRuns,
     duplicateIds,
@@ -702,6 +727,7 @@ export function buildParseReview(questions: Question[]): ParseReview {
       unsureSubjects.length > 0 ||
       yearConflicts.length > 0 ||
       similarPairs.length > 0 ||
+      notQuestions.length > 0 ||
       Object.keys(duplicateIds).length > 0 ||
       singletonRuns > 0 ||
       units.some((u) => !u.valid) ||

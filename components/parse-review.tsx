@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { Question, Subject } from '@/lib/types'
 import {
   updateQuestionUnit, updateQuestionYear, updateQuestionSubject, deleteQuestion, mergeQuestionInto,
+  attachAsExplanation,
 } from '@/lib/store'
 import { canonicalUnit } from '@/lib/units'
 import {
@@ -125,6 +126,17 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
   const [ignoredPairs, setIgnoredPairs] = useState<Set<string>>(new Set())
   const pairKey = (p: SimilarPair) => `${p.a.id}|${p.b.id}`
 
+  /**
+   * 해설 조각을 붙일 후보. 같은 파일에서 번호가 있는 문제만, 번호순으로 세운다.
+   * 조각이 있던 쪽 근처가 대개 정답이지만 코드가 단정하지 않는다 — 목록만 주고 사람이 고른다
+   */
+  function attachTargets(orphan: Question): Question[] {
+    return questions
+      .filter((q) => Number.isFinite(Number(q.no)) && Number(q.no) > 0)
+      .filter((q) => (q.sourceFile ?? '') === (orphan.sourceFile ?? ''))
+      .sort((a, b) => Number(a.no) - Number(b.no))
+  }
+
   function mergePair(p: SimilarPair) {
     if (
       !confirm(
@@ -137,6 +149,22 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
     }
     mergeQuestionInto(p.a.id, p.b.id)
     setIgnoredPairs((prev) => new Set(prev).add(pairKey(p)))
+    onUnitChanged()
+  }
+
+  /** 해설 조각을 사람이 고른 문제의 해설로 옮긴다. 고르기 전에는 아무 일도 하지 않는다 */
+  function attachOrphan(orphan: Question, targetId: string) {
+    const target = questions.find((q) => q.id === targetId)
+    if (!target) return
+    if (
+      !confirm(
+        `이 글을 ${target.no}번 문제의 해설로 붙입니다.\n\n` +
+          '붙인 뒤 이 항목은 목록에서 사라집니다. 되돌릴 수 없습니다.'
+      )
+    ) {
+      return
+    }
+    attachAsExplanation(targetId, orphan.id)
     onUnitChanged()
   }
 
@@ -186,6 +214,11 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
             넣었지만, 아래 &apos;출제연도 분포&apos;에서 연도를 지정해주세요
           </p>
         )}
+        {review.notQuestions.length > 0 && (
+          <p className="text-[11px] text-amber-600 dark:text-amber-400">
+            ⚠ 문제가 아닐 수 있는 항목 {review.notQuestions.length}개는 번호가 없어 연속성 검사에서 빠졌습니다.
+          </p>
+        )}
         {review.similarPairs.length > 0 && (
           <p className="text-[11px] text-amber-600 dark:text-amber-400">
             ⚠ 지문이 거의 같은 쌍 {review.similarPairs.length}건은 합치지 않고 따로 세었습니다.
@@ -229,6 +262,50 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
       </div>
 
       {/* 과목 미판정 — 있을 때만 나온다 */}
+      {review.notQuestions.length > 0 && (
+        <div className="px-3 py-2 space-y-1.5">
+          <p className="text-xs text-muted-foreground">문제가 아닐 수 있음</p>
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            ⚠ 번호도 선지도 없는 항목이 {review.notQuestions.length}개 있습니다. 청크가 해설 한복판에서
+            시작하면 그 해설이 새 문제처럼 잡힙니다 — 어느 문제의 해설인지 골라 붙이거나 지워주세요
+          </p>
+          {review.notQuestions.map((q) => (
+            <div key={q.id} className="rounded border border-border p-2 space-y-1.5">
+              <p className="text-[11px] text-muted-foreground">
+                {q.subject} · {q.pageFrom !== undefined ? `${q.pageFrom}~${q.pageTo}쪽` : '쪽 모름'}
+                {q.sourceFile ? ` · ${q.sourceFile}` : ''}
+              </p>
+              {/* 잘라 보여주지 않는다. 어느 문제의 해설인지는 글을 다 봐야 가릴 수 있다 */}
+              <p className="text-[11px] text-foreground whitespace-pre-wrap break-all">{q.passage}</p>
+              <div className="flex items-center gap-2">
+                <select
+                  value=""
+                  onChange={(e) => e.target.value && attachOrphan(q, e.target.value)}
+                  className="flex-1 min-w-0 bg-input border border-border rounded px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                  <option value="">앞 문제의 해설로 붙이기…</option>
+                  {attachTargets(q).map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.no}번 — {t.passage.slice(0, 24)}…
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => removeQuestion(q)}
+                  className="shrink-0 px-2 py-0.5 border border-red-400/40 text-red-400 rounded text-xs hover:bg-red-400/10 transition-colors"
+                >
+                  삭제
+                </button>
+              </div>
+            </div>
+          ))}
+          <p className="text-[11px] text-muted-foreground pt-1">
+            그냥 두면 목록에 그대로 남습니다. 붙일 곳을 모르겠으면 원본 쪽 번호를 확인해보세요.
+          </p>
+        </div>
+      )}
+
       {review.similarPairs.filter((p) => !ignoredPairs.has(pairKey(p))).length > 0 && (
         <div className="px-3 py-2 space-y-1.5">
           <p className="text-xs text-muted-foreground">유사 후보</p>
