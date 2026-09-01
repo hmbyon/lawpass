@@ -2,10 +2,16 @@
 
 import { useMemo, useState } from 'react'
 import type { Question } from '@/lib/types'
-import { buildCaseDigest, type CaseGroup } from '@/lib/caseDigest'
+import type { Subject } from '@/lib/types'
+import { SUBJECT_UNITS } from '@/lib/units'
+import { FilterChips } from '@/components/filter-chips'
+import {
+  buildCaseDigest, filterCases, sortCases, periodLabel, PERIOD_OPTIONS,
+  type CaseGroup, type CaseSort,
+} from '@/lib/caseDigest'
 
 /**
- * 최신판례 — 해설에 인용된 판례를 판례 단위로 모아 보여준다.
+ * 기출판례 — 해설에 인용된 판례를 판례 단위로 모아 보여준다.
  *
  * 판례는 파싱할 때 구조로 담긴다(Question.cases). 그 필드가 생기기 전에 파싱된 문제에는
  * 없으므로, 재파싱 전에는 목록이 비어 보이는 것이 정상이다.
@@ -104,11 +110,51 @@ function CaseCard({
 export function CasesTab({ questions }: { questions: Question[] }) {
   const digest = useMemo(() => buildCaseDigest(questions), [questions])
   const [openId, setOpenId] = useState<string | null>(null)
+  // 기본은 최근 5개년·출제횟수순. 탭 이름이 '기출판례'인 만큼 전체도 한 번에 볼 수 있게 둔다
+  const [years, setYears] = useState<number | null>(5)
+  const [subjects, setSubjects] = useState<Subject[]>([])
+  const [units, setUnits] = useState<string[]>([])
+  const [sort, setSort] = useState<CaseSort>('count')
+  const now = useMemo(() => new Date(), [])
+
+  // 과목·단원만 적용한 목록. 기간으로 몇 건이 빠졌는지 세려면 그 앞 단계가 필요하다
+  const scoped = useMemo(
+    () => filterCases(digest.groups, { subjects, units, now }),
+    [digest.groups, subjects, units, now]
+  )
+  const inRange = useMemo(
+    () => filterCases(scoped, { years, subjects, units, now }),
+    [scoped, years, subjects, units, now]
+  )
+  // 선고일을 모르는 판례는 기간과 무관하게 늘 따로 보여준다 (숨기면 재파싱할지 정할 수 없다)
+  const dated = useMemo(() => sortCases(inRange.filter((g) => g.year !== null), sort), [inRange, sort])
+  const undated = useMemo(() => sortCases(inRange.filter((g) => g.year === null), sort), [inRange, sort])
+  const hiddenByPeriod = scoped.filter((g) => g.year !== null).length - dated.length
+
+  // 단원 후보는 고른 과목의 것만 (과목 미선택이면 전체). 실제 데이터에 있는 것만 고를 수 있다
+  const unitOptions = useMemo(() => subjects.flatMap((s) => SUBJECT_UNITS[s] ?? []), [subjects])
+  const availableUnits = useMemo(
+    () => Array.from(new Set(scoped.flatMap((g) => g.units))),
+    [scoped]
+  )
+  const availableSubjects = useMemo(
+    () => Array.from(new Set(digest.groups.flatMap((g) => g.subjects))),
+    [digest.groups]
+  )
+
+  function changeSubjects(next: Subject[]) {
+    setSubjects(next)
+    // 고른 과목에 없는 단원은 선택에서 뺀다. 남겨 두면 결과가 0건인데 이유가 안 보인다
+    const allowed = new Set(
+      (next.length > 0 ? next : (Object.keys(SUBJECT_UNITS) as Subject[])).flatMap((s) => SUBJECT_UNITS[s] ?? [])
+    )
+    setUnits((prev) => prev.filter((u) => allowed.has(u)))
+  }
 
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       <div>
-        <h2 className="text-lg font-bold text-foreground mb-1">최신판례</h2>
+        <h2 className="text-lg font-bold text-foreground mb-1">기출판례</h2>
         <p className="text-sm text-muted-foreground">
           해설에 인용된 판례를 판례별로 모아, 많이 나온 순서로 보여줍니다.
         </p>
@@ -124,29 +170,100 @@ export function CasesTab({ questions }: { questions: Question[] }) {
         </div>
       ) : (
         <>
+          {/* 기간 — quiz-filter 의 "최근 N개년"과 같은 뜻이다 (올해 포함 N개 연도) */}
+          <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs font-medium text-muted-foreground">선고 시기</label>
+              <div className="flex gap-1.5">
+                {PERIOD_OPTIONS.map((n) => (
+                  <button
+                    key={String(n)}
+                    onClick={() => setYears(n)}
+                    className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                      years === n
+                        ? 'border-primary text-primary'
+                        : 'border-border text-muted-foreground hover:text-foreground hover:border-primary/40'
+                    }`}
+                  >
+                    {periodLabel(n)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground">과목 (복수 선택)</label>
+              <FilterChips
+                options={Object.keys(SUBJECT_UNITS) as Subject[]}
+                selected={subjects}
+                onChange={changeSubjects}
+                available={availableSubjects}
+              />
+            </div>
+
+            {/* 단원은 고른 과목의 것만 보여준다. 과목을 안 고르면 일곱 과목의 단원이 한꺼번에
+                쏟아져 고를 수가 없다 (지금 36개) */}
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground">단원 (복수 선택)</label>
+              {subjects.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">과목을 고르면 그 과목의 단원이 나옵니다</p>
+              ) : (
+                <FilterChips
+                  options={unitOptions}
+                  selected={units}
+                  onChange={setUnits}
+                  available={availableUnits}
+                />
+              )}
+            </div>
+
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <label className="text-xs font-medium text-muted-foreground">정렬</label>
+              <div className="flex rounded-lg border border-border overflow-hidden text-[11px]">
+                {([
+                  { id: 'count' as const, label: '출제횟수순' },
+                  { id: 'date' as const, label: '선고일순' },
+                ]).map((opt) => (
+                  <button
+                    key={opt.id}
+                    onClick={() => setSort(opt.id)}
+                    className={`px-2 py-1 transition-colors ${
+                      sort === opt.id
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
           <p className="text-[11px] text-muted-foreground">
-            판례 {digest.totalGroups}건 · 판례가 달린 문제 {digest.questionsWithCases}개
-            {digest.olderCount > 0 && ` · 5년보다 오래된 판례 ${digest.olderCount}건은 아래 목록에서 뺐습니다`}
+            판례 {digest.totalGroups}건 중 {dated.length + undated.length}건 표시 · 판례가 달린 문제{' '}
+            {digest.questionsWithCases}개
+            {/* 뺀 건수는 실제로 뺐을 때만 알린다 */}
+            {years !== null && hiddenByPeriod > 0 && ` · ${periodLabel(years)}보다 오래된 판례 ${hiddenByPeriod}건은 뺐습니다`}
           </p>
 
           <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">최근 5년</p>
-            {digest.recent.length === 0 && (
-              <p className="text-xs text-muted-foreground">최근 5년 안에 선고된 판례가 없습니다</p>
+            {dated.length === 0 && (
+              <p className="text-xs text-muted-foreground">고른 조건에 해당하는 판례가 없습니다</p>
             )}
-            {digest.recent.map((g) => (
+            {dated.map((g) => (
               <CaseCard key={g.key} group={g} openId={openId} onOpen={setOpenId} />
             ))}
           </div>
 
           {/* 선고일을 모르는 판례는 숨기지 않는다. 몇 건이 그런지 보여야 재파싱할지 정할 수 있다 */}
-          {digest.undated.length > 0 && (
+          {undated.length > 0 && (
             <div className="space-y-2 pt-1">
               <p className="text-xs text-muted-foreground">
-                선고일 미상 {digest.undated.length}건
+                선고일 미상 {undated.length}건
                 <span className="text-[11px]"> — 해설에 선고일이 적혀 있지 않아 연도를 알 수 없습니다</span>
               </p>
-              {digest.undated.map((g) => (
+              {undated.map((g) => (
                 <CaseCard key={g.key} group={g} openId={openId} onOpen={setOpenId} />
               ))}
             </div>

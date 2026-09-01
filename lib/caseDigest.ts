@@ -1,4 +1,4 @@
-import type { CaseRef, Question } from './types'
+import type { CaseRef, Question, Subject } from './types'
 
 /**
  * 해설에 인용된 판례를 판례 단위로 모은다.
@@ -7,8 +7,21 @@ import type { CaseRef, Question } from './types'
  * "이 판례가 몇 문제에 나왔나"로 세우는 것이 이 모듈의 일이다.
  */
 
-// 최근 판례로 볼 기간. 이보다 오래된 것은 목록에서 빼되, 몇 건을 뺐는지는 화면에 남긴다
-const RECENT_YEARS = 5
+/**
+ * 기간 옵션. quiz-filter 의 "최근 N개년"과 같은 뜻이다 — 올해를 포함해 N개 연도다
+ * (거기서 yearOptions.slice(0, n) 으로 고르는 것과 맞춘다). null 은 '전체'
+ */
+export const PERIOD_OPTIONS: (number | null)[] = [1, 3, 5, null]
+
+export function periodLabel(years: number | null): string {
+  return years === null ? '전체' : `최근 ${years}개년`
+}
+
+/** 그 기간에 드는가. 선고일을 모르는 판례(year === null)는 여기서 가리지 않는다 */
+export function inPeriod(year: number | null, years: number | null, now: Date): boolean {
+  if (years === null || year === null) return true
+  return year >= now.getFullYear() - (years - 1)
+}
 
 /**
  * 사건번호를 묶음 키로 바꾼다.
@@ -49,13 +62,16 @@ export interface CaseGroup {
   year: number | null
   questions: Question[] // 이 판례를 인용한 문제들
   count: number
+  // 한 판례가 여러 과목·단원에 걸쳐 인용될 수 있다. 인용한 문제들의 과목·단원을 모아 둔다
+  subjects: Subject[]
+  units: string[]
 }
 
 export interface CaseDigest {
-  recent: CaseGroup[] // 최근 5년
-  undated: CaseGroup[] // 선고일을 알 수 없는 것
-  olderCount: number // 5년보다 오래돼 목록에서 뺀 판례 수
-  totalGroups: number // 전체 판례 수 (숨긴 것 포함)
+  // 모은 판례 전부. 기간·과목·단원으로 좁히는 일은 화면이 한다 —
+  // 여기서 미리 갈라 두면 필터 조합이 늘 때마다 목록을 하나씩 더 만들어야 한다
+  groups: CaseGroup[]
+  totalGroups: number
   questionsWithCases: number // 판례가 하나라도 달린 문제 수
 }
 
@@ -104,20 +120,55 @@ export function buildCaseDigest(questions: Question[], now: Date = new Date()): 
       year: decidedYear(decidedDate),
       questions: g.questions,
       count: g.questions.length,
+      subjects: Array.from(new Set(g.questions.map((q) => q.subject))),
+      units: Array.from(new Set(g.questions.map((q) => q.unit?.trim()).filter((u): u is string => !!u))),
     }
   })
 
-  // 많이 나온 판례가 먼저. 같으면 최신 선고일, 그다음 사건번호로 순서를 고정한다
-  const byCount = (a: CaseGroup, b: CaseGroup) =>
-    b.count - a.count || (b.year ?? 0) - (a.year ?? 0) || a.key.localeCompare(b.key)
+  return { groups: all, totalGroups: all.length, questionsWithCases }
+}
 
-  const cutoff = now.getFullYear() - RECENT_YEARS
-  const dated = all.filter((g) => g.year !== null)
-  return {
-    recent: dated.filter((g) => (g.year as number) >= cutoff).sort(byCount),
-    undated: all.filter((g) => g.year === null).sort(byCount),
-    olderCount: dated.filter((g) => (g.year as number) < cutoff).length,
-    totalGroups: all.length,
-    questionsWithCases,
+export type CaseSort = 'count' | 'date'
+
+/** 많이 나온 판례가 먼저. 같으면 최신 선고일, 그다음 사건번호로 순서를 고정한다 */
+const byCount = (a: CaseGroup, b: CaseGroup) =>
+  b.count - a.count || (b.year ?? 0) - (a.year ?? 0) || a.key.localeCompare(b.key)
+
+/**
+ * 최신 선고일이 먼저. 선고일을 모르는 판례는 맨 뒤로 민다 —
+ * 0으로 쳐서 섞으면 "언제 것인지 모르는 판례"가 가장 오래된 판례인 척 자리를 차지한다
+ */
+const byDate = (a: CaseGroup, b: CaseGroup) => {
+  if (a.year === null || b.year === null) {
+    if (a.year === b.year) return byCount(a, b)
+    return a.year === null ? 1 : -1
   }
+  return b.year - a.year || b.count - a.count || a.key.localeCompare(b.key)
+}
+
+export function sortCases(groups: CaseGroup[], sort: CaseSort): CaseGroup[] {
+  return [...groups].sort(sort === 'date' ? byDate : byCount)
+}
+
+/**
+ * 화면에 세울 판례를 고른다. 세 조건은 서로 독립이다.
+ *
+ * 과목·단원은 **한 문제가 둘 다 만족**해야 한다. 따로 보면 "민법 문제에서도 인용됐고
+ * 다른 과목의 물권법에서도 인용됐다"는 이유로 걸리는데, 그건 고른 조건과 다른 판례다.
+ * 기간은 선고일을 아는 판례에만 걸린다 (모르는 것은 화면이 따로 모아 보여준다)
+ */
+export function filterCases(
+  groups: CaseGroup[],
+  opts: { years?: number | null; subjects?: string[]; units?: string[]; now?: Date }
+): CaseGroup[] {
+  const { years = null, subjects = [], units = [], now = new Date() } = opts
+  return groups.filter((g) => {
+    if (!inPeriod(g.year, years, now)) return false
+    if (subjects.length === 0 && units.length === 0) return true
+    return g.questions.some(
+      (q) =>
+        (subjects.length === 0 || subjects.includes(q.subject)) &&
+        (units.length === 0 || units.includes(q.unit?.trim() ?? ''))
+    )
+  })
 }

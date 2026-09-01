@@ -46,7 +46,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'study', label: '선학습', icon: '📖' },
   { id: 'wrong', label: '오답노트', icon: '📝' },
   { id: 'memo', label: 'D-1 암기장', icon: '⭐' },
-  { id: 'cases', label: '최신판례', icon: '⚖️' },
+  { id: 'cases', label: '기출판례', icon: '⚖️' },
 ]
 
 interface Props {
