@@ -983,11 +983,13 @@ export function PdfTab({
             to: Math.max(1, Math.min(req.pageHint.to, pageCount)),
             exact: true,
           }
-        : gapPageRange(req.pages, req.missing, pageCount)
-      const confirmed = req.pages.length > 0
+        : gapPageRange(req.pages ?? [], req.missing ?? [], pageCount)
+      // 결번 없이 쪽만 짚어 온 요청에는 이 정보가 없다. 그때는 '확인된 구간' 안내를 접는다
+      const recorded = req.pages ?? []
+      const confirmed = recorded.length > 0
         ? {
-            from: Math.min(...req.pages.map((p) => p.from)),
-            to: Math.max(...req.pages.map((p) => p.to)),
+            from: Math.min(...recorded.map((p) => p.from)),
+            to: Math.max(...recorded.map((p) => p.to)),
           }
         : null
       setReparse({
@@ -1033,7 +1035,7 @@ export function PdfTab({
   // 그래서 자동으로 채우지 않고 사용자가 눌렀을 때만, 경고와 함께 보여준다
   function applyEstimate() {
     if (!reparse) return
-    const { from, to } = estimatePageRange(reparse.req.nos, reparse.req.missing, reparse.pageCount)
+    const { from, to } = estimatePageRange(reparse.req.nos ?? [], reparse.req.missing ?? [], reparse.pageCount)
     updateReparse({ fromPage: from, toPage: to, pageSource: 'estimated' })
   }
 
@@ -1897,10 +1899,13 @@ export function PdfTab({
           <div ref={reparsePanelRef} className="border border-primary/40 rounded-lg p-3 space-y-2">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground">결번 구간 다시 파싱</p>
+                {/* 결번에서 온 요청인지, 사용자가 쪽을 직접 짚은 요청인지에 따라 제목이 갈린다 */}
+                <p className="text-sm font-medium text-foreground">
+                  {reparse.req.missing?.length ? '결번 구간 다시 파싱' : '지정한 쪽 다시 파싱'}
+                </p>
                 <p className="text-xs text-muted-foreground truncate">
-                  {reparse.req.year} {reparse.req.examType} · {reparse.req.subject} · 빠진 번호{' '}
-                  {formatMissing(reparse.req.missing)}
+                  {reparse.req.year} {reparse.req.examType} · {reparse.req.subject}
+                  {reparse.req.missing?.length ? ` · 빠진 번호 ${formatMissing(reparse.req.missing)}` : ''}
                 </p>
               </div>
               <button

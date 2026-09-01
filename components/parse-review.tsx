@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { createContext, useContext, useMemo, useState } from 'react'
 import type { Question, Subject } from '@/lib/types'
 import {
   updateQuestionUnit, updateQuestionYear, updateQuestionSubject, deleteQuestion, mergeQuestionInto,
@@ -48,11 +48,13 @@ export interface ReparseRequest {
   subject: string
   examType: string
   year: number
-  nos: number[] // 이미 확인된 번호 (페이지 추정용)
-  missing: number[]
+  // 아래 셋은 결번에서 온 요청일 때만 있다. 실행(runReparse)은 쪽 구간·과목·시험구분만
+  // 보므로, 결번 없이 사용자가 쪽을 직접 짚는 요청에는 없어도 된다
+  nos?: number[] // 이미 확인된 번호 (페이지 추정용)
+  missing?: number[]
   // 파싱 때 기록된 실제 페이지 구간. 이게 있으면 번호 비율로 어림잡지 않아도 된다.
   // 1단계 이전에 파싱된 문제집에서는 빈 배열이다
-  pages: QuestionPage[]
+  pages?: QuestionPage[]
   // 빠진 번호 덩어리의 앞뒤 이웃으로 확정한 쪽 구간. 있으면 이것만 쓰면 된다 —
   // 어디가 비었는지 이미 알고 요청하는 것이라 다시 어림잡을 이유가 없다
   pageHint?: { from: number; to: number }
@@ -69,6 +71,14 @@ interface Props {
 // 파싱 직후 결과를 점검하는 패널.
 // A: 문제번호가 연속인지 (빠진 번호 = 파싱 누락 의심)
 // B: 단원 분포 (엉뚱한 단원이 섞였는지 육안 확인 + 수정)
+/**
+ * 문제 행에서 "이 쪽 다시 분석"을 부를 수 있게 한다.
+ *
+ * QuestionRow 는 일곱 자리에서 쓰이는데 그 전부에 콜백을 물려 내리면 호출부가 지저분해진다.
+ * 이 파일 안에서만 쓰는 컨텍스트라 밖으로 새지 않는다
+ */
+const ReparseFromRow = createContext<{ request: (q: Question) => void; disabled: boolean } | null>(null)
+
 export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabled }: Props) {
   // 여러 줄을 동시에 펼쳐둘 수 있다. 단원 분포와 연도 분포를 오가며 견주는 일이 잦은데,
   // 하나만 열리면 앞서 본 줄이 계속 접혀 비교가 끊긴다.
@@ -224,7 +234,28 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
   // 그대로 두면 뒤 과목에 더 큰 행이 있을 때 막대가 100%를 넘어 삐져나간다
   const maxCount = review.units.reduce((max, u) => (u.count > max ? u.count : max), 1)
 
+  /**
+   * 이 문제가 있던 쪽만 다시 분석한다. 결번이 아니어도 부를 수 있다 —
+   * 번호는 멀쩡한데 해설이 비었거나 선지가 잘린 경우가 그렇다.
+   *
+   * 쪽은 파싱 때 기록해 둔 그 문제의 구간을 그대로 넘긴다(pageHint). 사용자가 쪽을 찾아
+   * 헤맬 필요가 없고, 패널에서 다시 고칠 수도 있다
+   */
+  function requestReparseFor(q: Question) {
+    if (!onReparse || !q.sourceFile || q.pageFrom === undefined || q.pageTo === undefined) return
+    onReparse({
+      sourceFile: q.sourceFile,
+      subject: q.subject,
+      examType: q.examType,
+      year: q.year,
+      pageHint: { from: q.pageFrom, to: q.pageTo },
+    })
+  }
+
   return (
+    <ReparseFromRow.Provider
+      value={onReparse ? { request: requestReparseFor, disabled: Boolean(reparseDisabled) } : null}
+    >
     <div className="border border-border rounded-lg divide-y divide-border text-sm">
       <div className="px-3 py-2 space-y-0.5">
         <div className="flex items-center justify-between">
@@ -610,6 +641,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
         )}
       </div>
     </div>
+    </ReparseFromRow.Provider>
   )
 }
 
@@ -663,6 +695,7 @@ function QuestionDetail({
   duplicates: number
   onDelete: (q: Question) => void
 }) {
+  const reparse = useContext(ReparseFromRow)
   const pages = q.pageFrom !== undefined ? `${q.pageFrom}~${q.pageTo}쪽` : '쪽 모름'
   const meta = [
     q.subject,
@@ -676,7 +709,20 @@ function QuestionDetail({
   const explanation = q.explanations?.[0] ?? q.explanation
   return (
     <div className="ml-6 mt-1 mb-2 p-2 rounded bg-muted/50 border border-border space-y-1.5 text-xs">
-      <p className="text-muted-foreground">{meta}</p>
+      <div className="flex items-start gap-2">
+        <p className="flex-1 text-muted-foreground">{meta}</p>
+        {/* 결번이 아니어도 이 쪽만 다시 분석할 수 있다. 쪽을 모르는 문제(옛 데이터)에는 안 보인다 */}
+        {reparse && q.sourceFile && q.pageFrom !== undefined && (
+          <button
+            type="button"
+            disabled={reparse.disabled}
+            onClick={() => reparse.request(q)}
+            className="shrink-0 px-2 py-0.5 border border-primary/40 text-primary rounded text-[11px] hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            이 쪽 다시 분석
+          </button>
+        )}
+      </div>
       {duplicates >= 2 && (
         <p className="text-amber-600 dark:text-amber-400">
           같은 번호·같은 지문이 {duplicates}벌 저장돼 있습니다. 쪽 번호를 견줘 한쪽을 지워주세요
