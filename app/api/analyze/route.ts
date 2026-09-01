@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
 
       const prompt = `당신은 변호사시험 문제 추출 전문가입니다.
 이 PDF에서 모든 문제를 추출하여 JSON 배열만 출력하세요.
-각 항목 형식: {"문제번호": number, "연도": number, "과목": string|null, "단원": string, "지문": string, "선지": {"①": string, "②": string, "③": string, "④": string,"⑤": string}, "정답": string, "해설": string|null, "선지정오": {"①": boolean, "②": boolean, "③": boolean, "④": boolean, "⑤": boolean}|null, "선지별설명": {"①": [{"type": "text"|"lawBox", "title": string, "content": string}], "②": [...], "③": [...], "④": [...], "⑤": [...]}|null, "선지별설명요약": {"①": string, "②": string, "③": string, "④": string, "⑤": string}|null, "표서식": [{"title": string, "rows": [{"cells": [string]}]}]|null, "보기목록": [{"label": string, "text": string, "isCorrect": boolean, "explanation": [{"type": "text"|"lawBox", "title": string, "content": string}], "explanationSummary": string}]|null}
+각 항목 형식: {"문제번호": number, "연도": number, "과목": string|null, "단원": string, "지문": string, "선지": {"①": string, "②": string, "③": string, "④": string,"⑤": string}, "정답": string, "해설": string|null, "선지정오": {"①": boolean, "②": boolean, "③": boolean, "④": boolean, "⑤": boolean}|null, "선지별설명": {"①": [{"type": "text"|"lawBox", "title": string, "content": string}], "②": [...], "③": [...], "④": [...], "⑤": [...]}|null, "선지별설명요약": {"①": string, "②": string, "③": string, "④": string, "⑤": string}|null, "표서식": [{"title": string, "rows": [{"cells": [string]}]}]|null, "보기목록": [{"label": string, "text": string, "isCorrect": boolean, "explanation": [{"type": "text"|"lawBox", "title": string, "content": string}], "explanationSummary": string}]|null, "판례": [{"사건번호": string, "선고일": string|null, "법원": string|null, "요지": string}]|null}
 - ★지문/선지 분리 규칙 (가장 중요, 반드시 지킬 것):
   - "지문"에는 문제의 발문만 담으세요. 선지 번호(①②③④⑤)와 선지 본문은 "지문"에 절대로 포함하지 마세요
   - 각 선지의 전체 텍스트는 반드시 "선지" 객체에 라벨별("①"~"⑤")로 빠짐없이 채우세요. 값이 빈 문자열이거나 라벨만 있고 내용이 없는 것은 절대 금지입니다
@@ -167,6 +167,16 @@ ${SUBJECT_UNITS_JSON}
     거기에 없으면 문제 본문을 뒤져서 찾지 마세요
   - ★해당 문제의 페이지 헤더·표지에서 연도를 **실제로 확인할 수 없으면 "연도"에 null을 넣으세요.**
     추측하거나 다른 문제의 연도를 가져다 쓰지 마세요. 모르는 것은 null이 정답입니다
+- ★판례 추출 규칙 ("판례" 필드):
+  - 해설에서 판례를 인용할 때마다 그 판례를 "판례" 배열에 담으세요. 해설 본문은 그대로 두고 **따로 한 번 더** 적는 것입니다
+  - 한 문제에 여러 판례가 인용되면 **전부 각각** 담으세요. 하나로 묶거나 대표 하나만 남기지 마세요
+  - "사건번호"는 해설에 적힌 **표기 그대로** 옮기세요 ("2014다12345", "2019헌바13" 등). 형식을 고치거나 앞뒤를 붙이지 마세요
+  - "선고일"은 해설에 "2015. 3. 12. 선고"처럼 **날짜가 실제로 적혀 있을 때만** 그 날짜를 넣으세요.
+    적혀 있지 않으면 null입니다. 사건번호의 연도로 짐작하지 마세요
+  - "법원"도 "대법원", "서울고등법원"처럼 **적혀 있을 때만** 넣고, 없으면 null입니다
+  - "요지"는 그 판례에 대한 해설 설명을 **당신이 새로 1~2문장으로 요약**해서 쓰세요.
+    해설 문장을 그대로 복사하지 마세요
+  - 판례 인용이 하나도 없으면 "판례"는 null입니다. 사건번호를 지어내지 마세요
 - 해설 추출 규칙:
   - "해설", "풀이", "정답해설", "[해설]" 등 다양한 표기를 모두 해설 시작 표시로 인식하세요
   - 해당 표시 다음부터 시작해, 다음 문제 번호(예: "문 2.", "2.")가 나오기 직전까지의 모든 텍스트를 그 문제의 해설로 추출하세요

@@ -42,6 +42,20 @@ export interface SubItem {
   explanationSummary?: string // AI가 생성한 1~2줄 요약 (원문인 explanation과 별개)
 }
 
+/**
+ * 해설에 인용된 판례 하나. "최신판례" 화면이 판례 단위로 모으려면 해설 텍스트 안에
+ * 섞여 있는 것만으로는 안 되고, 사건번호·선고일이 따로 서 있어야 한다.
+ *
+ * 요지는 원문을 베끼지 않고 AI가 새로 쓴 요약이다 (해설 요약과 같은 원칙).
+ * 선고일·법원은 해설에 실제로 적혀 있을 때만 채워지므로 비어 있을 수 있다
+ */
+export interface CaseRef {
+  caseNumber: string // 원문 표기 그대로 (예: "2014다12345", "2019헌바13")
+  decidedDate?: string // 해설에 "2015. 3. 12. 선고"처럼 적혀 있을 때만
+  court?: string // "대법원", "서울고등법원" 등 명시된 경우만
+  summary: string // AI가 새로 쓴 1~2문장 요지
+}
+
 export interface Question {
   id: string
   no: number
@@ -83,6 +97,10 @@ export interface Question {
   // 회수해도 오답노트·세션에 남는 사본이 어디서 왔는지 이 값으로 알 수 있어야,
   // 나중에 정리 정책을 바꿀 여지가 생긴다 (docs/shared-pool-design.md §4.3)
   poolId?: string
+  // 해설에 인용된 판례들. 한 문제에 여러 개가 인용되면 전부 담는다 —
+  // 하나로 뭉치면 판례별로 모을 수 없어 이 필드를 만든 이유가 사라진다.
+  // 이 필드가 생기기 전에 파싱된 문제에는 없다
+  cases?: CaseRef[]
 }
 
 export interface ErrorAnalysis {

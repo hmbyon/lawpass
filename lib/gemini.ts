@@ -1,6 +1,6 @@
 'use client'
 
-import type { Question, SubItem, ExplanationBlock, TableBlock, Subject, ExamType, ErrorAnalysis, QuestionStatus } from './types'
+import type { Question, SubItem, ExplanationBlock, TableBlock, CaseRef, Subject, ExamType, ErrorAnalysis, QuestionStatus } from './types'
 
 const RETRY_DELAY_MS = 3000
 const MAX_RETRIES = 3
@@ -260,6 +260,12 @@ export async function extractQuestionsFromPdf(
       explanation?: string | { type?: string; title?: string; content?: string }[]
       explanationSummary?: string
     }[] | null
+    판례?: {
+      사건번호?: string
+      선고일?: string | null
+      법원?: string | null
+      요지?: string
+    }[] | null
   }[]
 
   try {
@@ -349,6 +355,24 @@ export async function extractQuestionsFromPdf(
     return items.length > 0 ? items : undefined
   }
 
+  /**
+   * 해설에 인용된 판례. 사건번호와 요지가 다 있는 것만 담는다 —
+   * 둘 중 하나라도 비면 "최신판례" 화면에서 어느 판례인지도, 무슨 내용인지도 알 수 없다.
+   * 선고일·법원은 해설에 적혀 있을 때만 오므로 비어 있어도 그대로 둔다 (추측해 채우지 않는다)
+   */
+  function toCases(raw: typeof parsed[number]['판례']): CaseRef[] | undefined {
+    if (!Array.isArray(raw)) return undefined
+    const items = raw
+      .map((c) => ({
+        caseNumber: String(c?.사건번호 ?? '').trim(),
+        decidedDate: String(c?.선고일 ?? '').trim() || undefined,
+        court: String(c?.법원 ?? '').trim() || undefined,
+        summary: String(c?.요지 ?? '').trim(),
+      }))
+      .filter((c) => c.caseNumber && c.summary)
+    return items.length > 0 ? items : undefined
+  }
+
   // AI가 연도를 확인하지 못하면 null을 준다. 이때 '오늘 연도'로 채우면
   // 존재하지도 않는 회차의 기출이 만들어지고, 그 값이 특정 한 해로 쏠린다.
   // 0(연도 미상)으로 남겨 파싱 검토 화면에서 눈에 띄게 하고 사람이 고치게 한다
@@ -388,6 +412,7 @@ export async function extractQuestionsFromPdf(
       choiceExplanationSummaries: item.선지별설명요약 ?? undefined,
       subChoiceExplanations: item.보기별설명 ?? undefined,
       subItems: toSubItems(item.보기목록),
+      cases: toCases(item.판례),
       passageTable: toPassageTables(item.표서식),
     }
   })
