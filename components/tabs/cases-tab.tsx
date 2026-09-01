@@ -8,6 +8,7 @@ import { FilterChips } from '@/components/filter-chips'
 import { groupBySource } from '@/lib/questionSource'
 import {
   buildCaseDigest, filterCases, sortCases, periodLabel, PERIOD_OPTIONS,
+  findCaseMentions, allExplanationText,
   type CaseGroup, type CaseSort,
 } from '@/lib/caseDigest'
 
@@ -20,13 +21,20 @@ import {
 
 function QuestionLine({
   q,
+  caseNumber,
   open,
   onToggle,
 }: {
   q: Question
+  caseNumber: string
   open: boolean
   onToggle: () => void
 }) {
+  // 판례 조각을 먼저 보여주고 해설 전체는 눌러야 나온다. 이 화면에 온 이유가 그 판례이지
+  // 문제 전체가 아니기 때문이다
+  const [showAll, setShowAll] = useState(false)
+  const mentions = useMemo(() => findCaseMentions(q, caseNumber), [q, caseNumber])
+  const whole = useMemo(() => allExplanationText(q), [q])
   return (
     <div>
       {/* 문제번호를 눌러 그 자리에서 펼친다 (검토 화면과 같은 방식) */}
@@ -63,6 +71,41 @@ function QuestionLine({
               </div>
             ))}
           </div>
+
+          {/* 이 판례가 언급된 자리 */}
+          {mentions.length > 0 ? (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-2 space-y-1.5">
+              <p className="text-[11px] font-medium text-primary">이 판례가 언급된 부분</p>
+              {mentions.map((m, i) => (
+                <div key={`${m.where}-${i}`} className="space-y-0.5">
+                  <p className="text-[11px] text-muted-foreground">{m.where}</p>
+                  <p className="text-foreground whitespace-pre-wrap leading-relaxed">{m.text}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">
+              이 문제 어디에서 인용됐는지 정확히 찾지 못했습니다
+            </p>
+          )}
+
+          {whole.length > 0 && (
+            <div className="space-y-1.5">
+              <button
+                onClick={() => setShowAll((v) => !v)}
+                className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {showAll ? '해설 접기' : '해설 전체 보기'}
+              </button>
+              {showAll &&
+                whole.map((m, i) => (
+                  <div key={`all-${m.where}-${i}`} className="space-y-0.5">
+                    <p className="text-[11px] text-muted-foreground">{m.where}</p>
+                    <p className="text-foreground whitespace-pre-wrap leading-relaxed">{m.text}</p>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -71,10 +114,13 @@ function QuestionLine({
 
 function CaseCard({
   group,
+  allQuestions,
   openId,
   onOpen,
 }: {
   group: CaseGroup
+  // 출처에 파일명을 붙일지는 전체 문제집을 봐야 안다 (같은 회차의 다른 판본이 있는지)
+  allQuestions: Question[]
   openId: string | null
   onOpen: (id: string | null) => void
 }) {
@@ -95,13 +141,14 @@ function CaseCard({
       {/* 출처별로 묶는다. 판례 하나가 여러 회차에 걸쳐 나오는 것이 이 화면의 핵심이라,
           문제번호만 늘어놓으면 어느 시험 것인지 알 수 없다 */}
       <div className="space-y-1.5">
-        {groupBySource(group.questions).map((bucket) => (
+        {groupBySource(group.questions, allQuestions).map((bucket) => (
           <div key={bucket.label} className="flex flex-wrap items-center gap-1.5">
             <span className="text-[11px] text-muted-foreground shrink-0">{bucket.label}</span>
             {bucket.questions.map((q) => (
               <QuestionLine
                 key={q.id}
                 q={q}
+                caseNumber={group.caseNumber}
                 open={openId === `${group.key}|${q.id}`}
                 onToggle={() => onOpen(openId === `${group.key}|${q.id}` ? null : `${group.key}|${q.id}`)}
               />
@@ -136,6 +183,21 @@ export function CasesTab({ questions }: { questions: Question[] }) {
   const dated = useMemo(() => sortCases(inRange.filter((g) => g.year !== null), sort), [inRange, sort])
   const undated = useMemo(() => sortCases(inRange.filter((g) => g.year === null), sort), [inRange, sort])
   const hiddenByPeriod = scoped.filter((g) => g.year !== null).length - dated.length
+
+  /**
+   * 과목을 고르지 않았으면 과목별로 나눠 세운다. 단원 분포와 같은 방식이고, 과목 순서도
+   * 같은 상수(SUBJECT_UNITS 키 순서)를 쓴다.
+   *
+   * 한 판례가 여러 과목에서 인용됐으면 그 과목 섹션에 **모두** 넣는다. 하나로 몰아넣으면
+   * "이 판례가 여러 과목에 걸쳐 나온다"는 사실이 사라진다 — 그게 이 화면의 값이다.
+   * 과목을 고른 상태에서는 이미 좁혀 보는 중이므로 나누지 않고 평평하게 둔다
+   */
+  const bySubject = useMemo(() => {
+    if (subjects.length > 0) return null
+    return (Object.keys(SUBJECT_UNITS) as Subject[])
+      .map((subject) => ({ subject, cases: dated.filter((g) => g.subjects.includes(subject)) }))
+      .filter((sec) => sec.cases.length > 0)
+  }, [subjects, dated])
 
   // 단원 후보는 고른 과목의 것만 (과목 미선택이면 전체). 실제 데이터에 있는 것만 고를 수 있다
   const unitOptions = useMemo(() => subjects.flatMap((s) => SUBJECT_UNITS[s] ?? []), [subjects])
@@ -257,9 +319,26 @@ export function CasesTab({ questions }: { questions: Question[] }) {
             {dated.length === 0 && (
               <p className="text-xs text-muted-foreground">고른 조건에 해당하는 판례가 없습니다</p>
             )}
-            {dated.map((g) => (
-              <CaseCard key={g.key} group={g} openId={openId} onOpen={setOpenId} />
-            ))}
+            {bySubject
+              ? bySubject.map((sec) => (
+                  <div key={sec.subject} className="space-y-2 pt-1">
+                    <p className="text-xs text-muted-foreground">
+                      {sec.subject} <span className="tabular-nums">{sec.cases.length}건</span>
+                    </p>
+                    {sec.cases.map((g) => (
+                      <CaseCard
+                        key={`${sec.subject}|${g.key}`}
+                        group={g}
+                        allQuestions={questions}
+                        openId={openId}
+                        onOpen={setOpenId}
+                      />
+                    ))}
+                  </div>
+                ))
+              : dated.map((g) => (
+                  <CaseCard key={g.key} group={g} allQuestions={questions} openId={openId} onOpen={setOpenId} />
+                ))}
           </div>
 
           {/* 선고일을 모르는 판례는 숨기지 않는다. 몇 건이 그런지 보여야 재파싱할지 정할 수 있다 */}
@@ -270,7 +349,7 @@ export function CasesTab({ questions }: { questions: Question[] }) {
                 <span className="text-[11px]"> — 해설에 선고일이 적혀 있지 않아 연도를 알 수 없습니다</span>
               </p>
               {undated.map((g) => (
-                <CaseCard key={g.key} group={g} openId={openId} onOpen={setOpenId} />
+                <CaseCard key={g.key} group={g} allQuestions={questions} openId={openId} onOpen={setOpenId} />
               ))}
             </div>
           )}

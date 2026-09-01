@@ -1,4 +1,4 @@
-import type { CaseRef, Question, Subject } from './types'
+import type { CaseRef, ExplanationBlock, Question, Subject } from './types'
 
 /**
  * 해설에 인용된 판례를 판례 단위로 모은다.
@@ -171,4 +171,69 @@ export function filterCases(
         (units.length === 0 || units.includes(q.unit?.trim() ?? ''))
     )
   })
+}
+
+
+/** 해설 안에서 그 판례가 언급된 자리 */
+export interface CaseMention {
+  where: string // "해설", "③번 해설" 처럼 어디였는지
+  text: string // 그 조각의 전문
+}
+
+function blockText(v: string | ExplanationBlock[] | undefined): string[] {
+  if (typeof v === 'string') return [v]
+  if (Array.isArray(v)) return v.map((b) => [b.title, b.content].filter(Boolean).join(' '))
+  return []
+}
+
+/**
+ * 이 문제의 해설 어디에서 그 판례가 인용됐는지 찾는다.
+ *
+ * 판례를 뽑을 때 어느 해설에서 왔는지는 저장하지 않는다(CaseRef 에 그 필드가 없다).
+ * 대신 사건번호를 원문 표기 그대로 담게 해 두었으므로, 그 번호로 해설을 뒤지면 된다 —
+ * 재파싱이 필요 없다.
+ *
+ * 비교는 정규화한 사건번호로 한다. 해설 본문의 "2014다12345"와 판례 항목의
+ * "2014 다 12345"가 표기만 다른 같은 번호인 경우를 놓치지 않기 위해서다
+ */
+export function findCaseMentions(q: Question, caseNumber: string): CaseMention[] {
+  const key = normalizeCaseNumber(caseNumber)
+  if (!key) return []
+  const out: CaseMention[] = []
+  const push = (where: string, text: string | null | undefined) => {
+    const t = (text ?? '').trim()
+    if (!t) return
+    // 본문에서도 사건번호가 띄어 적힐 수 있어 같은 정규화를 거쳐 견준다
+    if (normalizeCaseNumber(t).includes(key)) out.push({ where, text: t })
+  }
+
+  push('해설', q.explanation)
+  for (const e of q.explanations ?? []) if (e !== q.explanation) push('해설', e)
+  for (const [label, v] of Object.entries(q.choiceExplanations ?? {})) {
+    for (const t of blockText(v)) push(`${label}번 해설`, t)
+  }
+  for (const [label, t] of Object.entries(q.subChoiceExplanations ?? {})) push(`보기 ${label} 해설`, t)
+  for (const item of q.subItems ?? []) {
+    for (const t of blockText(item.explanation)) push(`보기 ${item.label} 해설`, t)
+  }
+  return out
+}
+
+/** 그 문제의 해설 전문 (조각을 못 찾았을 때 통째로 보여주기 위한 것) */
+export function allExplanationText(q: Question): CaseMention[] {
+  const out: CaseMention[] = []
+  const push = (where: string, text: string | null | undefined) => {
+    const t = (text ?? '').trim()
+    if (t) out.push({ where, text: t })
+  }
+  push('해설', q.explanation)
+  for (const e of q.explanations ?? []) if (e !== q.explanation) push('해설', e)
+  for (const [label, v] of Object.entries(q.choiceExplanations ?? {})) {
+    for (const t of blockText(v)) push(`${label}번 해설`, t)
+  }
+  for (const [label, t] of Object.entries(q.subChoiceExplanations ?? {})) push(`보기 ${label} 해설`, t)
+  for (const item of q.subItems ?? []) {
+    for (const t of blockText(item.explanation)) push(`보기 ${item.label} 해설`, t)
+  }
+  return out
 }

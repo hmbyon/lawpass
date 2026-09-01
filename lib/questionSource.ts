@@ -38,48 +38,56 @@ export function barExamRound(year: number): number | null {
 }
 
 /**
- * 파일명이 문구에 없는 정보를 더 갖고 있는가.
- *
- * "6모"라는 파일명은 "2024년 6모" 옆에 괄호로 또 적을 이유가 없다. 그런데 "유니온 6모객"의
- * '유니온'은 같은 회차의 다른 판본과 가르는 유일한 단서라 버리면 안 된다.
- * 그래서 문구가 이미 담은 토막(연도·월·시험 이름)을 지워 보고, 남는 글자가 있으면 붙인다
+ * 같은 시험을 가리키는 열쇠. 이 열쇠가 같은데 파일이 여럿이면 그때만 파일명을 덧붙인다
  */
-function addsInfo(sourceFile: string, year: number, month: number | null): boolean {
-  let rest = sourceFile
-  if (month) {
-    rest = rest
-      .replace(/(?:^|[^0-9])(6|8|10)\s*모(?![의])/g, ' ')
-      .replace(/(6|8|10)\s*월\s*모의(고사|시험)?/g, ' ')
-      .replace(/([123])\s*차\s*모의(고사|시험)?/g, ' ')
+function examKey(q: Pick<Question, 'examType' | 'year' | 'sourceFile'>): string {
+  return `${q.examType}|${q.year}|${examMonthOf(q.sourceFile) ?? ''}`
+}
+
+/**
+ * 파일명을 괄호로 덧붙일지 정하는 판단자를 만든다.
+ *
+ * 예전에는 "파일명에 문구가 안 담은 글자가 남으면" 붙였다. 그래서 문제집이 하나뿐인데도
+ * "2026년 6모(2026.6모_공법)"처럼 같은 말을 두 번 적었다.
+ *
+ * 파일명이 필요한 이유는 하나뿐이다 — **같은 회차·같은 시행월의 문제집이 둘 이상일 때**
+ * 어느 판본인지 가리는 것. 그러니 그 조건 그대로 판단한다. 나중에 다른 출판사의 같은
+ * 회차가 올라오면 그때부터 저절로 괄호가 붙는다
+ */
+export function makeSourceLabeler(all: Question[]): (q: Question) => string {
+  const filesPerExam = new Map<string, Set<string>>()
+  for (const q of all) {
+    const file = (q.sourceFile ?? '').trim()
+    if (!file) continue
+    const key = examKey(q)
+    const found = filesPerExam.get(key)
+    if (found) found.add(file)
+    else filesPerExam.set(key, new Set([file]))
   }
-  rest = rest
-    .replace(/모의(고사|시험)?/g, ' ')
-    .replace(/변호사시험|변시/g, ' ')
-    .replace(/제?\s*\d+\s*회/g, ' ')
-    .replace(/(20\d{2}|\d{2})\s*년?도?/g, ' ')
-    // 객관식·주관식 표기는 판본을 가르는 정보가 아니다
-    .replace(/객관식|주관식|[객주]\b/g, ' ')
-  if (year) rest = rest.replace(new RegExp(String(year), 'g'), ' ')
-  return rest.replace(/[\s.,_\-()[\]]/g, '').length > 0
+  return (q) => sourceLabel(q, (filesPerExam.get(examKey(q))?.size ?? 0) > 1)
 }
 
 /**
  * 출처 한 줄. 정보가 없으면 그만큼만 줄여 적는다 —
  * 모르는 자리를 '미상' 같은 말로 채우면 줄만 길어지고 읽는 데 도움이 안 된다
  */
-export function sourceLabel(q: Pick<Question, 'examType' | 'year' | 'sourceFile'>): string {
+export function sourceLabel(
+  q: Pick<Question, 'examType' | 'year' | 'sourceFile'>,
+  // 같은 회차·시행월에 다른 문제집이 또 있는가. 없으면 파일명을 적을 이유가 없다
+  needsFile = false
+): string {
   const file = (q.sourceFile ?? '').trim()
 
   if (q.examType === '변호사시험') {
     const round = barExamRound(q.year)
     const base = round ? `${round}회 변시` : '변시'
-    return file && addsInfo(file, q.year, null) ? `${base}(${file})` : base
+    return file && needsFile ? `${base}(${file})` : base
   }
 
   const month = examMonthOf(file)
   if (month) {
     const base = q.year ? `${q.year}년 ${month}모` : `${month}모`
-    return file && addsInfo(file, q.year, month) ? `${base}(${file})` : base
+    return file && needsFile ? `${base}(${file})` : base
   }
   // 월을 못 읽었으면 파일명이 유일한 단서다. 연도라도 있으면 앞에 세운다
   if (q.year) return file ? `${q.year}년 모의고사(${file})` : `${q.year}년 모의고사`
@@ -97,13 +105,16 @@ export interface SourceBucket {
  *
  * 순서는 문제를 만난 순서를 따르고, 묶음 안은 문제번호순으로 세운다
  */
-export function groupBySource(questions: Question[]): SourceBucket[] {
+export function groupBySource(questions: Question[], all: Question[] = questions): SourceBucket[] {
+  // 괄호를 붙일지는 전체 문제집을 봐야 안다. 이 판례를 인용한 문제만 보면
+  // 같은 회차의 다른 판본이 있는지 알 수 없다
+  const label = makeSourceLabeler(all)
   const buckets = new Map<string, Question[]>()
   for (const q of questions) {
-    const label = sourceLabel(q)
-    const found = buckets.get(label)
+    const key = label(q)
+    const found = buckets.get(key)
     if (found) found.push(q)
-    else buckets.set(label, [q])
+    else buckets.set(key, [q])
   }
   return Array.from(buckets.entries()).map(([label, list]) => ({
     label,
