@@ -9,6 +9,7 @@ import {
 import { canonicalUnit } from '@/lib/units'
 import {
   buildParseReview, unitWarning, unitOptionsFor, subjectOptions, yearOptions, formatMissing, allMissing,
+  filledChoices,
   gapLabel, gapNumbers, UNKNOWN_YEAR,
   type GroupCheck, type UnitCount, type YearCount, type QuestionPage, type SimilarPair,
   // 이 파일의 컴포넌트 이름과 겹쳐서 갈아 끼운다
@@ -330,7 +331,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
         <div className="px-3 py-2 space-y-1.5">
           <p className="text-xs text-muted-foreground">문제가 아닐 수 있음</p>
           <p className="text-xs text-amber-600 dark:text-amber-400">
-            ⚠ 번호도 선지도 없는 항목이 {review.notQuestions.length}개 있습니다. 청크가 해설 한복판에서
+            ⚠ 번호를 찾지 못한 항목이 {review.notQuestions.length}개 있습니다. 청크가 해설 한복판에서
             시작하면 그 해설이 새 문제처럼 잡힙니다 — 어느 문제의 해설인지 골라 붙이거나 지워주세요
           </p>
           {review.notQuestions.map((q) => (
@@ -341,6 +342,20 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
               </p>
               {/* 잘라 보여주지 않는다. 어느 문제의 해설인지는 글을 다 봐야 가릴 수 있다 */}
               <p className="text-[11px] text-foreground whitespace-pre-wrap break-all">{q.passage}</p>
+              {/* 선지가 채워져 있으면 함께 보여준다. 진짜 문제인지(번호만 못 읽음),
+                  해설을 문제 형태로 잡아낸 것인지는 이 내용을 봐야 가릴 수 있다 */}
+              {filledChoices(q).length > 0 && (
+                <div className="space-y-0.5 pl-1 border-l-2 border-border">
+                  <p className="text-[11px] text-muted-foreground">
+                    선지 {filledChoices(q).length}개가 채워져 있습니다 — 번호만 못 읽은 진짜 문제일 수도 있습니다
+                  </p>
+                  {filledChoices(q).map((c) => (
+                    <p key={c.label} className="text-[11px] text-foreground break-all">
+                      {c.label} {c.text}
+                    </p>
+                  ))}
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <select
                   value=""
@@ -365,7 +380,8 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
             </div>
           ))}
           <p className="text-[11px] text-muted-foreground pt-1">
-            그냥 두면 목록에 그대로 남습니다. 붙일 곳을 모르겠으면 원본 쪽 번호를 확인해보세요.
+            붙이면 지문과 채워진 선지가 모두 그 문제의 해설로 옮겨집니다. 그냥 두면 목록에 그대로
+            남습니다 — 붙일 곳을 모르겠으면 원본 쪽 번호를 확인해보세요.
           </p>
         </div>
       )}

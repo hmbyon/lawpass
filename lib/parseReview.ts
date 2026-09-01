@@ -1,4 +1,4 @@
-import type { Question, Subject } from './types'
+import type { Choice, Question, Subject } from './types'
 import { SUBJECT_UNITS, isValidUnit } from './units'
 import { isSameQuestionText, passageDistance } from './passageMatch'
 
@@ -206,23 +206,27 @@ function findDuplicates(questions: Question[]): Record<string, number> {
   return out
 }
 
-/** 실제로 글자가 들어 있는 선지 수. choices 는 언제나 5칸이라 length 로는 셀 수 없다 */
-function filledChoiceCount(q: Question): number {
-  return q.choices.filter((c) => c.text?.trim()).length
+/** 실제로 글자가 들어 있는 선지. choices 는 언제나 5칸이라 length 로는 셀 수 없다 */
+export function filledChoices(q: Question): Choice[] {
+  return q.choices.filter((c) => c.text?.trim())
 }
 
 /**
- * 문제가 아니라 해설 조각으로 보이는가.
+ * 문제가 아닐 수 있는 항목인가 — 번호를 못 찾은 항목 전부.
  *
- * 두 조건을 **모두** 요구한다. 선지가 안 채워진 것만으로는 안 된다 — 청크 경계에서
+ * 선지가 비었으면 해설 조각이 문제로 잡힌 것이 거의 확실하고, 선지가 채워져 있으면
+ * 둘 중 하나다 — 번호만 못 읽은 진짜 문제이거나, 모델이 해설을 문제 형태로 지어낸 것.
+ * 코드가 그 둘을 가릴 근거가 없어서 **둘 다 사람에게 보인다.** 화면이 선지까지 함께
+ * 보여주므로 판단할 재료는 거기 있다.
+ *
+ * 조건은 번호 하나뿐이다. 선지가 비었다는 것만으로는 절대 걸리지 않는다 — 청크 경계에서
  * 선지가 잘린 판본이 먼저 저장됐다가 다음 청크에서 보강되는 정상 흐름이 있고
  * (store.ts 의 completenessScore), 그런 문제는 번호를 갖고 있다.
  * 번호가 있는 항목은 어떤 경우에도 여기 걸리지 않는다
  */
 export function isNotQuestion(q: Question): boolean {
   const no = Number(q.no)
-  const hasNumber = Number.isFinite(no) && no > 0
-  return !hasNumber && filledChoiceCount(q) === 0
+  return !(Number.isFinite(no) && no > 0)
 }
 
 /**

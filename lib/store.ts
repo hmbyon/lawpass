@@ -319,8 +319,17 @@ export function attachAsExplanation(targetId: string, orphanId: string) {
   const orphan = questions.find((q) => q.id === orphanId)
   if (!target || !orphan) return
 
-  // 조각이 들고 있던 글은 지문에 담겨 있고, 해설 자리에도 뭔가 있으면 그것도 함께 옮긴다
-  const moved = [orphan.passage, orphan.explanation, ...(orphan.explanations ?? [])]
+  // 조각이 들고 있던 글은 지문에 담겨 있고, 해설 자리에도 뭔가 있으면 그것도 함께 옮긴다.
+  //
+  // 선지가 채워져 있으면 그것도 옮긴다. 모델이 해설을 문제 형태로 잡아낸 경우 그 '선지'는
+  // 대개 해설 안에 줄로 나열돼 있던 내용이다. 지문만 옮기면 그 줄들이 통째로 사라진다 —
+  // 사람이 "붙이기"를 고른 것은 이 항목 전체가 해설이라는 판단이므로 전부 옮긴다.
+  // 라벨을 붙여 한 덩어리로 만든다 (해설 안에서 원래 그렇게 나열돼 있던 모양이다)
+  const choiceLines = orphan.choices
+    .filter((c) => c.text?.trim())
+    .map((c) => `${c.label} ${c.text.trim()}`)
+    .join('\n')
+  const moved = [orphan.passage, choiceLines, orphan.explanation, ...(orphan.explanations ?? [])]
     .map((t) => (t ?? '').trim())
     .filter(Boolean)
   const expl = new Set([
