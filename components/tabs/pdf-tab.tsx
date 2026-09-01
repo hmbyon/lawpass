@@ -1816,15 +1816,19 @@ export function PdfTab({
               href="https://aistudio.google.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center justify-between w-full px-4 py-3 bg-blue-900/30 border border-blue-700/40 rounded-xl hover:bg-blue-900/50 transition-colors"
+              className="flex items-center justify-between w-full px-4 py-3 bg-blue-900/30 border border-blue-700/40 rounded-xl hover:bg-blue-900/40 transition-colors"
             >
+              {/* 글자는 테마 색을 쓴다. 예전에는 blue-300/blue-400 이라 어두운 배경을 전제했는데,
+                  라이트·눈편한 테마에서는 카드가 밝아 제목이 1.0:1·1.3:1 로 사실상 안 보였다.
+                  호버도 blue-900/50 이면 눈편한 테마에서 4.5:1 에 겨우 걸쳐 /40 으로 낮췄다
+                  (이 조합의 최저 대비 5.6:1). 배경의 파란 색조는 그대로 둔다 */}
               <div>
-                <p className="text-sm font-medium text-blue-300">Google AI Studio에서 대용량 PDF 업로드</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <p className="text-sm font-medium text-foreground">Google AI Studio에서 대용량 PDF 업로드</p>
+                <p className="text-xs text-foreground mt-0.5">
                   최대 2GB · 업로드 후 File URI 복사해서 아래에 붙여넣기
                 </p>
               </div>
-              <span className="text-blue-400 text-lg shrink-0">→</span>
+              <span className="text-foreground text-lg shrink-0">→</span>
             </a>
 
             <div className="space-y-2">
