@@ -1,18 +1,25 @@
 'use client'
 
 import { useState } from 'react'
+import { getAppMode } from '@/lib/appMode'
 
 interface OnboardingModalProps {
   onClose: () => void
   onSelectTab: (tab: 'pdf' | 'cbt' | 'study' | 'wrong' | 'memo') => void
 }
 
-const STEPS = [
+/**
+ * 안내 문구는 지금 켜져 있는 모드에 맞춘다.
+ * 예전에는 배열이 모듈 상수라 앱 이름이 'ExamPass'로 박혀 있었고, LawPass 로 쓰는 사람에게도
+ * "ExamPass AI는…"이라고 나갔다
+ */
+function buildSteps(appTitle: string, isGeneral: boolean) {
+  return [
   {
     icon: '🏠',
     title: '1. 앱으로 설치하기 (PWA)',
     badge: '어디서나 간편하게',
-    desc: 'ExamPass AI는 홈 화면에 설치해서 브라우저 주소창 없이 앱처럼 쓸 수 있어요. 오프라인 환경에서도 동작합니다.',
+    desc: `${appTitle} AI는 홈 화면에 설치해서 브라우저 주소창 없이 앱처럼 쓸 수 있어요. 오프라인 환경에서도 동작합니다.`,
     tab: null,
     details: [
       {
@@ -37,7 +44,7 @@ const STEPS = [
     tab: 'pdf' as const,
     bullets: [
       'aistudio.google.com에서 무료 API 키를 받아 등록하세요.',
-      '5페이지씩 자동 분할 처리되며, 오류 발생 시 "이어서 처리하기"가 가능해요.',
+      '기본 5페이지씩 나눠 처리하고, 문서가 무거우면 자동으로 더 작게 나눠요. 오류가 나도 "이어서 처리하기"로 이어갈 수 있어요.',
       '분할 업로드한 문제집은 "합치기" 기능으로 하나로 통합할 수 있어요.',
       '📊 진도표에서 과목/연도/단원별 학습 완료율을 확인하세요.',
     ],
@@ -75,9 +82,11 @@ const STEPS = [
     tab: 'wrong' as const,
     bullets: [
       '많이 틀릴수록 위험도 별점(★1~★5)이 올라갑니다.',
-      'LawPass 모드에선 개념부족/암기혼동/지문오독 A/B/C 가설 분석을 제공해요.',
+      isGeneral
+        ? 'AI가 오답 원인을 분석해 줘요. 원인 분류 배지(개념부족·암기혼동 등)는 LawPass 모드에서만 붙습니다.'
+        : 'AI가 가설을 여럿 늘어놓지 않고 가장 유력한 원인 하나를 골라 깊이 분석해요 — 개념부족·암기혼동·지문오독·선학습 적용 실패 중 하나로 표시됩니다.',
       '선지별 메모와 종합 메모를 자유롭게 남길 수 있어요.',
-      '⭐ 북마크를 해두면 D-1 암기장에 자동으로 자동 합류합니다.',
+      '⭐ 북마크를 해두면 D-1 암기장에 자동으로 합류합니다.',
     ],
   },
   {
@@ -91,11 +100,16 @@ const STEPS = [
       '🖨️ 인쇄 버튼을 눌러 오프라인 종이 출력물로 가져갈 수 있어요.',
     ],
   },
-]
+  ]
+}
 
 export function OnboardingModal({ onClose, onSelectTab }: OnboardingModalProps) {
   const [currentStep, setCurrentStep] = useState(0)
   const [dontShowAgain, setDontShowAgain] = useState(false)
+  // 렌더 중에 읽지 않는다 — 서버에서는 localStorage 가 없어 law 로 나오므로 화면이 한 번 어긋난다
+  // (quiz-filter.tsx 가 쓰는 방식과 같다)
+  const [appMode] = useState(() => getAppMode())
+  const STEPS = buildSteps(appMode === 'general' ? 'ExamPass' : 'LawPass', appMode === 'general')
 
   const step = STEPS[currentStep]
   const isFirst = currentStep === 0
