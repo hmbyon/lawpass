@@ -1829,6 +1829,9 @@ export function PdfTab({
 
             <div className="space-y-2">
               <label className="text-xs text-muted-foreground">File URI</label>
+              {/* placeholder 가 긴 URL 이라 흐리면 글자가 아니라 회색 덩어리로 보인다.
+                  muted-foreground 는 이 입력란 배경에서 다크 4.0:1 · 눈편한 4.4:1 로 본문
+                  기준(4.5:1)에 못 미친다. foreground 에 투명도를 준 색이면 세 테마 모두 4.6:1 이상이다 */}
               <input
                 type="text"
                 value={fileUri}
@@ -1838,7 +1841,7 @@ export function PdfTab({
                   setUriError('')
                 }}
                 placeholder="https://generativelanguage.googleapis.com/v1beta/files/..."
-                className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
 
