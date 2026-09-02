@@ -237,3 +237,28 @@ export function allExplanationText(q: Question): CaseMention[] {
   }
   return out
 }
+
+/** 카드에 미리 보여줄 조각 하나와, 그것을 찾은 문제 */
+export interface CasePreview {
+  q: Question
+  mention: CaseMention
+}
+
+/**
+ * 판례 카드에 접힌 채로 보여줄 대표 조각을 고른다.
+ *
+ * 고르는 기준은 대표 요지(pick)와 같다 — **가장 긴 것**. 같은 판례라도 문제마다 인용하는
+ * 분량이 다르고, 짧은 쪽은 대개 "위 판례 참조"처럼 사건번호만 스친 것이다.
+ *
+ * 인용 문제 전부를 뒤진다. 한 문제에서 못 찾았다고 멈추면(대표 문제만 보면) 표기가
+ * 어긋난 한 문제 때문에 카드가 비어 보인다
+ */
+export function previewMention(group: CaseGroup): CasePreview | null {
+  let best: CasePreview | null = null
+  for (const q of group.questions) {
+    for (const mention of findCaseMentions(q, group.caseNumber)) {
+      if (!best || mention.text.length > best.mention.text.length) best = { q, mention }
+    }
+  }
+  return best
+}

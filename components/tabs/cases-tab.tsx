@@ -8,7 +8,7 @@ import { FilterChips } from '@/components/filter-chips'
 import { groupBySource } from '@/lib/questionSource'
 import {
   buildCaseDigest, filterCases, sortCases, periodLabel, PERIOD_OPTIONS,
-  findCaseMentions, allExplanationText,
+  findCaseMentions, allExplanationText, previewMention,
   type CaseGroup, type CaseSort,
 } from '@/lib/caseDigest'
 
@@ -50,8 +50,11 @@ function QuestionLine({
       </button>
       {open && (
         <div className="mt-1.5 mb-1 p-2.5 rounded-lg bg-muted/50 border border-border space-y-2 text-xs">
+          {/* 과목은 한 단 키워 진하게. 나머지 메타는 곁들이는 정보다 */}
           <p className="text-[11px] text-muted-foreground">
-            {q.subject} · {q.examType} · {q.year ? `${q.year}년` : '연도 미상'}
+            <span className="text-xs font-semibold text-foreground">{q.subject}</span>
+            {' · '}
+            {q.examType} · {q.year ? `${q.year}년` : '연도 미상'}
             {q.unit ? ` · ${q.unit}` : ''}
           </p>
           <p className="text-foreground whitespace-pre-wrap leading-relaxed">{q.passage}</p>
@@ -124,6 +127,8 @@ function CaseCard({
   openId: string | null
   onOpen: (id: string | null) => void
 }) {
+  // 카드에서 바로 보여줄 조각. 판례 목록을 훑는 사람이 매번 문제를 펼쳐 보게 할 이유가 없다
+  const preview = useMemo(() => previewMention(group), [group])
   return (
     <div className="bg-card border border-border rounded-xl p-3.5 space-y-2">
       <div className="flex items-start gap-2">
@@ -137,6 +142,19 @@ function CaseCard({
         <span className="text-foreground">{group.caseNumber}</span>
         {group.otherSummaries > 0 && ` · 다른 요약 ${group.otherSummaries}가지`}
       </p>
+
+      {/* 해설에 실제로 적힌 문장 — 요지는 요약이라 표현이 다듬어져 있다.
+          길면 잘라 둔다. 전문은 그 문제번호를 누르면 나온다 */}
+      {preview && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-2 space-y-0.5">
+          <p className="text-[11px] text-muted-foreground">
+            {preview.q.no}번 {preview.mention.where}
+          </p>
+          <p className="text-xs text-foreground whitespace-pre-wrap leading-relaxed line-clamp-4">
+            {preview.mention.text}
+          </p>
+        </div>
+      )}
 
       {/* 출처별로 묶는다. 판례 하나가 여러 회차에 걸쳐 나오는 것이 이 화면의 핵심이라,
           문제번호만 늘어놓으면 어느 시험 것인지 알 수 없다 */}
@@ -199,8 +217,12 @@ export function CasesTab({ questions }: { questions: Question[] }) {
       .filter((sec) => sec.cases.length > 0)
   }, [subjects, dated])
 
-  // 단원 후보는 고른 과목의 것만 (과목 미선택이면 전체). 실제 데이터에 있는 것만 고를 수 있다
-  const unitOptions = useMemo(() => subjects.flatMap((s) => SUBJECT_UNITS[s] ?? []), [subjects])
+  /**
+   * 단원을 하나도 고르지 않은 상태 = 고른 과목의 단원 전체 포함. filterCases 가 units 를
+   * 비어 있을 때만 무시하므로, 이 판정도 과목별이 아니라 전체 기준이어야 한다 —
+   * 다른 과목에서 단원 하나가 골라진 순간 이 과목도 그 필터에 함께 걸린다
+   */
+  const allUnitsImplied = units.length === 0
   const availableUnits = useMemo(
     () => Array.from(new Set(scoped.flatMap((g) => g.units))),
     [scoped]
@@ -276,12 +298,27 @@ export function CasesTab({ questions }: { questions: Question[] }) {
               {subjects.length === 0 ? (
                 <p className="text-[11px] text-muted-foreground">과목을 고르면 그 과목의 단원이 나옵니다</p>
               ) : (
-                <FilterChips
-                  options={unitOptions}
-                  selected={units}
-                  onChange={setUnits}
-                  available={availableUnits}
-                />
+                <div className="space-y-2.5">
+                  {units.length === 0 && (
+                    <p className="text-[11px] text-muted-foreground">
+                      고른 과목의 단원 전체를 보고 있습니다 · 하나를 누르면 그 단원만 봅니다
+                    </p>
+                  )}
+                  {/* 과목마다 한 줄로 끊는다. 이어 붙이면 어느 단원이 어느 과목 것인지
+                      이름만으로는 알 수 없다 */}
+                  {subjects.map((s) => (
+                    <div key={s} className="space-y-1">
+                      <p className="text-[11px] text-muted-foreground">{s}</p>
+                      <FilterChips
+                        options={SUBJECT_UNITS[s] ?? []}
+                        selected={units}
+                        onChange={setUnits}
+                        available={availableUnits}
+                        allImplied={allUnitsImplied}
+                      />
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
 
