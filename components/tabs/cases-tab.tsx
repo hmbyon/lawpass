@@ -353,8 +353,13 @@ export function CasesTab({ questions }: { questions: Question[] }) {
             {bySubject
               ? bySubject.map((sec) => (
                   <div key={sec.subject} className="space-y-2 pt-1">
-                    <p className="text-xs text-muted-foreground">
-                      {sec.subject} <span className="tabular-nums">{sec.cases.length}건</span>
+                    {/* 이 줄이 목록을 과목으로 가르는 유일한 표시다. 카드 제목(요지)보다
+                        작으면 어느 과목을 보고 있는지가 스크롤 중에 사라진다 */}
+                    <p className="text-sm font-semibold text-foreground">
+                      {sec.subject}{' '}
+                      <span className="text-xs font-normal text-muted-foreground tabular-nums">
+                        {sec.cases.length}건
+                      </span>
                     </p>
                     {sec.cases.map((g) => (
                       <CaseCard
