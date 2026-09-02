@@ -1,4 +1,5 @@
 import type { CaseRef, ExplanationBlock, Question, Subject } from './types'
+import { SUBJECT_UNITS } from './units'
 
 /**
  * 해설에 인용된 판례를 판례 단위로 모은다.
@@ -151,10 +152,42 @@ export function sortCases(groups: CaseGroup[], sort: CaseSort): CaseGroup[] {
 }
 
 /**
+ * 고른 단원 중 그 과목의 것만 추린다.
+ *
+ * 단원 선택은 과목마다 따로 읽어야 한다. 한 줄로 뭉쳐 보면 형법 단원 하나를 고른 순간
+ * 그 목록에 없는 민법 판례까지 사라진다 — 민법은 아무것도 고르지 않았는데도.
+ * 화면도 과목마다 칩을 끊어 보여주므로, 판정이 과목별이어야 보이는 것과 결과가 같다.
+ *
+ * 빈 배열 = 그 과목은 단원 제한이 없다(= 그 과목 전체). 커리큘럼에 없는 값은 화면에서
+ * 고를 수 없으므로 여기서 걸러진다.
+ *
+ * 이름이 같은 단원이 두 과목에 있으면(민사소송법·형사소송법의 '증거'·'상소') 둘 다
+ * 걸린다. 선택 상태가 단원 이름의 목록이라 어느 과목에서 눌렀는지가 남지 않는다 —
+ * 다만 칩도 두 과목에서 함께 보라로 켜지므로 화면과 결과는 여전히 어긋나지 않는다
+ */
+export function selectedUnitsOf(subject: Subject, units: string[]): string[] {
+  if (units.length === 0) return []
+  return (SUBJECT_UNITS[subject] ?? []).filter((u) => units.includes(u))
+}
+
+/**
+ * 한 과목 줄에서 온 단원 선택을 다른 과목의 선택과 합친다.
+ *
+ * 칩은 과목마다 따로 그려지고, 그 줄은 자기 칩만 안다 — 전체 포함 상태에서 하나를 누르면
+ * [누른 것] 하나만 돌려준다. 그대로 받으면 다른 과목에서 골라 둔 단원이 함께 지워진다.
+ * 그 과목 몫만 갈아끼우고 나머지는 그대로 둔다
+ */
+export function mergeUnitSelection(subject: Subject, current: string[], next: string[]): string[] {
+  const mine = new Set(SUBJECT_UNITS[subject] ?? [])
+  return [...current.filter((u) => !mine.has(u)), ...next.filter((u) => mine.has(u))]
+}
+
+/**
  * 화면에 세울 판례를 고른다. 세 조건은 서로 독립이다.
  *
  * 과목·단원은 **한 문제가 둘 다 만족**해야 한다. 따로 보면 "민법 문제에서도 인용됐고
  * 다른 과목의 물권법에서도 인용됐다"는 이유로 걸리는데, 그건 고른 조건과 다른 판례다.
+ * 단, 단원 조건은 그 문제의 과목에서 고른 것만 본다 — 과목마다 독립이다.
  * 기간은 선고일을 아는 판례에만 걸린다 (모르는 것은 화면이 따로 모아 보여준다)
  */
 export function filterCases(
@@ -162,14 +195,25 @@ export function filterCases(
   opts: { years?: number | null; subjects?: string[]; units?: string[]; now?: Date }
 ): CaseGroup[] {
   const { years = null, subjects = [], units = [], now = new Date() } = opts
+  // 과목별로 한 번만 추려 둔다. 문제마다 다시 계산하면 목록 전체를 훑는 일이 반복된다
+  const chosen = new Map<string, string[]>()
+  const unitsFor = (subject: Subject): string[] => {
+    let got = chosen.get(subject)
+    if (!got) {
+      got = selectedUnitsOf(subject, units)
+      chosen.set(subject, got)
+    }
+    return got
+  }
+
   return groups.filter((g) => {
     if (!inPeriod(g.year, years, now)) return false
     if (subjects.length === 0 && units.length === 0) return true
-    return g.questions.some(
-      (q) =>
-        (subjects.length === 0 || subjects.includes(q.subject)) &&
-        (units.length === 0 || units.includes(q.unit?.trim() ?? ''))
-    )
+    return g.questions.some((q) => {
+      if (subjects.length > 0 && !subjects.includes(q.subject)) return false
+      const only = unitsFor(q.subject)
+      return only.length === 0 || only.includes(q.unit?.trim() ?? '')
+    })
   })
 }
 

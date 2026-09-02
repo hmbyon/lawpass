@@ -8,7 +8,7 @@ import { FilterChips } from '@/components/filter-chips'
 import { groupBySource } from '@/lib/questionSource'
 import {
   buildCaseDigest, filterCases, sortCases, periodLabel, PERIOD_OPTIONS,
-  findCaseMentions, allExplanationText, previewMention,
+  findCaseMentions, allExplanationText, previewMention, selectedUnitsOf, mergeUnitSelection,
   type CaseGroup, type CaseSort,
 } from '@/lib/caseDigest'
 
@@ -217,12 +217,6 @@ export function CasesTab({ questions }: { questions: Question[] }) {
       .filter((sec) => sec.cases.length > 0)
   }, [subjects, dated])
 
-  /**
-   * 단원을 하나도 고르지 않은 상태 = 고른 과목의 단원 전체 포함. filterCases 가 units 를
-   * 비어 있을 때만 무시하므로, 이 판정도 과목별이 아니라 전체 기준이어야 한다 —
-   * 다른 과목에서 단원 하나가 골라진 순간 이 과목도 그 필터에 함께 걸린다
-   */
-  const allUnitsImplied = units.length === 0
   const availableUnits = useMemo(
     () => Array.from(new Set(scoped.flatMap((g) => g.units))),
     [scoped]
@@ -312,9 +306,9 @@ export function CasesTab({ questions }: { questions: Question[] }) {
                       <FilterChips
                         options={SUBJECT_UNITS[s] ?? []}
                         selected={units}
-                        onChange={setUnits}
+                        onChange={(next) => setUnits(mergeUnitSelection(s, units, next))}
                         available={availableUnits}
-                        allImplied={allUnitsImplied}
+                        allImplied={selectedUnitsOf(s, units).length === 0}
                       />
                     </div>
                   ))}
