@@ -4,8 +4,9 @@ import { createContext, useContext, useMemo, useState } from 'react'
 import type { Question, Subject } from '@/lib/types'
 import {
   updateQuestionUnit, updateQuestionYear, updateQuestionSubject, deleteQuestion, mergeQuestionInto,
-  attachAsExplanation,
+  attachAsExplanation, completenessScore,
 } from '@/lib/store'
+import { diffSegments, type DiffSegment } from '@/lib/passageMatch'
 import { canonicalUnit } from '@/lib/units'
 import {
   buildParseReview, unitWarning, unitOptionsFor, subjectOptions, yearOptions, formatMissing, allMissing,
@@ -15,6 +16,29 @@ import {
   // 이 파일의 컴포넌트 이름과 겹쳐서 갈아 끼운다
   type ParseReview as ParseReviewData,
 } from '@/lib/parseReview'
+
+/**
+ * 유사 후보 두 지문 중 한 줄. 상대와 다른 구간에만 색을 깐다.
+ *
+ * 색은 이 화면이 경고에 쓰는 amber 다 — "여기가 갈린 자리"라는 뜻이지 틀렸다는 뜻이 아니다
+ */
+function DiffLine({ label, segments, kept }: { label: string; segments: DiffSegment[]; kept: boolean }) {
+  return (
+    <p className="text-[11px] text-foreground whitespace-pre-wrap break-all">
+      <span className="text-muted-foreground">{label} </span>
+      {kept && <span className="text-primary">· 이 본문이 남습니다 </span>}
+      {segments.map((s, i) =>
+        s.changed ? (
+          <mark key={i} className="bg-amber-500/25 text-amber-600 dark:text-amber-400 rounded-sm">
+            {s.text}
+          </mark>
+        ) : (
+          <span key={i}>{s.text}</span>
+        )
+      )}
+    </p>
+  )
+}
 
 // 화면에 보이는 순서만 문제번호 오름차순으로 바꾼다. 저장 배열은 절대 손대지 않는다 —
 // parseReview.ts의 런 자르기가 페이지 정보 없는 옛 데이터에서 '저장 순서'를 순서의 근거로 쓰고,
@@ -185,7 +209,8 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
     if (
       !confirm(
         `${p.a.no}번 두 문제를 하나로 합칩니다.\n\n` +
-          '아래쪽 문제가 지워지고 그 해설은 위쪽으로 옮겨집니다.\n' +
+          '아래쪽 항목이 지워지고 그 해설은 위쪽으로 옮겨집니다.\n' +
+          '본문(지문·선지)은 둘 중 더 완전한 쪽이 남습니다.\n' +
           '되돌릴 수 없습니다 — 두 지문이 정말 같은 문제인지 확인하고 눌러주세요.'
       )
     ) {
@@ -396,40 +421,41 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
           </p>
           {review.similarPairs
             .filter((p) => !ignoredPairs.has(pairKey(p)))
-            .map((p) => (
-              <div key={pairKey(p)} className="rounded border border-border p-2 space-y-1.5">
-                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                  <span className="flex-1">
-                    {p.a.subject} · {p.a.no}번 · {p.distance}글자 다름
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => mergePair(p)}
-                    className="shrink-0 px-2 py-0.5 border border-primary/40 text-primary rounded hover:bg-primary/10 transition-colors"
-                  >
-                    같은 문제 — 합치기
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIgnoredPairs((prev) => new Set(prev).add(pairKey(p)))}
-                    className="shrink-0 px-2 py-0.5 border border-border text-muted-foreground rounded hover:bg-muted transition-colors"
-                  >
-                    다른 문제
-                  </button>
+            .map((p) => {
+              const diff = diffSegments(p.a.passage, p.b.passage)
+              // 합치면 어느 본문이 남는지 미리 알린다. 판정은 병합과 같은 자를 쓴다
+              const keepsA = completenessScore(p.a) >= completenessScore(p.b)
+              return (
+                <div key={pairKey(p)} className="rounded border border-border p-2 space-y-1.5">
+                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <span className="flex-1">
+                      {p.a.subject} · {p.a.no}번 · {p.distance}글자 다름
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => mergePair(p)}
+                      className="shrink-0 px-2 py-0.5 border border-primary/40 text-primary rounded hover:bg-primary/10 transition-colors"
+                    >
+                      같은 문제 — 합치기
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIgnoredPairs((prev) => new Set(prev).add(pairKey(p)))}
+                      className="shrink-0 px-2 py-0.5 border border-border text-muted-foreground rounded hover:bg-muted transition-colors"
+                    >
+                      다른 문제
+                    </button>
+                  </div>
+                  {/* 다른 구간에 색을 깔아 둔다. 두 지문을 눈으로 훑어 한 글자를 찾는 일은
+                      사람이 가장 못하는 일이다 */}
+                  <DiffLine label="위" segments={diff.a} kept={keepsA} />
+                  <DiffLine label="아래" segments={diff.b} kept={!keepsA} />
                 </div>
-                {/* 두 지문을 그대로 나란히 놓는다. 어디가 다른지는 사람이 봐야 안다 */}
-                <p className="text-[11px] text-foreground whitespace-pre-wrap break-all">
-                  <span className="text-muted-foreground">위 </span>
-                  {p.a.passage}
-                </p>
-                <p className="text-[11px] text-foreground whitespace-pre-wrap break-all">
-                  <span className="text-muted-foreground">아래 </span>
-                  {p.b.passage}
-                </p>
-              </div>
-            ))}
+              )
+            })}
           <p className="text-[11px] text-muted-foreground pt-1">
-            합치면 아래쪽이 지워지고 해설은 위쪽으로 옮겨집니다. 되돌릴 수 없습니다.
+            합치면 아래쪽 항목이 지워지고 해설은 합쳐집니다. 본문은 더 완전한 쪽(채워진 선지가 많은
+            쪽, 같으면 지문이 긴 쪽)이 남습니다. 되돌릴 수 없습니다.
           </p>
         </div>
       )}

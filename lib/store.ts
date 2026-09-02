@@ -158,7 +158,7 @@ function isSameQuestion(a: Question, b: Question): boolean {
 }
 
 // 더 온전한 판본을 고르기 위한 점수 (채워진 선지 수 우선, 그다음 지문 길이)
-function completenessScore(q: Question): number {
+export function completenessScore(q: Question): number {
   const filledChoices = q.choices.filter((c) => c.text?.trim()).length
   return filledChoices * 100000 + q.passage.length
 }
@@ -296,6 +296,20 @@ export function mergeQuestionInto(keepId: string, dropId: string) {
     )
   } else if (!keep.year && drop.year) {
     keep.year = drop.year
+  }
+
+  // 본문은 더 완전한 쪽을 남긴다. 어느 쪽이 keep 인지는 화면의 위아래 순서일 뿐이고,
+  // 그 순서는 파싱된 차례라 어느 판본이 온전한지와 아무 상관이 없다 — 잘린 판본이 먼저
+  // 왔다는 이유로 온전한 판본을 지우면, 사람은 "합치기"를 눌러 본문을 잃는다.
+  //
+  // 자는 addQuestions 의 병합과 같은 것을 쓴다(completenessScore): 채워진 선지 수가 먼저고,
+  // 같으면 지문이 긴 쪽이다. 지문만 갈아끼우지 않고 선지·보기까지 함께 옮기는 것도 같다 —
+  // 반쪽만 바꾸면 한 판본의 지문에 다른 판본의 선지가 붙는다.
+  // id 는 keep 것을 그대로 두므로 오답노트·형광펜 연결은 끊기지 않는다
+  if (completenessScore(drop) > completenessScore(keep)) {
+    keep.passage = drop.passage
+    keep.choices = drop.choices
+    if (drop.subItems?.length) keep.subItems = drop.subItems
   }
 
   saveQuestions(questions.filter((q) => q.id !== dropId))

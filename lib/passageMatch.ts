@@ -86,6 +86,77 @@ export function editDistance(a: string, b: string, cap: number): number {
   return prev[b.length]
 }
 
+/** 지문을 어떻게 나눠 보여줄지. changed 인 조각이 상대와 다른 부분이다 */
+export interface DiffSegment {
+  text: string
+  changed: boolean
+}
+
+function cut(text: string, start: number, end: number): DiffSegment[] {
+  const out: DiffSegment[] = []
+  if (start > 0) out.push({ text: text.slice(0, start), changed: false })
+  if (end > start) out.push({ text: text.slice(start, end), changed: true })
+  if (end < text.length) out.push({ text: text.slice(end), changed: false })
+  return out
+}
+
+/**
+ * 정규화가 지우는 자리 — 공백과 상투구 괄호.
+ *
+ * 표시는 판정과 같은 것을 봐야 한다. 판정은 normalizePassage 를 거친 뒤 "1글자 다름"이라
+ * 세는데 표시가 원문 그대로 견주면, 뒤에 붙은 "(다툼이 있으면 판례에 의함)" 하나 때문에
+ * 공통 꼬리가 사라져 문장 절반에 색이 깔린다 (실측된 어긋남이다)
+ */
+function ignoredAt(text: string): boolean[] {
+  const mask = new Array<boolean>(text.length).fill(false)
+  const mark = (re: RegExp) => {
+    const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`)
+    let m: RegExpExecArray | null
+    while ((m = g.exec(text)) !== null) {
+      for (let k = m.index; k < m.index + m[0].length; k++) mask[k] = true
+      if (m[0].length === 0) g.lastIndex++
+    }
+  }
+  mark(BOILERPLATE_PAREN)
+  mark(DANGLING_PAREN)
+  for (let k = 0; k < text.length; k++) if (/\s/.test(text[k])) mask[k] = true
+  return mask
+}
+
+/**
+ * 두 지문에서 다른 구간을 짚는다. 앞에서 같은 만큼, 뒤에서 같은 만큼 걷어내고 남은
+ * 가운데가 다른 부분이다.
+ *
+ * 편집 거리처럼 글자마다 대응을 찾지 않는다. 다른 곳이 두 군데면 그 사이까지 함께 칠해진다 —
+ * 넓게 잡을지언정 놓치지는 않는 쪽이 안전하고, 이 화면은 "어디를 봐야 하는지"만 알려주면 된다.
+ *
+ * 정규화가 지우는 자리(공백·상투구 괄호)는 견주지 않고 지나친다 — 판정이 다르다고 세지
+ * 않은 것을 표시가 다르다고 하면 안 된다. 돌려주는 조각은 원문 그대로다
+ */
+export function diffSegments(a: string, b: string): { a: DiffSegment[]; b: DiffSegment[] } {
+  const skipA = ignoredAt(a)
+  const skipB = ignoredAt(b)
+  let i = 0
+  let j = 0
+  while (i < a.length && j < b.length) {
+    if (skipA[i]) { i++; continue }
+    if (skipB[j]) { j++; continue }
+    if (a[i] !== b[j]) break
+    i++
+    j++
+  }
+  let x = a.length
+  let y = b.length
+  while (x > i && y > j) {
+    if (skipA[x - 1]) { x--; continue }
+    if (skipB[y - 1]) { y--; continue }
+    if (a[x - 1] !== b[y - 1]) break
+    x--
+    y--
+  }
+  return { a: cut(a, i, x), b: cut(b, j, y) }
+}
+
 /**
  * 이 길이의 지문에서 "가깝다"고 볼 편집 거리의 상한.
  *
