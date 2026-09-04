@@ -240,6 +240,64 @@ function blockText(v: string | ExplanationBlock[] | undefined): string[] {
  * 비교는 정규화한 사건번호로 한다. 해설 본문의 "2014다12345"와 판례 항목의
  * "2014 다 12345"가 표기만 다른 같은 번호인 경우를 놓치지 않기 위해서다
  */
+/**
+ * 언급 조각을 사건번호 둘레만 잘라 낼 길이 기준.
+ *
+ * 해설이 문단으로 나뉘어 있으면 조각은 저절로 짧지만, 한 덩어리 문자열이면 조각이 곧
+ * 해설 전문이 된다. 그러면 "이 판례가 언급된 부분"과 "해설 전체 보기"가 같은 글이 되어,
+ * 토글을 눌러도 아무 일도 일어나지 않은 것처럼 보인다 — 두 블록은 분량으로 구분돼야 한다.
+ *
+ * 앞뒤 폭을 합치면 250자다. 기준을 그보다 넉넉히 잡아, 조금 긴 해설을 굳이 잘라
+ * 몇 글자 아끼는 대신 문맥을 통째로 남긴다
+ */
+const EXCERPT_LIMIT = 320
+const EXCERPT_BEFORE = 100
+const EXCERPT_AFTER = 150
+
+/** 문장 경계를 찾아 넘어갈 수 있는 폭. 이보다 멀면 그냥 그 자리에서 자르고 "…"를 붙인다 */
+const EXCERPT_SLACK = 40
+const SENTENCE_END = /[.。!?\n]/
+
+/**
+ * 원문에서 그 사건번호가 적힌 자리. 본문에는 "2014 다 12345"처럼 띄어 적힐 수 있으므로
+ * 글자 사이에 공백을 허용해 찾는다 (판정에서 normalizeCaseNumber로 견주는 것과 같은 이유)
+ */
+function caseNumberAt(text: string, key: string): { at: number; len: number } | null {
+  const pattern = key.split('').map((ch) => ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*')
+  const m = new RegExp(pattern).exec(text)
+  return m ? { at: m.index, len: m[0].length } : null
+}
+
+/** 자를 자리를 문장 첫머리까지 뒤로 물린다. 가까이에 경계가 없으면 그대로 둔다 */
+function backToSentence(text: string, from: number): number {
+  for (let i = from; i > Math.max(0, from - EXCERPT_SLACK); i--) {
+    if (SENTENCE_END.test(text[i - 1])) return i
+  }
+  return from
+}
+
+/** 자를 자리를 문장 끝까지 밀어낸다. 가까이에 경계가 없으면 그대로 둔다 */
+function forwardToSentence(text: string, from: number): number {
+  for (let i = from; i < Math.min(text.length, from + EXCERPT_SLACK); i++) {
+    if (SENTENCE_END.test(text[i])) return i + 1
+  }
+  return from
+}
+
+/**
+ * 사건번호 둘레만 발췌한다. 짧은 해설이나 번호 자리를 못 찾은 경우에는 원문 그대로 —
+ * 잘라 보여줄 근거가 없는데 자르면 없는 말을 지우는 셈이다
+ */
+function excerptAround(text: string, key: string): string {
+  if (text.length <= EXCERPT_LIMIT) return text
+  const found = caseNumberAt(text, key)
+  if (!found) return text
+  const start = backToSentence(text, Math.max(0, found.at - EXCERPT_BEFORE))
+  const end = forwardToSentence(text, Math.min(text.length, found.at + found.len + EXCERPT_AFTER))
+  const body = text.slice(start, end).trim()
+  return `${start > 0 ? '…' : ''}${body}${end < text.length ? '…' : ''}`
+}
+
 export function findCaseMentions(q: Question, caseNumber: string): CaseMention[] {
   const key = normalizeCaseNumber(caseNumber)
   if (!key) return []
@@ -248,7 +306,7 @@ export function findCaseMentions(q: Question, caseNumber: string): CaseMention[]
     const t = (text ?? '').trim()
     if (!t) return
     // 본문에서도 사건번호가 띄어 적힐 수 있어 같은 정규화를 거쳐 견준다
-    if (normalizeCaseNumber(t).includes(key)) out.push({ where, text: t })
+    if (normalizeCaseNumber(t).includes(key)) out.push({ where, text: excerptAround(t, key) })
   }
 
   push('해설', q.explanation)
