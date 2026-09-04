@@ -295,6 +295,53 @@ const EXCERPT_SLACK = 40
 const SENTENCE_END = /[.。!?\n]/
 
 /**
+ * 항목 하나를 통째로 보여줄 수 있는 상한. 이보다 긴 항목은 그 안에서 다시 사건번호
+ * 둘레만 자른다 — 조각 자리에 한 화면을 넘는 글을 쏟으면 카드 목록이 읽히지 않는다
+ */
+const ITEM_LIMIT = 600
+
+/**
+ * 항목 마커 — 한 해설에 여러 보기·선지 설명이 이어 붙었을 때 그 경계다.
+ *
+ * 해설은 흔히 "① (X) …  ② (O) …" 또는 "ㄱ. (O) …  ㄴ. (X) …"처럼 항목 설명을 한
+ * 문자열에 죽 이어 붙인다. 그 경계를 모르면 사건번호 뒤 150자를 채우다가 상관없는
+ * 다음 보기 설명까지 조각에 딸려 온다.
+ *
+ * 원문자만으로는 마커라고 볼 수 없다 — 해설이 인용하는 법조문의 항 번호도 원문자다
+ * ("민법 제109조(착오로 인한 의사표시) ① 의사표시는 …"). 그래서 원문자는 뒤에 (O)·(X)가
+ * 붙거나 줄머리에 선 것만 마커로 친다. 자음은 뒤의 마침표가 그 구실을 한다
+ */
+const ITEM_MARKER =
+  /(?:^|\n)[ \t]*[①-⑮]|[\s(][①-⑮][ \t]*[(（][ \t]*[OXox○×][ \t]*[)）]|[\s(][ㄱ-ㅁ][ \t]*\./g
+
+/** 매치 안에서 마커 글자가 선 자리. 앞의 공백·줄바꿈은 마커가 아니다 */
+function markerIndex(m: RegExpExecArray): number {
+  return m.index + m[0].search(/[①-⑮ㄱ-ㅁ]/)
+}
+
+/** 그 자리 앞에 있는 마지막 마커 = 지금 읽고 있는 항목이 시작된 자리 */
+function lastMarkerBefore(text: string, before: number): number | null {
+  ITEM_MARKER.lastIndex = 0
+  let hit: number | null = null
+  for (let m = ITEM_MARKER.exec(text); m; m = ITEM_MARKER.exec(text)) {
+    const at = markerIndex(m)
+    if (at >= before) break
+    hit = at
+  }
+  return hit
+}
+
+/** 그 자리 뒤에 오는 첫 마커 = 다음 항목이 시작되는 자리 */
+function firstMarkerAfter(text: string, from: number): number | null {
+  ITEM_MARKER.lastIndex = 0
+  for (let m = ITEM_MARKER.exec(text); m; m = ITEM_MARKER.exec(text)) {
+    const at = markerIndex(m)
+    if (at >= from) return at
+  }
+  return null
+}
+
+/**
  * 원문에서 그 사건번호가 적힌 자리. 없으면 null.
  *
  * 예전에는 normalizeCaseNumber(t)로 텍스트를 한 번 정규화해 key와 견줬는데, 그 함수는
@@ -336,15 +383,32 @@ function forwardToSentence(text: string, from: number): number {
 }
 
 /**
- * 사건번호 둘레만 발췌한다. 짧은 해설은 원문 그대로 —
- * 잘라 보여줄 만큼 길지 않은데 자르면 없는 말을 지우는 셈이다
+ * 그 판례가 인용된 대목만 잘라 낸다.
+ *
+ * 항목 마커로 경계가 잡히면 **그 항목 전체**를 보여준다. 글자수로 자르면 "민법 제485조는
+ * …"으로 시작하는 앞 맥락이 날아가고 "…자신의 담보권을"부터 나오는데, 그건 발췌가 아니라
+ * 문장을 반토막 낸 것이다. 마커에서 시작해 다음 마커 직전에 끝나므로 잘린 것이 아니고,
+ * 그래서 "…"도 붙이지 않는다.
+ *
+ * 경계를 못 잡았거나(서술형 해설) 항목이 너무 길면 종전대로 사건번호 둘레만 자른다.
+ * 그때도 자르는 범위는 항목 안으로 가둔다
  */
 function excerptAround(text: string, found: { at: number; len: number }): string {
-  if (text.length <= EXCERPT_LIMIT) return text
-  const start = backToSentence(text, Math.max(0, found.at - EXCERPT_BEFORE))
-  const end = forwardToSentence(text, Math.min(text.length, found.at + found.len + EXCERPT_AFTER))
+  const after = found.at + found.len
+  const itemStart = lastMarkerBefore(text, found.at)
+  const itemEnd = firstMarkerAfter(text, after)
+  const lo = itemStart ?? 0
+  const hi = itemEnd ?? text.length
+
+  // 항목 하나가 통째로 들어갈 만하면 전부
+  if (itemStart !== null && hi - lo <= ITEM_LIMIT) return text.slice(lo, hi).trim()
+  // 잘라 보여줄 만큼 길지 않은데 자르면 없는 말을 지우는 셈이다
+  if (hi - lo <= EXCERPT_LIMIT) return text.slice(lo, hi).trim()
+
+  const start = Math.max(lo, backToSentence(text, Math.max(lo, found.at - EXCERPT_BEFORE)))
+  const end = Math.min(hi, forwardToSentence(text, Math.min(hi, after + EXCERPT_AFTER)))
   const body = text.slice(start, end).trim()
-  return `${start > 0 ? '…' : ''}${body}${end < text.length ? '…' : ''}`
+  return `${start > lo ? '…' : ''}${body}${end < hi ? '…' : ''}`
 }
 
 export function findCaseMentions(q: Question, caseNumber: string): CaseMention[] {
