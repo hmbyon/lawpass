@@ -51,6 +51,19 @@ export function FeedbackModal({ userId, userEmail, mode, onClose, onRepliesRead 
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xl leading-none">×</button>
         </div>
 
+        {/* 피드백은 답글까지 시간이 걸린다. 급할 때 바로 닿을 수 있는 길을 맨 위에 적어 둔다 */}
+        <p className="text-xs text-muted-foreground">
+          급한 문의는 인스타 DM으로{' '}
+          <a
+            href="https://instagram.com/okdol.ing"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary font-medium hover:underline"
+          >
+            @okdol.ing
+          </a>
+        </p>
+
         <div className="space-y-1">
           <label className="text-xs text-muted-foreground">피드백 유형</label>
           <div className="flex gap-2">
