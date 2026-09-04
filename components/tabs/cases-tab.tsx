@@ -9,6 +9,7 @@ import { groupBySource } from '@/lib/questionSource'
 import {
   buildCaseDigest, filterCases, sortCases, periodLabel, PERIOD_OPTIONS,
   findCaseMentions, allExplanationText, previewMention, selectedUnitsOf, mergeUnitSelection,
+  searchCases,
   type CaseGroup, type CaseSort,
 } from '@/lib/caseDigest'
 
@@ -186,6 +187,7 @@ export function CasesTab({ questions }: { questions: Question[] }) {
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [units, setUnits] = useState<string[]>([])
   const [sort, setSort] = useState<CaseSort>('count')
+  const [query, setQuery] = useState('')
   const now = useMemo(() => new Date(), [])
 
   // 과목·단원만 적용한 목록. 기간으로 몇 건이 빠졌는지 세려면 그 앞 단계가 필요하다
@@ -193,14 +195,17 @@ export function CasesTab({ questions }: { questions: Question[] }) {
     () => filterCases(digest.groups, { subjects, units, now }),
     [digest.groups, subjects, units, now]
   )
+  // 검색은 필터 결과를 한 번 더 거른다. 단원 칩의 '있는 것'(availableUnits)은 scoped 로
+  // 계산하므로, 타이핑하는 동안 칩이 사라지지는 않는다
+  const searched = useMemo(() => searchCases(scoped, query), [scoped, query])
   const inRange = useMemo(
-    () => filterCases(scoped, { years, subjects, units, now }),
-    [scoped, years, subjects, units, now]
+    () => filterCases(searched, { years, subjects, units, now }),
+    [searched, years, subjects, units, now]
   )
   // 선고일을 모르는 판례는 기간과 무관하게 늘 따로 보여준다 (숨기면 재파싱할지 정할 수 없다)
   const dated = useMemo(() => sortCases(inRange.filter((g) => g.year !== null), sort), [inRange, sort])
   const undated = useMemo(() => sortCases(inRange.filter((g) => g.year === null), sort), [inRange, sort])
-  const hiddenByPeriod = scoped.filter((g) => g.year !== null).length - dated.length
+  const hiddenByPeriod = searched.filter((g) => g.year !== null).length - dated.length
 
   /**
    * 과목을 고르지 않았으면 과목별로 나눠 세운다. 단원 분포와 같은 방식이고, 과목 순서도
@@ -256,6 +261,25 @@ export function CasesTab({ questions }: { questions: Question[] }) {
         <>
           {/* 기간 — quiz-filter 의 "최근 N개년"과 같은 뜻이다 (올해 포함 N개 연도) */}
           <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+            {/* 검색을 맨 위에 둔다. 찾을 것이 정해져 있으면 필터를 거칠 이유가 없다.
+                판례가 수백 건이라 글자마다 다시 걸러도 부담이 없어 디바운스는 두지 않았다 */}
+            <div className="flex items-center gap-2">
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="사건번호 · 요지 키워드 · 문제번호로 검색"
+                className="flex-1 min-w-0 bg-muted border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+              />
+              {query.trim().length > 0 && (
+                <button
+                  onClick={() => setQuery('')}
+                  className="shrink-0 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  지우기
+                </button>
+              )}
+            </div>
+
             <div className="flex items-center justify-between gap-2">
               <label className="text-xs font-medium text-muted-foreground">선고 시기</label>
               <div className="flex gap-1.5">
@@ -347,8 +371,11 @@ export function CasesTab({ questions }: { questions: Question[] }) {
           </p>
 
           <div className="space-y-2">
-            {dated.length === 0 && (
-              <p className="text-xs text-muted-foreground">고른 조건에 해당하는 판례가 없습니다</p>
+            {/* 선고일 미상 판례는 아래에 따로 나오므로, 그것까지 없을 때만 '없다'고 적는다 */}
+            {dated.length === 0 && undated.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                {query.trim() ? '검색 결과가 없습니다' : '고른 조건에 해당하는 판례가 없습니다'}
+              </p>
             )}
             {bySubject
               ? bySubject.map((sec) => (

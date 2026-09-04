@@ -218,6 +218,42 @@ export function filterCases(
 }
 
 
+
+/**
+ * 검색어 한 줄로 목록을 더 좁힌다.
+ *
+ * 기간·과목·단원 필터가 "어떤 판례들을 볼까"를 정하는 것이라면, 검색은 그 안에서 하나를
+ * 집어내는 일이다. 그래서 필터와 AND로 겹쳐 걸고, 집계·정규화는 그대로 둔 채 결과만
+ * 한 번 더 거른다.
+ *
+ * 찾는 자리는 셋 — 요지, 사건번호, 그 판례를 인용한 문제번호
+ */
+function squash(s: string): string {
+  return (s ?? '').replace(/\s+/g, '').toLowerCase()
+}
+
+export function matchesCaseQuery(g: CaseGroup, query: string): boolean {
+  const q = squash(query)
+  if (!q) return true
+  // 한두 자리 숫자만 친 것은 문제번호로 본다. 사건번호는 늘 네 자리 연도로 시작하므로,
+  // 이때까지 요지·사건번호를 부분일치로 훑으면 "9"가 2019다·제9조를 죄다 끌어온다
+  const no = query.trim()
+  if (/^\d{1,3}$/.test(no)) return g.questions.some((item) => String(item.no).trim() === no)
+  // 띄어쓰기를 지우고 견준다. "2019 다 12345"로 저장된 것을 "2019다12345"라고 쳐도 찾힌다
+  if (squash(g.summary).includes(q)) return true
+  if (squash(g.caseNumber).includes(q)) return true
+  // 사건번호는 뼈대(연도+부호+번호)만 남긴 것끼리도 견준다. 앞에 법원·선고일이 붙어
+  // 저장된 표기를 번호만 쳐서 찾을 수 있어야 한다
+  if (normalizeCaseNumber(g.caseNumber).includes(normalizeCaseNumber(query))) return true
+  // 번호가 아닌 말이어도 문제번호와 정확히 같으면 친다 (부분일치는 두지 않는다)
+  return g.questions.some((item) => String(item.no).trim() === no)
+}
+
+export function searchCases(groups: CaseGroup[], query: string): CaseGroup[] {
+  if (!squash(query)) return groups
+  return groups.filter((g) => matchesCaseQuery(g, query))
+}
+
 /** 해설 안에서 그 판례가 언급된 자리 */
 export interface CaseMention {
   where: string // "해설", "③번 해설" 처럼 어디였는지
