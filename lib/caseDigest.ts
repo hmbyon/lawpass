@@ -295,12 +295,27 @@ const EXCERPT_SLACK = 40
 const SENTENCE_END = /[.。!?\n]/
 
 /**
- * 원문에서 그 사건번호가 적힌 자리. 본문에는 "2014 다 12345"처럼 띄어 적힐 수 있으므로
- * 글자 사이에 공백을 허용해 찾는다 (판정에서 normalizeCaseNumber로 견주는 것과 같은 이유)
+ * 원문에서 그 사건번호가 적힌 자리. 없으면 null.
+ *
+ * 예전에는 normalizeCaseNumber(t)로 텍스트를 한 번 정규화해 key와 견줬는데, 그 함수는
+ * 텍스트에서 **맨 앞 사건번호 하나만** 뽑아 돌려준다. 그래서 한 해설에 판례가 여럿
+ * 인용되면 두 번째부터는 본문에 분명히 적혀 있어도 "못 찾음"이 됐다.
+ *
+ * 그러니 텍스트에 있는 사건번호를 **전부** 훑어 하나씩 정규화해 견준다. 자리를 정확히
+ * 짚어야 발췌(excerptAround)도 그 판례 둘레를 자른다 — 첫 번째 번호 자리를 자르면
+ * 다른 판례 이야기를 이 판례의 조각이라고 보여주게 된다
  */
+const CASE_NUMBER_ALL = new RegExp(CASE_NUMBER.source, 'g')
+
 function caseNumberAt(text: string, key: string): { at: number; len: number } | null {
-  const pattern = key.split('').map((ch) => ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*')
-  const m = new RegExp(pattern).exec(text)
+  CASE_NUMBER_ALL.lastIndex = 0
+  for (let m = CASE_NUMBER_ALL.exec(text); m; m = CASE_NUMBER_ALL.exec(text)) {
+    if (`${m[1]}${m[2]}${m[3]}` === key) return { at: m.index, len: m[0].length }
+  }
+  // 사건번호 형식이 아닌 표기(normalizeCaseNumber가 공백만 지워 돌려준 것)는 그 글자들을
+  // 그대로 찾는다. 본문에서도 띄어 적힐 수 있어 글자 사이 공백을 허용한다
+  const loose = key.split('').map((ch) => ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*')
+  const m = new RegExp(loose).exec(text)
   return m ? { at: m.index, len: m[0].length } : null
 }
 
@@ -321,13 +336,11 @@ function forwardToSentence(text: string, from: number): number {
 }
 
 /**
- * 사건번호 둘레만 발췌한다. 짧은 해설이나 번호 자리를 못 찾은 경우에는 원문 그대로 —
- * 잘라 보여줄 근거가 없는데 자르면 없는 말을 지우는 셈이다
+ * 사건번호 둘레만 발췌한다. 짧은 해설은 원문 그대로 —
+ * 잘라 보여줄 만큼 길지 않은데 자르면 없는 말을 지우는 셈이다
  */
-function excerptAround(text: string, key: string): string {
+function excerptAround(text: string, found: { at: number; len: number }): string {
   if (text.length <= EXCERPT_LIMIT) return text
-  const found = caseNumberAt(text, key)
-  if (!found) return text
   const start = backToSentence(text, Math.max(0, found.at - EXCERPT_BEFORE))
   const end = forwardToSentence(text, Math.min(text.length, found.at + found.len + EXCERPT_AFTER))
   const body = text.slice(start, end).trim()
@@ -341,8 +354,9 @@ export function findCaseMentions(q: Question, caseNumber: string): CaseMention[]
   const push = (where: string, text: string | null | undefined) => {
     const t = (text ?? '').trim()
     if (!t) return
-    // 본문에서도 사건번호가 띄어 적힐 수 있어 같은 정규화를 거쳐 견준다
-    if (normalizeCaseNumber(t).includes(key)) out.push({ where, text: excerptAround(t, key) })
+    // 본문에 적힌 사건번호를 전부 훑어 찾는다. 그 자리가 곧 발췌의 기준이 된다
+    const found = caseNumberAt(t, key)
+    if (found) out.push({ where, text: excerptAround(t, found) })
   }
 
   push('해설', q.explanation)
