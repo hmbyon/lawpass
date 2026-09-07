@@ -1,6 +1,6 @@
 'use client'
 
-import type { Question, Subject, WrongNote } from './types'
+import type { Question, QuestionDrawing, Subject, WrongNote } from './types'
 import { getAppMode } from './appMode'
 import { normalizePassage, isSameQuestionText } from './passageMatch'
 
@@ -700,6 +700,42 @@ export function updateChoiceMemo(id: string, choiceLabel: string, memo: string) 
     notes[idx] = { ...notes[idx], choiceMemos }
     saveWrongNotes(notes)
   }
+}
+
+// ── 문제별 그림판 ──
+// 텍스트 메모는 WrongNote 에 붙지만 그림은 Question 에 붙인다. WrongNote 는 그 문제를
+// 틀렸거나 북마크했을 때만 생기는데, 그림 하나 그렸다고 오답노트 목록에 항목을 만들 수는
+// 없기 때문이다. 문제는 늘 있으니 그릴 자리도 늘 있다.
+//
+// 저장은 saveQuestions 를 거치므로 markPendingSync 까지 기존 경로 그대로 탄다
+
+export function getQuestionDrawing(questionId: string): QuestionDrawing | null {
+  const mine = getQuestions().find((q) => q.id === questionId)
+  if (mine) return mine.drawing ?? null
+  const shared = getPoolQuestions().find((q) => q.id === questionId)
+  return shared?.drawing ?? null
+}
+
+export function saveQuestionDrawing(questionId: string, drawing: QuestionDrawing | null) {
+  const next = drawing && drawing.strokes.length > 0 ? drawing : null
+
+  const mine = getQuestions()
+  const target = mine.find((q) => q.id === questionId)
+  if (target) {
+    if (next) target.drawing = next
+    else delete target.drawing
+    saveQuestions(mine)
+    return
+  }
+
+  // 공유받은 문제집의 문항. 이 저장소는 push 대상이 아니라(saveQuestions 주석 참고)
+  // 여기 그린 그림은 이 기기에만 남는다
+  const shared = getPoolQuestions()
+  const found = shared.find((q) => q.id === questionId)
+  if (!found) return
+  if (next) found.drawing = next
+  else delete found.drawing
+  savePoolQuestions(shared)
 }
 
 export function clearAll() {

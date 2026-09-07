@@ -97,6 +97,9 @@ export interface Question {
   // 회수해도 오답노트·세션에 남는 사본이 어디서 왔는지 이 값으로 알 수 있어야,
   // 나중에 정리 정책을 바꿀 여지가 생긴다 (docs/shared-pool-design.md §4.3)
   poolId?: string
+  // 이 문제에 딸린 손글씨 그림판. 문제마다 독립된 캔버스 한 장이다.
+  // 그리지 않은 문제에는 아예 없다 — 빈 값을 두면 문제마다 쓸데없이 바이트가 붙는다
+  drawing?: QuestionDrawing
   // 해설에 인용된 판례들. 한 문제에 여러 개가 인용되면 전부 담는다 —
   // 하나로 뭉치면 판례별로 모을 수 없어 이 필드를 만든 이유가 사라진다.
   // 이 필드가 생기기 전에 파싱된 문제에는 없다
@@ -167,6 +170,30 @@ export function resolveErrorCause(
 
   if (!picked || !picked.text.trim()) return null
   return { cause: picked.cause, 원인명: CAUSE_LABELS[picked.cause], 상세분석: picked.text }
+}
+
+/**
+ * 그림판에 그은 획 하나.
+ *
+ * 좌표는 픽셀이 아니라 **캔버스 폭 대비 비율(0~1)**이다. x·y 둘 다 폭으로 나눈다 —
+ * 높이로 나누면 화면 폭이 달라져 캔버스 높이가 바뀔 때 그림이 세로로 짜부라진다.
+ * 그림판은 4:3으로 고정하므로 y 는 0~0.75 범위에 든다.
+ *
+ * 두께도 같은 이유로 비율이다. 좁은 화면에서 그은 지우개 자국이 넓은 화면에서 획을
+ * 다 못 지우는 일을 막는다.
+ *
+ * points 는 {x, y} 객체 배열이 아니라 [x0, y0, x1, y1, …] 로 편다. 획 하나가 점 수백 개라
+ * 객체로 담으면 같은 그림이 두 배 넘게 무거워지고, 그대로 wrongNotes 가 아닌 questions
+ * 목록에 실려 Firebase 로 올라간다
+ */
+export interface DrawingStroke {
+  erase: boolean
+  width: number // 캔버스 폭 대비 비율
+  points: number[] // [x0, y0, x1, y1, …] 캔버스 폭 대비 비율
+}
+
+export interface QuestionDrawing {
+  strokes: DrawingStroke[]
 }
 
 export interface WrongNote {

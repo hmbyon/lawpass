@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import type { Question, ExplanationBlock } from '@/lib/types'
 import { QuizFilter } from '@/components/quiz/quiz-filter'
 import { QuizEngine } from '@/components/quiz/quiz-engine'
 import {
-  addBookmark, removeBookmark, getWrongNotes, updateChoiceMemo,
+  addBookmark, removeBookmark, getWrongNotes, updateChoiceMemo, getQuestionDrawing,
   addSavedStudySession, getSavedStudySessions, removeSavedStudySession,
   firstUnlearnedIndex, lastLearnedIndex, unquizzedLearnedIndices,
   clearSavedSession, getSavedSession
@@ -25,6 +25,7 @@ import {
 import type { BoldRange } from '@/lib/highlights'
 import { PassageTable } from '@/components/passage-table'
 import { DrawLayer, useDrawBoard } from '@/components/quiz/draw-layer'
+import { DrawingPad } from '@/components/drawing-pad'
 
 type StudyPhase = 'filter' | 'preview' | 'quiz'
 
@@ -566,6 +567,15 @@ function StudyBulkPreview({
   const [highlightStyle, setHighlightStyle] = useState<HighlightStyle>('fill') // 연속 적용 편하도록 선택을 유지
   // 형광펜과 별개의 레이어다. 글자에 매이지 않아 지문 옆 여백에도 그을 수 있다
   const board = useDrawBoard()
+
+  // 문제별 그림판. 오버레이(board)와 달리 저장되는 별개 기능이다.
+  // 그림이 있는지는 저장소가 알고 있으므로, 닫을 때마다 다시 물어 표시를 갱신한다
+  const [padOpen, setPadOpen] = useState(false)
+  const [padSavedAt, setPadSavedAt] = useState(0)
+  const hasDrawing = useMemo(
+    () => (getQuestionDrawing(q.id)?.strokes.length ?? 0) > 0,
+    [q.id, padSavedAt]
+  )
   const fieldRefs = useRef<Record<string, HTMLElement | null>>({})
   const popupRef = useRef<HTMLDivElement>(null)
 
@@ -797,7 +807,19 @@ function StudyBulkPreview({
         onTouchStart={board.enabled ? undefined : handleTouchStart}
         onTouchEnd={board.enabled ? undefined : handleTouchEnd}
       >
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-1.5">
+          {/* 그림판은 이 문제에 딸린 독립 캔버스다. 지문 위 오버레이(그리기)와는 다른 기능이라
+              버튼도 따로 둔다 — 저장되는 쪽이 이쪽이다 */}
+          <button
+            onClick={() => setPadOpen(true)}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all ${
+              hasDrawing
+                ? 'bg-primary/15 text-primary border-primary/40'
+                : 'bg-muted text-muted-foreground border-border hover:border-primary/40 hover:text-primary'
+            }`}
+          >
+            🎨 그림판{hasDrawing ? ' •' : ''}
+          </button>
           <button
             onClick={toggleBookmark}
             className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all ${
@@ -1112,6 +1134,15 @@ function StudyBulkPreview({
           })}
         </div>
       </DrawLayer>
+
+      {padOpen && (
+        <DrawingPad
+          questionId={q.id}
+          questionNo={q.no}
+          onClose={() => setPadOpen(false)}
+          onSaved={() => { setPadSavedAt(Date.now()); onDone() }}
+        />
+      )}
 
       {/* 형광펜 스타일·색상 팝업 */}
       {highlightPopup && (
