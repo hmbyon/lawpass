@@ -24,6 +24,7 @@ import {
 } from '@/lib/highlights'
 import type { BoldRange } from '@/lib/highlights'
 import { PassageTable } from '@/components/passage-table'
+import { DrawLayer, useDrawBoard } from '@/components/quiz/draw-layer'
 
 type StudyPhase = 'filter' | 'preview' | 'quiz'
 
@@ -563,6 +564,8 @@ function StudyBulkPreview({
   const [highlights, setHighlights] = useState<Highlight[]>(() => loadHighlights(q.id))
   const [highlightPopup, setHighlightPopup] = useState<{ field: string; start: number; end: number; x: number; y: number } | null>(null)
   const [highlightStyle, setHighlightStyle] = useState<HighlightStyle>('fill') // 연속 적용 편하도록 선택을 유지
+  // 형광펜과 별개의 레이어다. 글자에 매이지 않아 지문 옆 여백에도 그을 수 있다
+  const board = useDrawBoard()
   const fieldRefs = useRef<Record<string, HTMLElement | null>>({})
   const popupRef = useRef<HTMLDivElement>(null)
 
@@ -782,11 +785,17 @@ function StudyBulkPreview({
       </div>
 
       {/* touch-action: 세로 스크롤과 확대는 브라우저에 맡긴다 (스크롤이 막히지 않도록 명시) */}
-      <div
-        className="bg-card border border-border rounded-xl p-5 space-y-4 [touch-action:pan-y_pinch-zoom]"
-        onMouseUp={handleTextMouseUp}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
+      {/* 그리는 동안에는 형광펜 손잡이를 아예 걸지 않는다. 두 기능이 같은 손짓을 두고
+          다투지 않게 하는 자리다 — 형광펜 로직 자체는 그대로다 */}
+      <DrawLayer
+        board={board}
+        questionId={q.id}
+        className={`bg-card border border-border rounded-xl p-5 space-y-4 [touch-action:pan-y_pinch-zoom] ${
+          board.enabled ? 'select-none' : ''
+        }`}
+        onMouseUp={board.enabled ? undefined : handleTextMouseUp}
+        onTouchStart={board.enabled ? undefined : handleTouchStart}
+        onTouchEnd={board.enabled ? undefined : handleTouchEnd}
       >
         <div className="flex justify-end">
           <button
@@ -1102,7 +1111,7 @@ function StudyBulkPreview({
             )
           })}
         </div>
-      </div>
+      </DrawLayer>
 
       {/* 형광펜 스타일·색상 팝업 */}
       {highlightPopup && (

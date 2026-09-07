@@ -7,6 +7,7 @@ import { addWrongNote, addCorrectNote, saveSession, clearSavedSession, getRiskLe
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
 import { PassageTable } from '@/components/passage-table'
+import { DrawLayer, useDrawBoard } from '@/components/quiz/draw-layer'
 
 interface QuizItem {
   question: Question
@@ -64,6 +65,9 @@ export function QuizEngine({
   const [elapsed, setElapsed] = useState(initialElapsed)
   const [analyzeProgress, setAnalyzeProgress] = useState(0)
   const [unansweredWarning, setUnansweredWarning] = useState(false)
+  // 문제 위에 그린 필기. 문제를 넘겨도 이 컴포넌트는 살아 있어 그림이 남고,
+  // 채점을 끝내거나 나가면 통째로 사라진다 — 저장도 정리도 하지 않는다
+  const board = useDrawBoard()
   const sid = sessionId ?? `session_${Date.now()}`
 
   // 자동 임시저장 (10초마다)
@@ -315,7 +319,7 @@ export function QuizEngine({
         </div>
       </div>
 
-      <div className="bg-card border border-border rounded-xl p-5 space-y-4">
+      <DrawLayer board={board} questionId={q.id} className="bg-card border border-border rounded-xl p-5 space-y-4">
         <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">{q.passage}</p>
         {q.passageTable && q.passageTable.length > 0 && (
           <div className="mt-3">
@@ -361,7 +365,7 @@ export function QuizEngine({
             </label>
           ))}
         </div>
-      </div>
+      </DrawLayer>
 
       {unansweredWarning && (
         <div className="bg-red-900/30 border border-red-700/40 rounded-lg px-4 py-3 text-sm text-red-300">
