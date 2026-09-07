@@ -133,6 +133,12 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
   const [saved, setSaved] = useState(false)
   // 띄운 창의 자리와 폭. 높이는 4:3 이라 폭이 정한다 — 폭 하나만 붙들면 된다
   const [win, setWin] = useState<{ x: number; y: number; w: number } | null>(null)
+  // 문제를 넘길 때 자동 저장하기 위한 자리들.
+  // setStrokes 는 늘 새 배열을 만들므로, 마지막으로 저장한 배열과 같은 것을 들고 있으면
+  // 아직 아무것도 안 그린(또는 그린 뒤 저장한) 상태다 — 참조 하나로 판별이 끝난다
+  const savedStrokes = useRef<DrawingStroke[]>(strokes)
+  const latest = useRef({ strokes, docked, onSaved })
+  latest.current = { strokes, docked, onSaved }
   const dragFrom = useRef<{ dx: number; dy: number } | null>(null)
   const sizeFrom = useRef<{ x0: number; w0: number } | null>(null)
 
@@ -253,6 +259,32 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
     setStrokes((prev) => [...prev, s])
   }, [])
 
+  /**
+   * 문제를 넘기기 직전에 자동으로 저장한다.
+   *
+   * 붙박이 패널은 늘 떠 있어 닫는 동작이 없다. 저장 버튼을 눌러야 남는다는 것을 사람이
+   * 계속 기억해야 하는데, 그린 뒤 다음 문제로 넘어가는 것이 가장 자연스러운 흐름이라
+   * 놓치기 딱 좋다. 그래서 사라지기 직전에 한 번 더 붙든다.
+   *
+   * study-tab 의 이동 버튼마다 손을 넣지 않고 여기 둔 이유: 이 패널은 문제마다 key 로
+   * 새로 열리므로 '사라지는 순간'이 곧 '문제가 바뀌는 순간'이다. 다음·이전·번호 점프는
+   * 물론 학습 화면을 아예 벗어나는 길까지 한 자리에서 걸린다.
+   *
+   * 띄운 창(좁은 화면)에는 걸지 않는다. 거기서는 닫는 동작이 있어 사람이 판단할 자리가
+   * 이미 있다
+   */
+  useEffect(() => {
+    return () => {
+      const { strokes: last, docked: wasDocked, onSaved: notify } = latest.current
+      if (!wasDocked) return
+      // 저장한 뒤로 달라진 것이 없으면 아무 일도 하지 않는다
+      if (last === savedStrokes.current) return
+      saveQuestionDrawing(questionId, { strokes: last })
+      savedStrokes.current = last
+      notify()
+    }
+  }, [questionId])
+
   // 처음 띄울 때 자리를 잡는다. 한 번 옮겨 둔 자리는 다시 열어도 그대로다
   useEffect(() => {
     if (!open || docked || win) return
@@ -307,6 +339,8 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
   // 저장은 여기 한 번뿐이다. 획마다 저장하면 한 장 그리는 동안 로컬 쓰기가 수백 번 돈다
   function save() {
     saveQuestionDrawing(questionId, { strokes })
+    // 지금 것을 저장했다고 적어 둔다. 자동 저장이 같은 그림을 또 쓰지 않게 하는 표시다
+    savedStrokes.current = strokes
     onSaved()
   }
 
