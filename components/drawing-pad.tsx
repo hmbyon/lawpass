@@ -133,6 +133,9 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
   const [saved, setSaved] = useState(false)
   // 띄운 창의 자리와 폭. 높이는 4:3 이라 폭이 정한다 — 폭 하나만 붙들면 된다
   const [win, setWin] = useState<{ x: number; y: number; w: number } | null>(null)
+
+  // 지금 어느 껍데기를 그리고 있는가. 아래 두 효과가 이 값을 보고 다시 돈다
+  const shell = docked ? (folded ? 'folded' : 'docked') : open && win ? 'window' : 'none'
   // 문제를 넘길 때 자동 저장하기 위한 자리들.
   // setStrokes 는 늘 새 배열을 만들므로, 마지막으로 저장한 배열과 같은 것을 들고 있으면
   // 아직 아무것도 안 그린(또는 그린 뒤 저장한) 상태다 — 참조 하나로 판별이 끝난다
@@ -142,6 +145,16 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
   const dragFrom = useRef<{ dx: number; dy: number } | null>(null)
   const sizeFrom = useRef<{ x0: number; w0: number } | null>(null)
 
+  /**
+   * 지금 화면에 선 껍데기.
+   *
+   * 이 값이 바뀌면 캔버스가 DOM 에서 빠졌다 새로 붙는다. 아래 두 효과(크기 재기,
+   * 다시 그리기)가 이것을 의존성으로 봐야 하는 이유다 — 예전에는 빈 배열이라 마운트 때
+   * 딱 한 번 돌았는데, 이 컴포넌트는 붙박이가 될지 창이 될지 정해지기 전에 먼저 마운트되어
+   * null 을 그린다. 그 순간 ref 는 비어 있고, 나중에 패널이 떠도 크기를 다시 재지 않아
+   * width 가 0 에 머물렀다. 그리는 코드는 모두 width > 0 을 보므로 획은 쌓이는데 화면에는
+   * 아무것도 안 나왔다
+   */
   const boxRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   // 그리는 중인 획. state 에 넣으면 점 하나마다 화면을 다시 그리게 된다
@@ -160,7 +173,7 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+  }, [shell])
 
   // 폭이나 획이 바뀌면 처음부터 다시 그린다. 창 크기를 바꿔도 그림이 같이 늘어나는 자리다
   useEffect(() => {
@@ -175,7 +188,7 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, width, height)
     for (const s of strokes) paintStroke(ctx, s, width)
-  }, [width, strokes])
+  }, [shell, width, strokes])
 
   /**
    * 그 자리에 걸린 획을 배열에서 뺀다. 저장 형태는 그대로다 — 통째로 빠질 뿐이다.
