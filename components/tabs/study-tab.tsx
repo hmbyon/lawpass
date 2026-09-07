@@ -24,7 +24,7 @@ import {
 import type { BoldRange } from '@/lib/highlights'
 import { PassageTable } from '@/components/passage-table'
 import { DrawLayer, useDrawBoard } from '@/components/quiz/draw-layer'
-import { DrawingPad } from '@/components/drawing-pad'
+import { DrawingPad, useDockedPad } from '@/components/drawing-pad'
 
 type StudyPhase = 'filter' | 'preview' | 'quiz'
 
@@ -610,6 +610,8 @@ function StudyBulkPreview({
   // 그림이 있는지는 저장소가 알고 있으므로, 닫을 때마다 다시 물어 표시를 갱신한다
   const [padOpen, setPadOpen] = useState(false)
   const [padSavedAt, setPadSavedAt] = useState(0)
+  // 넓은 화면에서는 지문 옆에 늘 떠 있다. 그러면 여는 버튼이 할 일이 없다
+  const padDocked = useDockedPad()
   const hasDrawing = useMemo(
     () => (getQuestionDrawing(q.id)?.strokes.length ?? 0) > 0,
     [q.id, padSavedAt]
@@ -878,6 +880,7 @@ function StudyBulkPreview({
         <div className="flex justify-end gap-1.5">
           {/* 그림판은 이 문제에 딸린 독립 캔버스다. 지문 위 오버레이(그리기)와는 다른 기능이라
               버튼도 따로 둔다 — 저장되는 쪽이 이쪽이다 */}
+          {!padDocked && (
           <button
             onClick={() => setPadOpen(true)}
             className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all ${
@@ -888,6 +891,7 @@ function StudyBulkPreview({
           >
             🎨 그림판{hasDrawing ? ' •' : ''}
           </button>
+          )}
           <button
             onClick={toggleBookmark}
             className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all ${
@@ -1203,14 +1207,16 @@ function StudyBulkPreview({
         </div>
       </DrawLayer>
 
-      {padOpen && (
-        <DrawingPad
-          questionId={q.id}
-          questionNo={q.no}
-          onClose={() => setPadOpen(false)}
-          onSaved={() => { setPadSavedAt(Date.now()); onDone() }}
-        />
-      )}
+      {/* 붙박이 패널은 늘 떠 있어야 하므로 padOpen 과 무관하게 걸어 둔다.
+          key 로 문제마다 새로 여는 것은, 저장된 그림을 그때 불러오기 때문이다 */}
+      <DrawingPad
+        key={q.id}
+        questionId={q.id}
+        questionNo={q.no}
+        open={padOpen}
+        onClose={() => setPadOpen(false)}
+        onSaved={() => { setPadSavedAt(Date.now()); onDone() }}
+      />
 
       {/* 형광펜 스타일·색상 팝업 */}
       {highlightPopup && (

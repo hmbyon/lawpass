@@ -37,6 +37,33 @@ const STROKE_HIT = 0.03
 // 'eraser' 는 지나간 자리를 픽셀째로 지우고, 'strokeEraser' 는 누른 획을 통째로 지운다
 type Tool = 'pen' | 'eraser' | 'strokeEraser'
 
+/**
+ * 옆에 붙박이로 놓을 자리가 있는 화면인가.
+ *
+ * 문제 카드가 42rem(672px)이고 가운데 정렬이라, 패널을 옆에 두려면 한쪽 여백이
+ * 패널 폭 + 여유만큼 있어야 한다. 그만한 자리가 없는데 띄우면 지문을 가리게 되는데,
+ * 그건 "지문을 보면서 그린다"는 이 변경의 목적을 정면으로 거스른다.
+ * 자리가 없으면 옮길 수 있는 작은 창으로 띄운다
+ */
+const DOCK_QUERY = '(min-width: 1160px)'
+
+export function useDockedPad(): boolean {
+  // 서버에서는 화면 크기를 모른다. 창부터 시작해 붙박이로 바꾸면 깜빡임이 한 번뿐이다
+  const [docked, setDocked] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia(DOCK_QUERY)
+    const sync = () => setDocked(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+  return docked
+}
+
+// 띄운 창의 최소 폭. 4:3 이라 이보다 좁으면 캔버스가 손가락보다 작아진다
+const MIN_WINDOW = 200
+
+
 function round(v: number): number {
   return Math.round(v * PRECISION) / PRECISION
 }
@@ -87,16 +114,27 @@ function paintSegment(
 interface Props {
   questionId: string
   questionNo: string | number
+  /** 띄운 창일 때만 본다. 붙박이 패널은 늘 열려 있다 */
+  open: boolean
   onClose: () => void
   /** 저장한 뒤 알린다 (동기화 트리거) */
   onSaved: () => void
 }
 
-export function DrawingPad({ questionId, questionNo, onClose, onSaved }: Props) {
+export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: Props) {
   // 저장된 그림을 그대로 불러와 이어 그린다
   const [strokes, setStrokes] = useState<DrawingStroke[]>(() => getQuestionDrawing(questionId)?.strokes ?? [])
   const [tool, setTool] = useState<Tool>('pen')
   const [width, setWidth] = useState(0)
+
+  const docked = useDockedPad()
+  // 붙박이 패널을 잠시 치워 둘 수 있게 한다. 늘 떠 있는 것은 치울 길도 있어야 한다
+  const [folded, setFolded] = useState(false)
+  const [saved, setSaved] = useState(false)
+  // 띄운 창의 자리와 폭. 높이는 4:3 이라 폭이 정한다 — 폭 하나만 붙들면 된다
+  const [win, setWin] = useState<{ x: number; y: number; w: number } | null>(null)
+  const dragFrom = useRef<{ dx: number; dy: number } | null>(null)
+  const sizeFrom = useRef<{ x0: number; w0: number } | null>(null)
 
   const boxRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -215,88 +253,201 @@ export function DrawingPad({ questionId, questionNo, onClose, onSaved }: Props) 
     setStrokes((prev) => [...prev, s])
   }, [])
 
+  // 처음 띄울 때 자리를 잡는다. 한 번 옮겨 둔 자리는 다시 열어도 그대로다
+  useEffect(() => {
+    if (!open || docked || win) return
+    const w = Math.min(340, window.innerWidth - 24)
+    setWin({ x: Math.max(12, (window.innerWidth - w) / 2), y: Math.max(12, Math.round(window.innerHeight * 0.16)), w })
+  }, [open, docked, win])
+
+  const clampWin = (x: number, y: number, w: number) => ({
+    // 창이 화면 밖으로 나가면 다시 잡을 수 없다. 늘 붙들 자리를 남긴다
+    x: Math.max(8 - w + 80, Math.min(x, window.innerWidth - 80)),
+    y: Math.max(8, Math.min(y, window.innerHeight - 60)),
+    w,
+  })
+
+  function dragDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (!win) return
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+    dragFrom.current = { dx: e.clientX - win.x, dy: e.clientY - win.y }
+  }
+  function dragMove(e: React.PointerEvent<HTMLDivElement>) {
+    const from = dragFrom.current
+    if (!from) return
+    e.preventDefault()
+    setWin((prev) => (prev ? clampWin(e.clientX - from.dx, e.clientY - from.dy, prev.w) : prev))
+  }
+  function dragUp(e: React.PointerEvent<HTMLDivElement>) {
+    dragFrom.current = null
+    e.currentTarget.releasePointerCapture?.(e.pointerId)
+  }
+
+  function sizeDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (!win) return
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+    sizeFrom.current = { x0: e.clientX, w0: win.w }
+  }
+  function sizeMove(e: React.PointerEvent<HTMLDivElement>) {
+    const from = sizeFrom.current
+    if (!from) return
+    e.preventDefault()
+    setWin((prev) => {
+      if (!prev) return prev
+      const w = Math.max(MIN_WINDOW, Math.min(window.innerWidth - prev.x - 8, from.w0 + (e.clientX - from.x0)))
+      return { ...prev, w }
+    })
+  }
+  function sizeUp(e: React.PointerEvent<HTMLDivElement>) {
+    sizeFrom.current = null
+    e.currentTarget.releasePointerCapture?.(e.pointerId)
+  }
+
   // 저장은 여기 한 번뿐이다. 획마다 저장하면 한 장 그리는 동안 로컬 쓰기가 수백 번 돈다
-  function saveAndClose() {
+  function save() {
     saveQuestionDrawing(questionId, { strokes })
     onSaved()
+  }
+
+  function saveAndClose() {
+    save()
     onClose()
   }
 
+  // 붙박이 패널은 닫을 일이 없어, 저장했다는 것만 잠깐 알린다
+  function saveInPlace() {
+    save()
+    setSaved(true)
+    window.setTimeout(() => setSaved(false), 1500)
+  }
+
+  // 캔버스와 도구는 두 표시 방식이 그대로 나눠 쓴다. 바뀌는 것은 껍데기뿐이다
+  const canvas = (
+    /* 4:3 고정. 폭만 화면에 맞추고 높이는 따라오게 두면 어느 기기에서도 같은 그림이다 */
+    <div ref={boxRef} className="relative w-full overflow-hidden rounded-xl border border-border bg-white">
+      <div style={{ paddingTop: `${ASPECT * 100}%` }} />
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 h-full w-full cursor-crosshair touch-none"
+        onPointerDown={down}
+        onPointerMove={move}
+        onPointerUp={up}
+        onPointerCancel={up}
+      />
+    </div>
+  )
+
+  const tools = (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <button
+        onClick={() => setTool('pen')}
+        className={`rounded-lg px-3 py-1.5 text-xs transition-colors ${
+          tool === 'pen' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
+        }`}
+      >
+        ✏️ 펜
+      </button>
+      <button
+        onClick={() => setTool('eraser')}
+        title="지나간 자리를 문질러 지웁니다"
+        className={`rounded-lg px-3 py-1.5 text-xs transition-colors ${
+          tool === 'eraser' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
+        }`}
+      >
+        🧽 지우개
+      </button>
+      <button
+        onClick={() => setTool('strokeEraser')}
+        title="획 하나를 눌러 통째로 지웁니다"
+        className={`rounded-lg px-3 py-1.5 text-xs transition-colors ${
+          tool === 'strokeEraser' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
+        }`}
+      >
+        ✂️ 획 지우개
+      </button>
+      <button
+        onClick={() => setStrokes([])}
+        disabled={strokes.length === 0}
+        className="rounded-lg px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+      >
+        전체 지우기
+      </button>
+      <button
+        onClick={docked ? saveInPlace : saveAndClose}
+        className="ml-auto rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
+      >
+        {docked ? (saved ? '✓ 저장됨' : '저장') : '완료'}
+      </button>
+    </div>
+  )
+
+  // ── 넓은 화면: 지문 옆에 붙박이로 ──
+  if (docked) {
+    if (folded) {
+      return (
+        <button
+          onClick={() => setFolded(false)}
+          title="그림판 펴기"
+          className="fixed right-4 top-24 z-40 rounded-full border border-border bg-card px-3 py-2 text-sm shadow-lg hover:border-primary/40"
+        >
+          🎨
+        </button>
+      )
+    }
+    return (
+      <aside className="fixed right-4 top-24 z-40 flex w-[clamp(220px,calc((100vw-42rem)/2-2rem),340px)] flex-col gap-2 rounded-2xl border border-border bg-card p-3 shadow-lg">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-semibold">🎨 {questionNo}번 그림판</h2>
+          <button
+            onClick={() => setFolded(true)}
+            title="접어 두기"
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            접기
+          </button>
+        </div>
+        {canvas}
+        {tools}
+      </aside>
+    )
+  }
+
+  // ── 좁은 화면: 옮기고 늘릴 수 있는 작은 창 ──
+  // 뒤를 덮지 않는다. 지문이 계속 보여야 그것을 보며 그린다
+  if (!open || !win) return null
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onClick={onClose}
+      className="fixed z-50 flex flex-col gap-2 rounded-2xl border border-border bg-card p-3 shadow-2xl"
+      style={{ left: win.x, top: win.y, width: win.w }}
     >
       <div
-        className="flex w-full max-w-lg flex-col gap-3 rounded-2xl border border-border bg-card p-4"
-        onClick={(e) => e.stopPropagation()}
+        onPointerDown={dragDown}
+        onPointerMove={dragMove}
+        onPointerUp={dragUp}
+        onPointerCancel={dragUp}
+        className="flex cursor-move touch-none items-center justify-between"
       >
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold">🎨 {questionNo}번 그림판</h2>
-          <button
-            onClick={onClose}
-            title="저장하지 않고 닫기"
-            className="text-xl leading-none text-muted-foreground hover:text-foreground"
-          >
-            ×
-          </button>
-        </div>
-
-        {/* 4:3 고정. 폭만 화면에 맞추고 높이는 따라오게 두면 어느 기기에서도 같은 그림이다 */}
-        <div ref={boxRef} className="relative w-full overflow-hidden rounded-xl border border-border bg-white">
-          <div style={{ paddingTop: `${ASPECT * 100}%` }} />
-          <canvas
-            ref={canvasRef}
-            className="absolute inset-0 h-full w-full cursor-crosshair touch-none"
-            onPointerDown={down}
-            onPointerMove={move}
-            onPointerUp={up}
-            onPointerCancel={up}
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          <button
-            onClick={() => setTool('pen')}
-            className={`rounded-lg px-3 py-1.5 text-xs transition-colors ${
-              tool === 'pen' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            ✏️ 펜
-          </button>
-          <button
-            onClick={() => setTool('eraser')}
-            title="지나간 자리를 문질러 지웁니다"
-            className={`rounded-lg px-3 py-1.5 text-xs transition-colors ${
-              tool === 'eraser' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            🧽 지우개
-          </button>
-          <button
-            onClick={() => setTool('strokeEraser')}
-            title="획 하나를 눌러 통째로 지웁니다"
-            className={`rounded-lg px-3 py-1.5 text-xs transition-colors ${
-              tool === 'strokeEraser' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            ✂️ 획 지우개
-          </button>
-          <button
-            onClick={() => setStrokes([])}
-            disabled={strokes.length === 0}
-            className="rounded-lg px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-          >
-            전체 지우기
-          </button>
-          <button
-            onClick={saveAndClose}
-            className="ml-auto rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
-          >
-            완료
-          </button>
-        </div>
+        <h2 className="text-xs font-semibold">⠿ 🎨 {questionNo}번 그림판</h2>
+        <button
+          onClick={onClose}
+          title="저장하지 않고 닫기"
+          aria-label="그림판 닫기"
+          className="text-lg leading-none text-muted-foreground hover:text-foreground"
+        >
+          ×
+        </button>
       </div>
+      {canvas}
+      {tools}
+      <div
+        onPointerDown={sizeDown}
+        onPointerMove={sizeMove}
+        onPointerUp={sizeUp}
+        onPointerCancel={sizeUp}
+        title="끌어서 크기 조절"
+        className="absolute bottom-0 right-0 h-7 w-7 cursor-se-resize touch-none rounded-br-2xl border-b-2 border-r-2 border-muted-foreground/40"
+      />
     </div>
   )
 }
