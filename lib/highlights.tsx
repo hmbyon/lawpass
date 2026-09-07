@@ -2,13 +2,14 @@ import React from 'react'
 
 export type HighlightColor = 'yellow' | 'green' | 'pink' | 'blue' | 'purple' | 'orange' | 'red' | 'gray'
 
-// 'fill' = 배경 칠하기(기존 형광펜), 'underline' = 밑줄만
+// 'fill' = 배경 칠하기(기존 형광펜), 'underline' = 밑줄만,
+// 'strike' = 취소선, 'circle' = 동그라미, 'cross' = X표시
 // 옛 데이터에는 이 필드가 없으므로 undefined는 'fill'로 취급한다
-export type HighlightStyle = 'fill' | 'underline'
+export type HighlightStyle = 'fill' | 'underline' | 'strike' | 'circle' | 'cross'
 
 export const HIGHLIGHT_COLORS: HighlightColor[] = ['yellow', 'green', 'pink', 'blue', 'purple', 'orange', 'red']
 
-// 밑줄 스타일에서만 회색을 추가로 제공한다 (배경 채우기로는 잘 보이지 않는 색)
+// 선으로 그리는 스타일에서만 회색을 추가로 제공한다 (배경 채우기로는 잘 보이지 않는 색)
 export const UNDERLINE_COLORS: HighlightColor[] = [...HIGHLIGHT_COLORS, 'gray']
 
 export const HIGHLIGHT_COLOR_LABELS: Record<HighlightColor, string> = {
@@ -53,6 +54,84 @@ export const HIGHLIGHT_UNDERLINE_CLASSES: Record<HighlightColor, string> = {
   orange: 'bg-transparent border-b-2 border-orange-500 dark:border-orange-400',
   red: 'bg-transparent border-b-2 border-red-500 dark:border-red-400',
   gray: 'bg-transparent border-b-2 border-gray-500 dark:border-gray-400',
+}
+
+// 취소선: 밑줄과 달리 text-decoration 을 그대로 쓴다. 지우개 hover 가 line-through 를
+// 신호로 쓰고 있어 겹치는데, 그건 renderHighlighted 에서 이 스타일만 다른 신호로 바꾼다
+export const HIGHLIGHT_STRIKE_CLASSES: Record<HighlightColor, string> = {
+  yellow: 'bg-transparent line-through decoration-2 decoration-yellow-500 dark:decoration-yellow-400',
+  green: 'bg-transparent line-through decoration-2 decoration-emerald-500 dark:decoration-emerald-400',
+  pink: 'bg-transparent line-through decoration-2 decoration-pink-500 dark:decoration-pink-400',
+  blue: 'bg-transparent line-through decoration-2 decoration-blue-500 dark:decoration-blue-400',
+  purple: 'bg-transparent line-through decoration-2 decoration-purple-500 dark:decoration-purple-400',
+  orange: 'bg-transparent line-through decoration-2 decoration-orange-500 dark:decoration-orange-400',
+  red: 'bg-transparent line-through decoration-2 decoration-red-500 dark:decoration-red-400',
+  gray: 'bg-transparent line-through decoration-2 decoration-gray-500 dark:decoration-gray-400',
+}
+
+// 동그라미: 여러 줄에 걸치면 box-decoration-clone 이 줄마다 온전한 상자를 그린다.
+// 그게 없으면 첫 줄 왼쪽과 마지막 줄 오른쪽에만 테두리가 붙어 반쪽짜리가 된다
+export const HIGHLIGHT_CIRCLE_CLASSES: Record<HighlightColor, string> = {
+  yellow: 'bg-transparent border-2 border-yellow-500 dark:border-yellow-400',
+  green: 'bg-transparent border-2 border-emerald-500 dark:border-emerald-400',
+  pink: 'bg-transparent border-2 border-pink-500 dark:border-pink-400',
+  blue: 'bg-transparent border-2 border-blue-500 dark:border-blue-400',
+  purple: 'bg-transparent border-2 border-purple-500 dark:border-purple-400',
+  orange: 'bg-transparent border-2 border-orange-500 dark:border-orange-400',
+  red: 'bg-transparent border-2 border-red-500 dark:border-red-400',
+  gray: 'bg-transparent border-2 border-gray-500 dark:border-gray-400',
+}
+
+// X표시: 가로선(line-through)에 사선(배경 그라디언트)을 겹쳐 ×를 만든다.
+// 그라디언트는 인라인 조각마다 각각 칠해지므로 여러 줄에 걸치면 줄마다 하나씩 생긴다 —
+// 짧은 범위에서는 ×로, 긴 범위에서는 '지워진 구간'으로 읽힌다.
+// 색을 임의 값으로 박는 자리라 Tailwind 팔레트의 500 색상값을 그대로 적는다
+export const HIGHLIGHT_CROSS_CLASSES: Record<HighlightColor, string> = {
+  yellow: 'line-through decoration-2 decoration-yellow-500 dark:decoration-yellow-400 bg-[linear-gradient(to_top_right,transparent_47%,#eab308_47%,#eab308_53%,transparent_53%)]',
+  green: 'line-through decoration-2 decoration-emerald-500 dark:decoration-emerald-400 bg-[linear-gradient(to_top_right,transparent_47%,#10b981_47%,#10b981_53%,transparent_53%)]',
+  pink: 'line-through decoration-2 decoration-pink-500 dark:decoration-pink-400 bg-[linear-gradient(to_top_right,transparent_47%,#ec4899_47%,#ec4899_53%,transparent_53%)]',
+  blue: 'line-through decoration-2 decoration-blue-500 dark:decoration-blue-400 bg-[linear-gradient(to_top_right,transparent_47%,#3b82f6_47%,#3b82f6_53%,transparent_53%)]',
+  purple: 'line-through decoration-2 decoration-purple-500 dark:decoration-purple-400 bg-[linear-gradient(to_top_right,transparent_47%,#a855f7_47%,#a855f7_53%,transparent_53%)]',
+  orange: 'line-through decoration-2 decoration-orange-500 dark:decoration-orange-400 bg-[linear-gradient(to_top_right,transparent_47%,#f97316_47%,#f97316_53%,transparent_53%)]',
+  red: 'line-through decoration-2 decoration-red-500 dark:decoration-red-400 bg-[linear-gradient(to_top_right,transparent_47%,#ef4444_47%,#ef4444_53%,transparent_53%)]',
+  gray: 'line-through decoration-2 decoration-gray-500 dark:decoration-gray-400 bg-[linear-gradient(to_top_right,transparent_47%,#6b7280_47%,#6b7280_53%,transparent_53%)]',
+}
+
+// 색과 무관한 모양. 여기서 한 번만 정해야 rounded-sm 과 rounded-full 이 같은 요소에
+// 함께 실려 어느 쪽이 이길지 CSS 순서에 맡기는 일이 없다
+const STYLE_SHAPE: Record<HighlightStyle, string> = {
+  fill: 'rounded-sm',
+  underline: 'rounded-sm',
+  strike: 'rounded-sm',
+  circle: 'rounded-full px-1 box-decoration-clone',
+  cross: 'rounded-sm',
+}
+
+const STYLE_COLOR_CLASSES: Record<HighlightStyle, Record<HighlightColor, string>> = {
+  fill: HIGHLIGHT_CLASSES,
+  underline: HIGHLIGHT_UNDERLINE_CLASSES,
+  strike: HIGHLIGHT_STRIKE_CLASSES,
+  circle: HIGHLIGHT_CIRCLE_CLASSES,
+  cross: HIGHLIGHT_CROSS_CLASSES,
+}
+
+/** 스타일마다 고를 수 있는 색. 선으로 그리는 쪽은 회색도 보인다 */
+export const STYLE_COLORS: Record<HighlightStyle, HighlightColor[]> = {
+  fill: HIGHLIGHT_COLORS,
+  underline: UNDERLINE_COLORS,
+  strike: UNDERLINE_COLORS,
+  circle: UNDERLINE_COLORS,
+  cross: UNDERLINE_COLORS,
+}
+
+/** 옛 데이터에는 style 이 없다. 모르는 값이 들어와도 배경 칠하기로 돌린다 */
+export function styleOf(style: HighlightStyle | undefined): HighlightStyle {
+  return style && style in STYLE_COLOR_CLASSES ? style : 'fill'
+}
+
+export function highlightClassName(style: HighlightStyle | undefined, color: HighlightColor): string {
+  const s = styleOf(style)
+  return `${STYLE_SHAPE[s]} ${STYLE_COLOR_CLASSES[s][color]}`
 }
 
 export const HIGHLIGHT_SWATCH_CLASSES: Record<HighlightColor, string> = {
@@ -134,6 +213,19 @@ function applyBold(
   return nodes
 }
 
+/**
+ * 지우개 hover 신호.
+ *
+ * 기본은 빨간 취소선인데, 이미 취소선이 그어진 스타일(취소선·X표시)에는 그어봐야
+ * 달라지는 것이 없어 지워질 것이라는 신호가 되지 못한다. 그쪽은 흐려지는 것으로 알린다
+ */
+function eraserHoverClass(style: HighlightStyle | undefined): string {
+  const struck = styleOf(style) === 'strike' || styleOf(style) === 'cross'
+  return struck
+    ? 'hover:bg-red-500/30 hover:opacity-40'
+    : 'hover:bg-red-500/30 hover:line-through hover:decoration-red-500 hover:decoration-2'
+}
+
 export function renderHighlighted(
   text: string,
   field: string,
@@ -164,10 +256,8 @@ export function renderHighlighted(
         style={{
           cursor: onRemove ? `url("${ERASER_CURSOR_SVG}") 4 20, pointer` : 'default',
         }}
-        className={`${
-          h.style === 'underline' ? HIGHLIGHT_UNDERLINE_CLASSES[h.color] : HIGHLIGHT_CLASSES[h.color]
-        } rounded-sm transition-all ${
-          onRemove ? 'hover:bg-red-500/30 hover:line-through hover:decoration-red-500 hover:decoration-2' : ''
+        className={`${highlightClassName(h.style, h.color)} transition-all ${
+          onRemove ? eraserHoverClass(h.style) : ''
         }`}
       >
         {applyBold(text.slice(h.start, h.end), h.start, bolds, field)}

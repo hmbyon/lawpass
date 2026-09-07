@@ -14,8 +14,7 @@ import {
   HighlightStyle,
   Highlight,
   HIGHLIGHT_SWATCH_CLASSES,
-  HIGHLIGHT_COLORS,
-  UNDERLINE_COLORS,
+  STYLE_COLORS,
   HIGHLIGHT_COLOR_LABELS,
   loadHighlights,
   saveHighlights,
@@ -498,6 +497,45 @@ function parseSubExplanations(explanation: string | null): Record<string, string
   return result
 }
 
+const STYLE_LABELS: Record<HighlightStyle, string> = {
+  fill: '형광펜',
+  underline: '밑줄',
+  strike: '취소선',
+  circle: '원',
+  cross: 'X표시',
+}
+
+/** 색 버튼 안에 그리는 미리보기. 고른 스타일이 어떻게 보일지 그 자리에서 알려준다 */
+function StyleSwatch({ style, color }: { style: HighlightStyle; color: HighlightColor }) {
+  const paint = HIGHLIGHT_SWATCH_CLASSES[color]
+  if (style === 'fill') return <span className={`block w-full h-full rounded-full ${paint}`} />
+  if (style === 'circle') {
+    // 가운데를 카드 색으로 덮어 고리로 만든다 — 테두리 색 맵을 따로 두지 않아도 된다
+    return (
+      <span className={`flex w-full h-full items-center justify-center rounded-full ${paint}`}>
+        <span className="block w-3 h-3 rounded-full bg-card" />
+      </span>
+    )
+  }
+  if (style === 'cross') {
+    return (
+      <span className="relative block w-full h-full">
+        <span className={`absolute left-1/2 top-1/2 block h-0.5 w-4 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-full ${paint}`} />
+        <span className={`absolute left-1/2 top-1/2 block h-0.5 w-4 -translate-x-1/2 -translate-y-1/2 -rotate-45 rounded-full ${paint}`} />
+      </span>
+    )
+  }
+  // 밑줄과 취소선은 선의 높이만 다르다
+  return (
+    <span className={`flex w-full h-full justify-center ${style === 'underline' ? 'items-end pb-1' : 'items-center'}`}>
+      <span className={`block h-1 w-4 rounded-full ${paint}`} />
+    </span>
+  )
+}
+
+// 팝업과 선택 영역 사이 간격. 위치 계산과 높이 보정이 같은 값을 봐야 한다
+const POPUP_GAP = 8
+
 function StudyBulkPreview({
   questions,
   startFrom,
@@ -578,6 +616,8 @@ function StudyBulkPreview({
   )
   const fieldRefs = useRef<Record<string, HTMLElement | null>>({})
   const popupRef = useRef<HTMLDivElement>(null)
+  // 실제로 렌더된 팝업 높이. 처음 열기 전에는 잰 적이 없어 어림값으로 시작한다
+  const popupHeightRef = useRef(88)
 
   useEffect(() => {
     setHighlights(loadHighlights(q.id))
@@ -684,8 +724,10 @@ function StudyBulkPreview({
 
     const rect = range.getBoundingClientRect()
     const HALF_WIDTH = 140
-    const POPUP_HEIGHT = 88
-    const GAP = 8
+    // 스타일이 다섯이라 팝업이 줄바꿈될 수 있다. 고정값 대신 지난번에 잰 높이를 쓰고,
+    // 처음 열려 아직 잰 적이 없으면 어림값으로 두었다가 렌더 직후 아래 효과가 바로잡는다
+    const POPUP_HEIGHT = popupHeightRef.current
+    const GAP = POPUP_GAP
 
     // 좌우는 화면 안으로 클램프
     const centerX = rect.left + rect.width / 2
@@ -710,6 +752,31 @@ function StudyBulkPreview({
 
     setHighlightPopup({ field: matchedField, start, end, x, y })
   }
+
+  // 팝업이 열려 있는 동안 실제 높이를 잰다. 다음 열림은 이 값으로 자리를 잡고,
+  // 지금 열린 것도 잰 높이로 화면을 벗어났는지 다시 확인해 필요하면 끌어올린다
+  useEffect(() => {
+    if (!highlightPopup) return
+    const el = popupRef.current
+    if (!el) return
+    const measure = () => {
+      const h = el.getBoundingClientRect().height
+      if (h <= 0) return
+      popupHeightRef.current = h
+      setHighlightPopup((prev) => {
+        if (!prev) return prev
+        const max = Math.max(POPUP_GAP, window.innerHeight - h - POPUP_GAP)
+        const y = Math.min(Math.max(prev.y, POPUP_GAP), max)
+        // 같은 값이면 같은 객체를 돌려준다 — 아니면 이 효과가 스스로를 다시 부른다
+        return y === prev.y ? prev : { ...prev, y }
+      })
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [highlightPopup])
 
   function applyHighlight(color: HighlightColor) {
     if (!highlightPopup) return
@@ -1152,7 +1219,15 @@ function StudyBulkPreview({
           style={{ left: highlightPopup.x, top: Math.max(highlightPopup.y, 8), transform: 'translateX(-50%)' }}
         >
           <div className="flex items-center gap-1">
-            {([['fill', '배경'], ['underline', '밑줄']] as [HighlightStyle, string][]).map(([style, label]) => (
+            {(
+              [
+                ['fill', '배경'],
+                ['underline', '밑줄'],
+                ['strike', '취소선'],
+                ['circle', '원'],
+                ['cross', 'X표시'],
+              ] as [HighlightStyle, string][]
+            ).map(([style, label]) => (
               <button
                 key={style}
                 type="button"
@@ -1175,21 +1250,15 @@ function StudyBulkPreview({
             </button>
           </div>
           <div className="flex items-center gap-1.5">
-            {(highlightStyle === 'underline' ? UNDERLINE_COLORS : HIGHLIGHT_COLORS).map((color) => (
+            {STYLE_COLORS[highlightStyle].map((color) => (
               <button
                 key={color}
                 type="button"
                 onClick={() => applyHighlight(color)}
-                title={`${HIGHLIGHT_COLOR_LABELS[color]} ${highlightStyle === 'underline' ? '밑줄' : '형광펜'}`}
-                className={
-                  highlightStyle === 'underline'
-                    ? `w-6 h-6 rounded-full border-2 border-black/10 flex items-end justify-center pb-0.5 hover:scale-110 transition-transform`
-                    : `w-6 h-6 rounded-full border border-black/10 hover:scale-110 transition-transform ${HIGHLIGHT_SWATCH_CLASSES[color]}`
-                }
+                title={`${HIGHLIGHT_COLOR_LABELS[color]} ${STYLE_LABELS[highlightStyle]}`}
+                className="w-6 h-6 rounded-full border border-black/10 hover:scale-110 transition-transform"
               >
-                {highlightStyle === 'underline' && (
-                  <span className={`block w-4 h-1 rounded-full ${HIGHLIGHT_SWATCH_CLASSES[color]}`} />
-                )}
+                <StyleSwatch style={highlightStyle} color={color} />
               </button>
             ))}
           </div>
