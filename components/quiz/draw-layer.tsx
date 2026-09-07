@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { hitsStroke } from '@/lib/strokeHit'
 
 /**
  * 문제 위에 직접 그리는 필기 레이어.
@@ -25,7 +26,11 @@ export interface DrawStroke {
   points: DrawPoint[]
 }
 
-export type DrawTool = 'pen' | 'eraser'
+/**
+ * 'eraser' 는 지나간 자리를 픽셀째로 지우고, 'strokeEraser' 는 누른 획을 통째로 지운다.
+ * 종이에 연필로 문지르는 것과, 그은 줄 하나를 골라 없애는 것의 차이다
+ */
+export type DrawTool = 'pen' | 'eraser' | 'strokeEraser'
 
 /** 문제 id → 그 문제에 그린 획들 */
 export type DrawStrokeMap = Record<string, DrawStroke[]>
@@ -56,6 +61,9 @@ export function useDrawBoard(): DrawBoard {
 const PEN_COLOR = '#ef4444'
 const PEN_WIDTH = 2.5
 const ERASER_WIDTH = 18
+
+// 획 지우개가 무는 거리. 손끝은 정확하지 않아 획 두께보다 넉넉해야 한다
+const STROKE_HIT_PX = 12
 
 const EMPTY: DrawStroke[] = []
 
@@ -121,6 +129,8 @@ export function DrawLayer({ board, questionId, className, children, keepHint, ..
   // 저장되지 않는다는 안내. 처음 켤 때 한 번만 펴 보이고, 닫으면 이 화면에 있는 동안은
   // 다시 뜨지 않는다. 그림 자체를 저장하지 않는 기능이라 이 표시도 남기지 않는다
   const [noticeOpen, setNoticeOpen] = useState(true)
+  // 획 지우개로 문지르는 중인지. 이때는 새 획을 만들지 않는다
+  const wiping = useRef(false)
 
   const strokes = board.byQuestion[questionId] ?? EMPTY
 
@@ -150,6 +160,26 @@ export function DrawLayer({ board, questionId, className, children, keepHint, ..
     for (const s of strokes) paintStroke(ctx, s)
   }, [size, strokes])
 
+  /**
+   * 그 자리에 걸린 획을 배열에서 뺀다.
+   *
+   * 지우개로 그은 획(erase)은 건드리지 않는다 — 눈에 안 보이는 것을 지우면 아까 지웠던
+   * 자국이 되살아나, 누른 사람에게는 없던 그림이 튀어나온 것으로 보인다
+   */
+  const wipeAt = useCallback(
+    (p: DrawPoint) => {
+      board.setByQuestion((m) => {
+        const list = m[questionId] ?? []
+        const next = list.filter(
+          (s) => s.erase || !hitsStroke(s.points.length, (i) => [s.points[i].x, s.points[i].y], p.x, p.y, STROKE_HIT_PX)
+        )
+        // 걸린 것이 없으면 같은 객체를 돌려준다. 문지르는 내내 다시 그리게 할 이유가 없다
+        return next.length === list.length ? m : { ...m, [questionId]: next }
+      })
+    },
+    [board, questionId]
+  )
+
   const at = (e: React.PointerEvent<HTMLCanvasElement>): DrawPoint => {
     const r = e.currentTarget.getBoundingClientRect()
     return { x: e.clientX - r.left, y: e.clientY - r.top }
@@ -162,14 +192,24 @@ export function DrawLayer({ board, questionId, className, children, keepHint, ..
       e.preventDefault()
       e.currentTarget.setPointerCapture?.(e.pointerId)
       const p = at(e)
+      if (board.tool === 'strokeEraser') {
+        wiping.current = true
+        wipeAt(p)
+        return
+      }
       live.current = { erase: board.tool === 'eraser', points: [p] }
       const ctx = canvasRef.current?.getContext('2d')
       if (ctx) paintStroke(ctx, live.current)
     },
-    [board.enabled, board.tool]
+    [board.enabled, board.tool, wipeAt]
   )
 
   const move = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (wiping.current) {
+      e.preventDefault()
+      wipeAt(at(e))
+      return
+    }
     const s = live.current
     if (!s) return
     e.preventDefault()
@@ -178,10 +218,15 @@ export function DrawLayer({ board, questionId, className, children, keepHint, ..
     s.points.push(p)
     const ctx = canvasRef.current?.getContext('2d')
     if (ctx) paintSegment(ctx, prev, p, s.erase)
-  }, [])
+  }, [wipeAt])
 
   const up = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
+      if (wiping.current) {
+        wiping.current = false
+        e.currentTarget.releasePointerCapture?.(e.pointerId)
+        return
+      }
       const s = live.current
       if (!s) return
       live.current = null
@@ -224,13 +269,15 @@ export function DrawLayer({ board, questionId, className, children, keepHint, ..
             </p>
             <button
               onClick={() => setNoticeOpen(false)}
-              className="shrink-0 text-[11px] text-muted-foreground hover:text-foreground"
+              aria-label="안내 닫기"
+              title="닫기"
+              className="-mt-0.5 shrink-0 text-sm leading-none text-muted-foreground hover:text-foreground"
             >
-              알겠어요
+              ×
             </button>
           </div>
         )}
-        <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-border bg-card/95 px-1.5 py-1 shadow-lg backdrop-blur">
+        <div className="pointer-events-auto flex max-w-full flex-wrap items-center justify-end gap-1 rounded-2xl border border-border bg-card/95 px-1.5 py-1 shadow-lg backdrop-blur">
           {board.enabled ? (
             <>
               {/* 안내를 닫은 뒤에도 어느 쪽에 그리고 있는지는 계속 보여야 한다 */}
@@ -250,11 +297,23 @@ export function DrawLayer({ board, questionId, className, children, keepHint, ..
               </button>
               <button
                 onClick={() => board.setTool('eraser')}
+                title="지나간 자리를 문질러 지웁니다"
                 className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
                   board.tool === 'eraser' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 🧽 지우개
+              </button>
+              <button
+                onClick={() => board.setTool('strokeEraser')}
+                title="획 하나를 눌러 통째로 지웁니다"
+                className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
+                  board.tool === 'strokeEraser'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                ✂️ 획 지우개
               </button>
               <button
                 onClick={() => board.setByQuestion((m) => ({ ...m, [questionId]: [] }))}

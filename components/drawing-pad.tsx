@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DrawingStroke } from '@/lib/types'
 import { getQuestionDrawing, saveQuestionDrawing } from '@/lib/store'
+import { hitsStroke } from '@/lib/strokeHit'
 
 /**
  * 문제 하나에 딸린 그림판.
@@ -30,8 +31,11 @@ const PEN_COLOR = '#ef4444'
 const PRECISION = 1000
 // 이만큼도 안 움직인 점은 버린다. 손이 멈춘 사이에도 포인터 이벤트는 계속 들어온다
 const MIN_MOVE_PX = 2
+// 획 지우개가 무는 거리. 좌표가 비율이라 이것도 폭 대비로 둔다 (400px 캔버스에서 12px)
+const STROKE_HIT = 0.03
 
-type Tool = 'pen' | 'eraser'
+// 'eraser' 는 지나간 자리를 픽셀째로 지우고, 'strokeEraser' 는 누른 획을 통째로 지운다
+type Tool = 'pen' | 'eraser' | 'strokeEraser'
 
 function round(v: number): number {
   return Math.round(v * PRECISION) / PRECISION
@@ -100,6 +104,8 @@ export function DrawingPad({ questionId, questionNo, onClose, onSaved }: Props) 
   const live = useRef<DrawingStroke | null>(null)
   // 솎아내기 기준이 되는, 마지막으로 받아들인 점 (화면 픽셀)
   const lastPx = useRef<[number, number] | null>(null)
+  // 획 지우개로 문지르는 중인지. 이때는 새 획을 만들지 않는다
+  const wiping = useRef(false)
 
   useEffect(() => {
     const el = boxRef.current
@@ -127,6 +133,21 @@ export function DrawingPad({ questionId, questionNo, onClose, onSaved }: Props) 
     for (const s of strokes) paintStroke(ctx, s, width)
   }, [width, strokes])
 
+  /**
+   * 그 자리에 걸린 획을 배열에서 뺀다. 저장 형태는 그대로다 — 통째로 빠질 뿐이다.
+   *
+   * 지우개로 그은 획(erase)은 건드리지 않는다 — 눈에 안 보이는 것을 지우면 아까 지웠던
+   * 자국이 되살아나, 누른 사람에게는 없던 그림이 튀어나온 것으로 보인다
+   */
+  const wipeAt = useCallback(([x, y]: [number, number]) => {
+    setStrokes((prev) => {
+      const next = prev.filter(
+        (s) => s.erase || !hitsStroke(s.points.length / 2, (i) => [s.points[i * 2], s.points[i * 2 + 1]], x, y, STROKE_HIT)
+      )
+      return next.length === prev.length ? prev : next
+    })
+  }, [])
+
   /** 화면 좌표를 캔버스 폭 대비 비율로 바꾼다. 저장되는 값은 늘 이 형태다 */
   const at = (e: React.PointerEvent<HTMLCanvasElement>): { ratio: [number, number]; px: [number, number] } => {
     const r = e.currentTarget.getBoundingClientRect()
@@ -142,6 +163,11 @@ export function DrawingPad({ questionId, questionNo, onClose, onSaved }: Props) 
       e.preventDefault()
       e.currentTarget.setPointerCapture?.(e.pointerId)
       const { ratio, px } = at(e)
+      if (tool === 'strokeEraser') {
+        wiping.current = true
+        wipeAt(ratio)
+        return
+      }
       const stroke: DrawingStroke = {
         erase: tool === 'eraser',
         width: tool === 'eraser' ? ERASER_WIDTH : PEN_WIDTH,
@@ -152,10 +178,15 @@ export function DrawingPad({ questionId, questionNo, onClose, onSaved }: Props) 
       const ctx = canvasRef.current?.getContext('2d')
       if (ctx && width > 0) paintStroke(ctx, stroke, width)
     },
-    [tool, width]
+    [tool, width, wipeAt]
   )
 
   const move = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (wiping.current) {
+      e.preventDefault()
+      wipeAt(at(e).ratio)
+      return
+    }
     const s = live.current
     if (!s) return
     e.preventDefault()
@@ -168,9 +199,14 @@ export function DrawingPad({ questionId, questionNo, onClose, onSaved }: Props) 
     lastPx.current = px
     const ctx = canvasRef.current?.getContext('2d')
     if (ctx && width > 0) paintSegment(ctx, s, from, ratio, width)
-  }, [width])
+  }, [width, wipeAt])
 
   const up = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (wiping.current) {
+      wiping.current = false
+      e.currentTarget.releasePointerCapture?.(e.pointerId)
+      return
+    }
     const s = live.current
     if (!s) return
     live.current = null
@@ -219,7 +255,7 @@ export function DrawingPad({ questionId, questionNo, onClose, onSaved }: Props) 
           />
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             onClick={() => setTool('pen')}
             className={`rounded-lg px-3 py-1.5 text-xs transition-colors ${
@@ -230,11 +266,21 @@ export function DrawingPad({ questionId, questionNo, onClose, onSaved }: Props) 
           </button>
           <button
             onClick={() => setTool('eraser')}
+            title="지나간 자리를 문질러 지웁니다"
             className={`rounded-lg px-3 py-1.5 text-xs transition-colors ${
               tool === 'eraser' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
             }`}
           >
             🧽 지우개
+          </button>
+          <button
+            onClick={() => setTool('strokeEraser')}
+            title="획 하나를 눌러 통째로 지웁니다"
+            className={`rounded-lg px-3 py-1.5 text-xs transition-colors ${
+              tool === 'strokeEraser' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            ✂️ 획 지우개
           </button>
           <button
             onClick={() => setStrokes([])}
