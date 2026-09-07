@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { getAppMode } from '@/lib/appMode'
+import { EXAMPASS_ENTRY_ENABLED } from '@/lib/featureFlags'
 
 interface OnboardingModalProps {
   onClose: () => void
@@ -50,7 +51,10 @@ function buildSteps(appTitle: string, isGeneral: boolean) {
       '거의 같은 문제는 자동으로 묶거나 후보로 짚어주고, 연도·과목이 헷갈리는 문제는 표시돼 직접 골라 고칠 수 있어요.',
       '분할 업로드한 문제집은 "합치기" 기능으로 하나로 통합할 수 있어요.',
       '☁️ 헤더에 동기화 상태가 떠요. "미동기화"나 "⚠️ 동기화 실패"가 보이면 눌러서 다시 올릴 수 있어요.',
-      '⚙️ 설정에서 LawPass ↔ ExamPass 모드를 바꿀 수 있어요. "전체 데이터 초기화"는 되돌릴 수 없으니 주의하세요.',
+      // 모드 전환은 진입점이 닫힌 동안 없는 기능이라, 안내에서도 뺀다
+      EXAMPASS_ENTRY_ENABLED
+        ? '⚙️ 설정에서 LawPass ↔ ExamPass 모드를 바꿀 수 있어요. "전체 데이터 초기화"는 되돌릴 수 없으니 주의하세요.'
+        : '⚙️ 설정의 "전체 데이터 초기화"는 되돌릴 수 없으니 주의하세요.',
       '📊 진도표에서 과목/연도/단원별 학습 완료율을 확인하세요.',
     ],
   },

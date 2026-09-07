@@ -9,6 +9,7 @@ import { AdminFeedbackPanel } from '@/components/admin-feedback-panel'
 import { AdminPoolPanel } from '@/components/admin-pool-panel'
 import { SharedPoolList } from '@/components/shared-pool-list'
 import type { AppMode } from '@/lib/appMode'
+import { EXAMPASS_ENTRY_ENABLED } from '@/lib/featureFlags'
 import { db } from '@/lib/firebase'
 import { collection, doc, deleteDoc, getDocs, writeBatch } from 'firebase/firestore'
 
@@ -154,7 +155,8 @@ export function SettingsModal({
             <ThemeToggle />
           </div>
 
-          {/* 앱 모드 */}
+          {/* 앱 모드. EXAMPASS_ENTRY_ENABLED 가 닫혀 있으면 고를 것이 하나뿐이라 내보내지 않는다 */}
+          {EXAMPASS_ENTRY_ENABLED && (
           <div className="bg-muted rounded-xl p-4 flex flex-col gap-3">
             <h3 className="text-sm font-semibold">앱 모드</h3>
             <p className="text-xs text-muted-foreground">LawPass ↔ ExamPass 전환</p>
@@ -183,6 +185,7 @@ export function SettingsModal({
               </button>
             </div>
           </div>
+          )}
 
           {/* 학습 현황 */}
           <div className="bg-muted rounded-xl p-4 flex flex-col gap-3">

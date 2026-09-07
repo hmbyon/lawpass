@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { onAuthChange, loginWithGoogle } from '@/lib/firebaseServices/auth'
 import { getAppMode, setAppMode, type AppMode } from '@/lib/appMode'
+import { EXAMPASS_ENTRY_ENABLED } from '@/lib/featureFlags'
 import type { User } from 'firebase/auth'
 import { OnboardingModal } from '@/components/onboarding-modal'
 
@@ -68,7 +69,8 @@ export function AuthGate({ children }: Props) {
           <p className="text-muted-foreground text-sm">객관식 시험 대비 AI 오답노트 &amp; 학습 코치</p>
         </div>
 
-        {/* 모드 선택 (LawPass / ExamPass) */}
+        {/* 모드 선택 (LawPass / ExamPass). 고를 것이 하나뿐인 동안에는 내보내지 않는다 */}
+        {EXAMPASS_ENTRY_ENABLED && (
         <div className="grid grid-cols-2 gap-3 w-full max-w-sm">
           <button
             onClick={() => handleSelectMode('law')}
@@ -95,6 +97,7 @@ export function AuthGate({ children }: Props) {
             <span className="text-xs text-muted-foreground">공무원 · CPA · 한국사 등</span>
           </button>
         </div>
+        )}
 
         {/* 구글 로그인 버튼 */}
         <div className="flex flex-col items-center gap-3 w-full max-w-sm">
