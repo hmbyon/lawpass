@@ -82,19 +82,22 @@ export const HIGHLIGHT_CIRCLE_CLASSES: Record<HighlightColor, string> = {
   gray: 'bg-transparent border-2 border-gray-500 dark:border-gray-400',
 }
 
-// X표시: 가로선(line-through)에 사선(배경 그라디언트)을 겹쳐 ×를 만든다.
-// 그라디언트는 인라인 조각마다 각각 칠해지므로 여러 줄에 걸치면 줄마다 하나씩 생긴다 —
-// 짧은 범위에서는 ×로, 긴 범위에서는 '지워진 구간'으로 읽힌다.
+// X표시: 대각선 두 줄을 겹쳐 ×를 만든다. 한 줄만 그으면 취소선과 구별되지 않는다.
+// 그라디언트는 인라인 조각마다 각각 칠해지므로 여러 줄에 걸치면 줄마다 ×가 하나씩 생긴다 —
+// 다만 범위가 길수록 대각선이 완만해져 ×보다 리본에 가까워진다. 한 문장 안에서 쓰는 표시다.
+//
+// bg-transparent 를 빠뜨리면 안 된다. <mark> 의 브라우저 기본 배경(노랑)이 그대로 비쳐,
+// 노란 형광펜을 함께 칠한 것처럼 보인다 — 밑줄·취소선·원이 모두 이것을 달고 있는 이유다.
 // 색을 임의 값으로 박는 자리라 Tailwind 팔레트의 500 색상값을 그대로 적는다
 export const HIGHLIGHT_CROSS_CLASSES: Record<HighlightColor, string> = {
-  yellow: 'line-through decoration-2 decoration-yellow-500 dark:decoration-yellow-400 bg-[linear-gradient(to_top_right,transparent_47%,#eab308_47%,#eab308_53%,transparent_53%)]',
-  green: 'line-through decoration-2 decoration-emerald-500 dark:decoration-emerald-400 bg-[linear-gradient(to_top_right,transparent_47%,#10b981_47%,#10b981_53%,transparent_53%)]',
-  pink: 'line-through decoration-2 decoration-pink-500 dark:decoration-pink-400 bg-[linear-gradient(to_top_right,transparent_47%,#ec4899_47%,#ec4899_53%,transparent_53%)]',
-  blue: 'line-through decoration-2 decoration-blue-500 dark:decoration-blue-400 bg-[linear-gradient(to_top_right,transparent_47%,#3b82f6_47%,#3b82f6_53%,transparent_53%)]',
-  purple: 'line-through decoration-2 decoration-purple-500 dark:decoration-purple-400 bg-[linear-gradient(to_top_right,transparent_47%,#a855f7_47%,#a855f7_53%,transparent_53%)]',
-  orange: 'line-through decoration-2 decoration-orange-500 dark:decoration-orange-400 bg-[linear-gradient(to_top_right,transparent_47%,#f97316_47%,#f97316_53%,transparent_53%)]',
-  red: 'line-through decoration-2 decoration-red-500 dark:decoration-red-400 bg-[linear-gradient(to_top_right,transparent_47%,#ef4444_47%,#ef4444_53%,transparent_53%)]',
-  gray: 'line-through decoration-2 decoration-gray-500 dark:decoration-gray-400 bg-[linear-gradient(to_top_right,transparent_47%,#6b7280_47%,#6b7280_53%,transparent_53%)]',
+  yellow: 'bg-transparent bg-[linear-gradient(to_top_right,transparent_47%,#eab308_47%,#eab308_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#eab308_47%,#eab308_53%,transparent_53%)]',
+  green: 'bg-transparent bg-[linear-gradient(to_top_right,transparent_47%,#10b981_47%,#10b981_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#10b981_47%,#10b981_53%,transparent_53%)]',
+  pink: 'bg-transparent bg-[linear-gradient(to_top_right,transparent_47%,#ec4899_47%,#ec4899_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#ec4899_47%,#ec4899_53%,transparent_53%)]',
+  blue: 'bg-transparent bg-[linear-gradient(to_top_right,transparent_47%,#3b82f6_47%,#3b82f6_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#3b82f6_47%,#3b82f6_53%,transparent_53%)]',
+  purple: 'bg-transparent bg-[linear-gradient(to_top_right,transparent_47%,#a855f7_47%,#a855f7_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#a855f7_47%,#a855f7_53%,transparent_53%)]',
+  orange: 'bg-transparent bg-[linear-gradient(to_top_right,transparent_47%,#f97316_47%,#f97316_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#f97316_47%,#f97316_53%,transparent_53%)]',
+  red: 'bg-transparent bg-[linear-gradient(to_top_right,transparent_47%,#ef4444_47%,#ef4444_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#ef4444_47%,#ef4444_53%,transparent_53%)]',
+  gray: 'bg-transparent bg-[linear-gradient(to_top_right,transparent_47%,#6b7280_47%,#6b7280_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#6b7280_47%,#6b7280_53%,transparent_53%)]',
 }
 
 // 색과 무관한 모양. 여기서 한 번만 정해야 rounded-sm 과 rounded-full 이 같은 요소에
@@ -216,12 +219,12 @@ function applyBold(
 /**
  * 지우개 hover 신호.
  *
- * 기본은 빨간 취소선인데, 이미 취소선이 그어진 스타일(취소선·X표시)에는 그어봐야
- * 달라지는 것이 없어 지워질 것이라는 신호가 되지 못한다. 그쪽은 흐려지는 것으로 알린다
+ * 기본은 빨간 취소선인데, 이미 취소선이 그어진 스타일(취소선)에는 그어봐야 달라지는 것이
+ * 없어 지워질 것이라는 신호가 되지 못한다. 그쪽은 흐려지는 것으로 알린다.
+ * X표시는 대각선만 있어 가로줄이 겹쳐도 구별된다 — 기본 신호를 그대로 쓴다
  */
 function eraserHoverClass(style: HighlightStyle | undefined): string {
-  const struck = styleOf(style) === 'strike' || styleOf(style) === 'cross'
-  return struck
+  return styleOf(style) === 'strike'
     ? 'hover:bg-red-500/30 hover:opacity-40'
     : 'hover:bg-red-500/30 hover:line-through hover:decoration-red-500 hover:decoration-2'
 }
