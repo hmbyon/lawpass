@@ -867,6 +867,7 @@ function StudyBulkPreview({
       <DrawLayer
         board={board}
         questionId={q.id}
+        keepHint="남길 그림은 🎨 그림판에 그리세요"
         className={`bg-card border border-border rounded-xl p-5 space-y-4 [touch-action:pan-y_pinch-zoom] ${
           board.enabled ? 'select-none' : ''
         }`}

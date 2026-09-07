@@ -101,18 +101,26 @@ interface Props {
   questionId: string
   className?: string
   children: React.ReactNode
+  /**
+   * 안내에 덧붙일 한마디. 저장되는 그림판이 같은 화면에 함께 있을 때 그쪽을 가리킨다 —
+   * CBT 처럼 그림판이 없는 화면에서는 넘기지 않는다
+   */
+  keepHint?: string
   /** 기존 형광펜이 쓰는 손잡이들. 그리기 모드에서는 호출부가 넘기지 않는다 */
   onMouseUp?: React.MouseEventHandler<HTMLDivElement>
   onTouchStart?: React.TouchEventHandler<HTMLDivElement>
   onTouchEnd?: React.TouchEventHandler<HTMLDivElement>
 }
 
-export function DrawLayer({ board, questionId, className, children, ...handlers }: Props) {
+export function DrawLayer({ board, questionId, className, children, keepHint, ...handlers }: Props) {
   const boxRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   // 그리는 중인 획. state 에 넣으면 점 하나마다 화면을 다시 그리게 된다
   const live = useRef<DrawStroke | null>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
+  // 저장되지 않는다는 안내. 처음 켤 때 한 번만 펴 보이고, 닫으면 이 화면에 있는 동안은
+  // 다시 뜨지 않는다. 그림 자체를 저장하지 않는 기능이라 이 표시도 남기지 않는다
+  const [noticeOpen, setNoticeOpen] = useState(true)
 
   const strokes = board.byQuestion[questionId] ?? EMPTY
 
@@ -206,10 +214,32 @@ export function DrawLayer({ board, questionId, className, children, ...handlers 
       />
 
       {/* 화면 아래에 붙어 따라다닌다. 긴 지문에서도 손이 닿는 자리에 있어야 한다 */}
-      <div className="pointer-events-none sticky bottom-3 z-20 flex justify-end">
+      <div className="pointer-events-none sticky bottom-3 z-20 flex flex-col items-end gap-1.5">
+        {/* 처음 켤 때 한 번. 같은 화면에 저장되는 그림판이 따로 있어서, 어느 쪽에 그리고
+            있는지 모르면 애써 그린 것을 잃는다 */}
+        {board.enabled && noticeOpen && (
+          <div className="pointer-events-auto flex max-w-xs items-start gap-2 rounded-xl border border-border bg-card/95 px-2.5 py-2 shadow-lg backdrop-blur">
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              여기 그린 것은 저장되지 않아요. 화면을 나가면 사라집니다{keepHint ? ` — ${keepHint}` : ''}.
+            </p>
+            <button
+              onClick={() => setNoticeOpen(false)}
+              className="shrink-0 text-[11px] text-muted-foreground hover:text-foreground"
+            >
+              알겠어요
+            </button>
+          </div>
+        )}
         <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-border bg-card/95 px-1.5 py-1 shadow-lg backdrop-blur">
           {board.enabled ? (
             <>
+              {/* 안내를 닫은 뒤에도 어느 쪽에 그리고 있는지는 계속 보여야 한다 */}
+              <span
+                title="여기 그린 것은 저장되지 않아요"
+                className="px-1 text-[10px] text-muted-foreground"
+              >
+                임시
+              </span>
               <button
                 onClick={() => board.setTool('pen')}
                 className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
@@ -243,6 +273,7 @@ export function DrawLayer({ board, questionId, className, children, ...handlers 
           ) : (
             <button
               onClick={() => board.setEnabled(true)}
+              title="임시로 그리는 곳이에요 — 저장되지 않아요"
               className="rounded-full px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
             >
               ✏️ 그리기{hasDrawing ? ' •' : ''}
