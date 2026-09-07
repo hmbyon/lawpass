@@ -89,8 +89,9 @@ export function sourceLabel(
     const base = q.year ? `${q.year}년 ${month}모` : `${month}모`
     return file && needsFile ? `${base}(${file})` : base
   }
-  // 월을 못 읽었으면 파일명이 유일한 단서다. 연도라도 있으면 앞에 세운다
-  if (q.year) return file ? `${q.year}년 모의고사(${file})` : `${q.year}년 모의고사`
+  // 월을 못 읽었어도 판단은 같다 — 그 해에 이런 문제집이 하나뿐이면 파일명을 적어 봐야
+  // 가릴 것이 없다. 둘 이상일 때만 어느 판본인지 밝힌다
+  if (q.year) return file && needsFile ? `${q.year}년 모의고사(${file})` : `${q.year}년 모의고사`
   return file || '모의고사'
 }
 
