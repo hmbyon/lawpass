@@ -100,13 +100,25 @@ export const HIGHLIGHT_CROSS_CLASSES: Record<HighlightColor, string> = {
   gray: 'bg-transparent bg-[linear-gradient(to_top_right,transparent_47%,#6b7280_47%,#6b7280_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#6b7280_47%,#6b7280_53%,transparent_53%)]',
 }
 
-// 색과 무관한 모양. 여기서 한 번만 정해야 rounded-sm 과 rounded-full 이 같은 요소에
-// 함께 실려 어느 쪽이 이길지 CSS 순서에 맡기는 일이 없다
+// 색과 무관한 모양. 여기서 한 번만 정해야 rounded-sm 과 원의 반경이 같은 요소에
+// 함께 실려 어느 쪽이 이길지 CSS 순서에 맡기는 일이 없다.
+//
+// 원은 rounded-full(무한대 반경)이 아니라 50% 다. 무한대 반경은 위아래가 곧고 양끝만
+// 둥근 알약이 되는데, 손으로 친 동그라미는 그렇게 생기지 않았다. 50% 는 가로·세로
+// 반지름을 각각 절반으로 잡아 상자에 꼭 맞는 타원이 되고, 글자가 길어지면 그만큼
+// 납작한 타원으로 저절로 늘어난다.
+//
+// 여백은 px 이 아니라 em 이다. 지문(text-sm)과 선지 해설(text-xs)의 글자 크기가 달라,
+// 고정 픽셀로 두면 작은 글씨에서만 헐렁해진다.
+//
+// 세로 여백이 타원이 글자를 얼마나 품는지를 정한다. 타원은 네 귀퉁이를 잘라내므로
+// 0.15em 이면 글자 윗변의 가운데 60% 만 덮고 양끝이 밖으로 나온다. 0.25em 이면 71% 다.
+// 더 키우면 더 품지만 위아래 줄을 침범한다 — 여기가 그 절충점이다
 const STYLE_SHAPE: Record<HighlightStyle, string> = {
   fill: 'rounded-sm',
   underline: 'rounded-sm',
   strike: 'rounded-sm',
-  circle: 'rounded-full px-1 box-decoration-clone',
+  circle: 'rounded-[50%] px-[0.5em] py-[0.25em] box-decoration-clone',
   cross: 'rounded-sm',
 }
 
