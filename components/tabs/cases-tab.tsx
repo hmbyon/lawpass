@@ -145,13 +145,15 @@ function CaseCard({
       </p>
 
       {/* 해설에 실제로 적힌 문장 — 요지는 요약이라 표현이 다듬어져 있다.
-          길면 잘라 둔다. 전문은 그 문제번호를 누르면 나온다 */}
+          길이는 previewMention 이 결론 문장을 남기며 줄여 둔다. CSS 로 한 번 더 접으면
+          그 결론이 접힌 자리 아래로 밀려나므로 여기서는 접지 않는다.
+          전문은 그 문제번호를 누르면 나온다 */}
       {preview && (
         <div className="rounded-lg border border-primary/30 bg-primary/5 p-2 space-y-0.5">
           <p className="text-[11px] text-muted-foreground">
             {preview.q.no}번 {preview.mention.where}
           </p>
-          <p className="text-xs text-foreground whitespace-pre-wrap leading-relaxed line-clamp-4">
+          <p className="text-xs text-foreground whitespace-pre-wrap leading-relaxed">
             {preview.mention.text}
           </p>
         </div>

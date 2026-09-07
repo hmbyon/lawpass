@@ -366,6 +366,45 @@ function caseNumberAt(text: string, key: string): { at: number; len: number } | 
   return m ? { at: m.index, len: m[0].length } : null
 }
 
+/**
+ * 문장이 여기서 끝나는가.
+ *
+ * 마침표를 그냥 세면 "(대판 2024.08.01. 2023다318857)"의 날짜에서 문장이 끊긴다. 앞이
+ * 숫자인 마침표를 문장 끝으로 치지 않는 이유다 — 사건번호 바로 앞은 늘 선고일이라,
+ * 하필 결론 문장에서만 이 실수가 난다
+ */
+function isSentenceEnd(text: string, i: number): boolean {
+  const ch = text[i]
+  if (ch === '\n') return true
+  if (!SENTENCE_END.test(ch ?? '')) return false
+  return !(ch === '.' && /\d/.test(text[i - 1] ?? ''))
+}
+
+/**
+ * 결론 문장을 찾을 때 물러설 수 있는 폭. 이보다 멀리까지 경계가 없으면 문장이 아니라
+ * 글 전체를 끌어오는 셈이라 포기하고 종전 폭으로 자른다
+ */
+const CITE_MAX = 400
+
+/** 그 자리가 든 문장의 첫머리. 경계를 못 찾으면 null */
+function sentenceHead(text: string, at: number, lo: number): number | null {
+  for (let i = at; i > lo && at - i < CITE_MAX; i--) {
+    if (!isSentenceEnd(text, i - 1)) continue
+    let head = i
+    while (head < at && /\s/.test(text[head])) head++
+    return head
+  }
+  return at - lo < CITE_MAX ? lo : null
+}
+
+/** 그 자리가 든 문장의 끝(문장부호 포함). 경계를 못 찾으면 null */
+function sentenceTail(text: string, at: number, hi: number): number | null {
+  for (let i = at; i < hi && i - at < CITE_MAX; i++) {
+    if (isSentenceEnd(text, i)) return i + 1
+  }
+  return hi - at < CITE_MAX ? hi : null
+}
+
 /** 자를 자리를 문장 첫머리까지 뒤로 물린다. 가까이에 경계가 없으면 그대로 둔다 */
 function backToSentence(text: string, from: number): number {
   for (let i = from; i > Math.max(0, from - EXCERPT_SLACK); i--) {
@@ -405,8 +444,14 @@ function excerptAround(text: string, found: { at: number; len: number }): string
   // 잘라 보여줄 만큼 길지 않은데 자르면 없는 말을 지우는 셈이다
   if (hi - lo <= EXCERPT_LIMIT) return text.slice(lo, hi).trim()
 
-  const start = Math.max(lo, backToSentence(text, Math.max(lo, found.at - EXCERPT_BEFORE)))
-  const end = Math.min(hi, forwardToSentence(text, Math.min(hi, after + EXCERPT_AFTER)))
+  let start = Math.max(lo, backToSentence(text, Math.max(lo, found.at - EXCERPT_BEFORE)))
+  let end = Math.min(hi, forwardToSentence(text, Math.min(hi, after + EXCERPT_AFTER)))
+  // 사건번호가 든 문장은 글자수를 넘겨서라도 통째로 남긴다. 그 판례를 어떻게 인용했는지가
+  // 조각의 전부인데, 폭을 맞추다 결론 문장을 반토막 내면 조각이 아무 말도 하지 않는다
+  const head = sentenceHead(text, found.at, lo)
+  const tail = sentenceTail(text, after, hi)
+  if (head !== null) start = Math.min(start, head)
+  if (tail !== null) end = Math.max(end, tail)
   const body = text.slice(start, end).trim()
   return `${start > lo ? '…' : ''}${body}${end < hi ? '…' : ''}`
 }
@@ -454,6 +499,35 @@ export function allExplanationText(q: Question): CaseMention[] {
   return out
 }
 
+/**
+ * 카드에 접어 넣을 조각의 길이. 카드는 목록을 훑는 자리라 몇 줄로 접어 두는데,
+ * 그 접힘(line-clamp)은 뒤에서부터 가린다. 항목 전체를 그대로 실으면 결론 문장이 접힌
+ * 자리 아래로 밀려나, 정작 그 판례를 어떻게 인용했는지가 카드에서 사라진다
+ */
+const PREVIEW_LIMIT = 170
+
+/**
+ * 카드용으로 조각을 줄인다. 결론 문장(사건번호가 든 문장)을 먼저 확보하고, 남는 자리에
+ * 앞 맥락을 채운다 — 접히더라도 결론은 남게 하려는 것이다.
+ *
+ * 펼친 화면("이 판례가 언급된 부분")은 줄이지 않는다. 거기서는 항목 전체가 보여야 한다
+ */
+function clipForCard(text: string, key: string): string {
+  if (text.length <= PREVIEW_LIMIT) return text
+  const found = caseNumberAt(text, key)
+  if (!found) return text
+  const after = found.at + found.len
+  const head = sentenceHead(text, found.at, 0)
+  const tail = sentenceTail(text, after, text.length)
+  // 문장 경계를 못 찾으면 사건번호 둘레만이라도 보이게 한다
+  const from = head ?? Math.max(0, found.at - 60)
+  const to = tail ?? Math.min(text.length, after + 40)
+  const room = PREVIEW_LIMIT - (to - from)
+  const start = room > 0 ? Math.max(0, backToSentence(text, Math.max(0, from - room))) : from
+  const body = text.slice(start, to).trim()
+  return `${start > 0 ? '…' : ''}${body}${to < text.length ? '…' : ''}`
+}
+
 /** 카드에 미리 보여줄 조각 하나와, 그것을 찾은 문제 */
 export interface CasePreview {
   q: Question
@@ -476,5 +550,6 @@ export function previewMention(group: CaseGroup): CasePreview | null {
       if (!best || mention.text.length > best.mention.text.length) best = { q, mention }
     }
   }
-  return best
+  if (!best) return null
+  return { ...best, mention: { ...best.mention, text: clipForCard(best.mention.text, normalizeCaseNumber(group.caseNumber)) } }
 }
