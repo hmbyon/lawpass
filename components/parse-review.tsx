@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useMemo, useState } from 'react'
-import type { Question, Subject } from '@/lib/types'
+import type { ExplanationBlock, Question, Subject } from '@/lib/types'
 import {
   updateQuestionUnit, updateQuestionYear, updateQuestionSubject, deleteQuestion, mergeQuestionInto,
   attachAsExplanation, completenessScore,
@@ -728,6 +728,54 @@ function QuestionRow({
   )
 }
 
+/**
+ * 해설 한 덩이를 그린다.
+ *
+ * 저장된 해설은 문자열이거나 블록 배열이다(옛 데이터는 문자열). 검토 화면은 "파싱이
+ * 제대로 됐는가"를 보는 자리라 **자르지 않는다** — 예전에는 200자에서 끊고 블록 배열은
+ * 아예 빈 칸으로 뒀는데, 그러면 정작 확인하려던 뒷부분이 안 보인다
+ */
+function ExplanationBody({ value }: { value: string | ExplanationBlock[] | null | undefined }) {
+  if (typeof value === 'string') {
+    const text = value.trim()
+    return text ? <p className="whitespace-pre-wrap text-foreground">{text}</p> : null
+  }
+  if (!Array.isArray(value) || value.length === 0) return null
+  return (
+    <div className="space-y-1">
+      {value.map((block, i) =>
+        block.type === 'lawBox' ? (
+          // 원본에서 테두리로 묶여 있던 조문 인용. 그 모양을 살려야 파싱이 맞는지 보인다
+          <div key={i} className="rounded border border-border bg-card px-2 py-1">
+            {block.title && <p className="font-medium text-foreground">{block.title}</p>}
+            <p className="whitespace-pre-wrap text-muted-foreground">{block.content}</p>
+          </div>
+        ) : (
+          <p key={i} className="whitespace-pre-wrap text-foreground">
+            {block.content}
+          </p>
+        )
+      )}
+    </div>
+  )
+}
+
+/** 비어 있는 해설인지. 블록 배열은 내용이 다 비었으면 없는 것으로 본다 */
+function hasBody(value: string | ExplanationBlock[] | null | undefined): boolean {
+  if (typeof value === 'string') return value.trim().length > 0
+  if (Array.isArray(value)) return value.some((b) => b.content?.trim() || b.title?.trim())
+  return false
+}
+
+function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-[11px] font-medium text-muted-foreground">{title}</p>
+      {children}
+    </div>
+  )
+}
+
 function QuestionDetail({
   q,
   duplicates,
@@ -748,7 +796,28 @@ function QuestionDetail({
     q.sourceFile ?? '파일 미상',
   ].join(' · ')
   const filled = q.choices.filter((c) => c.text?.trim())
-  const explanation = q.explanations?.[0] ?? q.explanation
+  // 해설은 explanation 과 explanations 두 자리에 나뉘어 들어온다. 같은 것이 두 번 실리는
+  // 경우가 있어(파싱 이력) 중복을 걸러 전부 보여준다
+  const bodies = [q.explanation, ...(q.explanations ?? [])].filter(
+    (e, i, all) => hasBody(e) && all.indexOf(e) === i
+  )
+  const subItems = q.subItems ?? []
+  const subLabels = new Set(subItems.map((item) => item.label))
+  // 옛 데이터의 한 줄짜리 보기 설명. subItems 가 없는 보기만 따로 보여준다
+  const legacySubs = Object.entries(q.subChoiceExplanations ?? {}).filter(
+    ([label, text]) => !subLabels.has(label) && text?.trim()
+  )
+  // 선지별 해설은 선지 순서대로 세운다. 저장 순서는 파싱 순서라 ①②③ 이 아닐 수 있다
+  const choiceExps = q.choices
+    .map((c) => ({
+      label: c.label,
+      body: q.choiceExplanations?.[c.label],
+      summary: q.choiceExplanationSummaries?.[c.label]?.trim(),
+    }))
+    .filter((x) => hasBody(x.body) || x.summary)
+  const nothingParsed =
+    bodies.length === 0 && choiceExps.length === 0 && legacySubs.length === 0 &&
+    !subItems.some((item) => hasBody(item.explanation) || item.explanationSummary?.trim())
   return (
     <div className="ml-6 mt-1 mb-2 p-2 rounded bg-muted/50 border border-border space-y-1.5 text-xs">
       <div className="flex items-start gap-2">
@@ -781,12 +850,75 @@ function QuestionDetail({
           ))}
         </div>
       )}
-      {explanation && (
-        <p className="text-muted-foreground">
-          해설: {typeof explanation === 'string' ? explanation.slice(0, 200) : ''}
-          {typeof explanation === 'string' && explanation.length > 200 ? '…' : ''}
-        </p>
-      )}
+      {/* 해설 — 이 화면의 목적이 "해설까지 제대로 파싱됐는가" 확인이라 전문을 싣는다.
+          길어질 수 있어 스크롤 상자에 담는다 (지문과 같은 방식) */}
+      <div className="space-y-2 border-t border-border pt-1.5 max-h-80 overflow-y-auto">
+        {nothingParsed ? (
+          <p className="text-amber-600 dark:text-amber-400">해설 없음 — 파싱되지 않았습니다</p>
+        ) : (
+          <>
+            {bodies.length > 0 && (
+              <DetailSection title="해설">
+                {bodies.map((body, i) => (
+                  <ExplanationBody key={i} value={body} />
+                ))}
+              </DetailSection>
+            )}
+
+            {subItems.length > 0 && (
+              <DetailSection title="보기별 해설">
+                {subItems.map((item) => (
+                  <div key={item.label} className="pl-1.5 border-l-2 border-border space-y-0.5">
+                    <p className="text-foreground">
+                      <span className="font-medium">{item.label}</span>
+                      <span className={item.isCorrect ? 'text-blue-500' : 'text-red-500'}>
+                        {' '}
+                        {item.isCorrect ? 'O' : 'X'}
+                      </span>{' '}
+                      <span className="whitespace-pre-wrap">{item.text}</span>
+                    </p>
+                    {item.explanationSummary?.trim() && (
+                      <p className="text-muted-foreground">요약: {item.explanationSummary.trim()}</p>
+                    )}
+                    {hasBody(item.explanation) ? (
+                      <ExplanationBody value={item.explanation} />
+                    ) : (
+                      <p className="text-amber-600 dark:text-amber-400">이 보기 해설 없음</p>
+                    )}
+                  </div>
+                ))}
+              </DetailSection>
+            )}
+
+            {legacySubs.length > 0 && (
+              <DetailSection title="보기별 해설(옛 형식)">
+                {legacySubs.map(([label, text]) => (
+                  <p key={label} className="whitespace-pre-wrap text-foreground">
+                    <span className="font-medium">{label}</span> {text}
+                  </p>
+                ))}
+              </DetailSection>
+            )}
+
+            {choiceExps.length > 0 && (
+              <DetailSection title="선지별 해설">
+                {choiceExps.map((c) => (
+                  <div key={c.label} className="pl-1.5 border-l-2 border-border space-y-0.5">
+                    <p className="font-medium text-foreground">
+                      {c.label}
+                      {c.label === q.answer && (
+                        <span className="text-emerald-600 dark:text-emerald-400"> ← 정답</span>
+                      )}
+                    </p>
+                    {c.summary && <p className="text-muted-foreground">요약: {c.summary}</p>}
+                    <ExplanationBody value={c.body} />
+                  </div>
+                ))}
+              </DetailSection>
+            )}
+          </>
+        )}
+      </div>
       {(q.subItems?.length || q.passageTable?.length) && (
         <p className="text-muted-foreground">
           {q.subItems?.length ? `보기 ${q.subItems.length}개 ` : ''}
