@@ -276,7 +276,24 @@ export function addQuestions(
  * 지우는 쪽의 해설은 남는 쪽으로 옮긴다. 청크마다 해설이 갈려 들어오는 일이 있어,
  * 그냥 지우면 한쪽에만 있던 해설이 함께 사라진다 (addQuestions 의 병합과 같은 취지)
  */
-export function mergeQuestionInto(keepId: string, dropId: string) {
+/**
+ * 합칠 때 사람이 정한 것.
+ *
+ * 아무것도 넘기지 않으면 종전 그대로 completenessScore 가 고른다 — 추천은 없애지 않는다.
+ * 다만 최종 결정은 사람 몫이라, 넘어온 값이 있으면 그것이 이긴다
+ */
+export interface MergeEdit {
+  /** 본문(지문·선지·보기)을 어느 쪽에서 가져올지 */
+  bodyFrom?: 'keep' | 'drop'
+  /** 사람이 손본 지문 */
+  passage?: string
+  /** 사람이 손본 선지 본문 (라벨 → 글) */
+  choiceTexts?: Record<string, string>
+  /** 사람이 손본 해설 전체. 합쳐진 목록을 이것으로 갈아 끼운다 */
+  explanations?: string[]
+}
+
+export function mergeQuestionInto(keepId: string, dropId: string, edit: MergeEdit = {}) {
   if (keepId === dropId) return
   const questions = getQuestions()
   const keep = questions.find((q) => q.id === keepId)
@@ -287,8 +304,12 @@ export function mergeQuestionInto(keepId: string, dropId: string) {
     ...(keep.explanations ?? (keep.explanation ? [keep.explanation] : [])),
     ...(drop.explanations ?? (drop.explanation ? [drop.explanation] : [])),
   ])
-  keep.explanations = Array.from(expl)
-  keep.explanation = Array.from(expl)[0] ?? null
+  // 사람이 손봤으면 그것이 최종본이다. 빈 칸은 지운 것으로 본다
+  const merged = edit.explanations
+    ? edit.explanations.map((e) => e.trim()).filter(Boolean)
+    : Array.from(expl)
+  keep.explanations = merged
+  keep.explanation = merged[0] ?? null
   // 연도가 갈렸다면 그 사실도 옮긴다. 합쳤다고 해서 판정이 선 것은 아니다
   if (keep.year !== drop.year && keep.year && drop.year) {
     keep.yearConflict = Array.from(new Set([...(keep.yearConflict ?? [keep.year]), drop.year])).sort(
@@ -306,10 +327,25 @@ export function mergeQuestionInto(keepId: string, dropId: string) {
   // 같으면 지문이 긴 쪽이다. 지문만 갈아끼우지 않고 선지·보기까지 함께 옮기는 것도 같다 —
   // 반쪽만 바꾸면 한 판본의 지문에 다른 판본의 선지가 붙는다.
   // id 는 keep 것을 그대로 두므로 오답노트·형광펜 연결은 끊기지 않는다
-  if (completenessScore(drop) > completenessScore(keep)) {
+  // 사람이 고른 쪽이 있으면 그 쪽이다. 고르지 않았을 때만 자가 판단한다
+  const takeDrop =
+    edit.bodyFrom !== undefined
+      ? edit.bodyFrom === 'drop'
+      : completenessScore(drop) > completenessScore(keep)
+  if (takeDrop) {
     keep.passage = drop.passage
     keep.choices = drop.choices
     if (drop.subItems?.length) keep.subItems = drop.subItems
+  }
+
+  // 다듬은 글을 덮어쓴다. 선지는 사본을 만들어 갈아 끼운다 — drop 의 배열을 그대로 받아온
+  // 경우 그 객체를 직접 고치면 같은 것을 가리키는 다른 자리까지 함께 바뀐다
+  if (edit.passage !== undefined) keep.passage = edit.passage
+  if (edit.choiceTexts) {
+    const texts = edit.choiceTexts
+    keep.choices = keep.choices.map((c) =>
+      texts[c.label] !== undefined ? { ...c, text: texts[c.label] } : { ...c }
+    )
   }
 
   saveQuestions(questions.filter((q) => q.id !== dropId))

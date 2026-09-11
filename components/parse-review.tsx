@@ -1,10 +1,10 @@
 'use client'
 
-import { createContext, useContext, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ExplanationBlock, Question, Subject } from '@/lib/types'
 import {
   updateQuestionUnit, updateQuestionYear, updateQuestionSubject, deleteQuestion, mergeQuestionInto,
-  attachAsExplanation, completenessScore,
+  attachAsExplanation, completenessScore, type MergeEdit,
 } from '@/lib/store'
 import { diffSegments, type DiffSegment } from '@/lib/passageMatch'
 import { canonicalUnit } from '@/lib/units'
@@ -22,10 +22,194 @@ import {
  *
  * 색은 이 화면이 경고에 쓰는 amber 다 — "여기가 갈린 자리"라는 뜻이지 틀렸다는 뜻이 아니다
  */
-function DiffLine({ label, segments, kept }: { label: string; segments: DiffSegment[]; kept: boolean }) {
+/**
+ * 유사 후보 한 쌍.
+ *
+ * 예전에는 completenessScore 가 이긴 쪽이 그대로 채택돼, 사람이 볼 수는 있어도 고를 수는
+ * 없었다. 자는 "채워진 선지 수, 같으면 긴 지문"뿐이라 어느 판본이 옳은지까지는 모른다 —
+ * 표가 빠졌거나 오탈자가 섞인 쪽이 더 길 수도 있다. 그래서 추천은 그대로 두고(기본 선택),
+ * 고르는 일과 다듬는 일은 사람에게 넘긴다
+ */
+function SimilarPairCard({
+  pair,
+  onMerge,
+  onIgnore,
+}: {
+  pair: SimilarPair
+  onMerge: (edit: MergeEdit) => void
+  onIgnore: () => void
+}) {
+  const diff = useMemo(() => diffSegments(pair.a.passage, pair.b.passage), [pair])
+  // 추천은 병합이 쓰던 자와 같은 것이다. 없애지 않고 기본값으로 남긴다
+  const recommended: 'a' | 'b' = completenessScore(pair.a) >= completenessScore(pair.b) ? 'a' : 'b'
+  const [side, setSide] = useState<'a' | 'b'>(recommended)
+  const [editing, setEditing] = useState(false)
+
+  const picked = side === 'a' ? pair.a : pair.b
+  // 합치면 남을 해설. mergeQuestionInto 와 같은 순서로 모은다 (위쪽 먼저)
+  const mergedExplanations = useMemo(() => {
+    const of = (q: Question) => q.explanations ?? (q.explanation ? [q.explanation] : [])
+    return Array.from(new Set([...of(pair.a), ...of(pair.b)]))
+  }, [pair])
+
+  const [passage, setPassage] = useState(picked.passage)
+  const [choiceTexts, setChoiceTexts] = useState<Record<string, string>>({})
+  const [explanations, setExplanations] = useState<string[]>(mergedExplanations)
+
+  // 고른 쪽이 바뀌면 다듬던 것도 그 쪽 기준으로 다시 잡는다.
+  // 위쪽을 손보다 아래쪽으로 바꿨는데 위쪽 글이 남아 있으면, 사람은 자기가 무엇을 저장하는지
+  // 알 수 없게 된다
+  useEffect(() => {
+    setPassage(picked.passage)
+    setChoiceTexts({})
+  }, [picked])
+
+  const filled = picked.choices.filter((c) => c.text?.trim())
+  const touched =
+    passage !== picked.passage ||
+    Object.keys(choiceTexts).length > 0 ||
+    explanations.join('\u0000') !== mergedExplanations.join('\u0000')
+
+  function merge() {
+    const edit: MergeEdit = { bodyFrom: side === 'a' ? 'keep' : 'drop' }
+    if (touched) {
+      edit.passage = passage
+      if (Object.keys(choiceTexts).length > 0) edit.choiceTexts = choiceTexts
+      edit.explanations = explanations
+    }
+    onMerge(edit)
+  }
+
   return (
-    <p className="text-[11px] text-foreground whitespace-pre-wrap break-all">
+    <div className="rounded border border-border p-2 space-y-1.5">
+      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+        <span className="flex-1">
+          {pair.a.subject} · {pair.a.no}번 · {pair.distance}글자 다름
+        </span>
+        <button
+          type="button"
+          onClick={() => setEditing((v) => !v)}
+          className={`shrink-0 px-2 py-0.5 border rounded transition-colors ${
+            editing || touched
+              ? 'border-primary/40 text-primary'
+              : 'border-border text-muted-foreground hover:bg-muted'
+          }`}
+        >
+          {editing ? '다듬기 접기' : touched ? '다듬는 중' : '다듬기'}
+        </button>
+        <button
+          type="button"
+          onClick={merge}
+          className="shrink-0 px-2 py-0.5 border border-primary/40 text-primary rounded hover:bg-primary/10 transition-colors"
+        >
+          같은 문제 — 합치기
+        </button>
+        <button
+          type="button"
+          onClick={onIgnore}
+          className="shrink-0 px-2 py-0.5 border border-border text-muted-foreground rounded hover:bg-muted transition-colors"
+        >
+          다른 문제
+        </button>
+      </div>
+
+      {/* 다른 구간에 색을 깔아 둔다. 두 지문을 눈으로 훑어 한 글자를 찾는 일은
+          사람이 가장 못하는 일이다 */}
+      {(['a', 'b'] as const).map((which) => (
+        <label
+          key={which}
+          className={`flex items-start gap-1.5 rounded px-1 py-0.5 cursor-pointer transition-colors ${
+            side === which ? 'bg-primary/5' : 'hover:bg-muted/50'
+          }`}
+        >
+          <input
+            type="radio"
+            name={`keep-${pair.a.id}-${pair.b.id}`}
+            checked={side === which}
+            onChange={() => setSide(which)}
+            className="mt-[3px] shrink-0 accent-[oklch(0.65_0.2_290)]"
+          />
+          <DiffLine
+            label={which === 'a' ? '위' : '아래'}
+            segments={which === 'a' ? diff.a : diff.b}
+            kept={side === which}
+            recommended={recommended === which}
+          />
+        </label>
+      ))}
+
+      {editing && (
+        <div className="space-y-1.5 rounded bg-muted/50 border border-border p-2">
+          <p className="text-[11px] text-muted-foreground">
+            고른 쪽({side === 'a' ? '위' : '아래'})의 본문과, 합쳐질 해설을 그대로 다듬습니다.
+            여기서 고친 내용이 저장됩니다
+          </p>
+          <div className="space-y-0.5">
+            <p className="text-[11px] text-muted-foreground">지문</p>
+            <textarea
+              value={passage}
+              onChange={(e) => setPassage(e.target.value)}
+              rows={4}
+              className="w-full rounded border border-border bg-card px-2 py-1 text-[11px] text-foreground focus:outline-none focus:border-primary/50"
+            />
+          </div>
+          {filled.length > 0 && (
+            <div className="space-y-0.5">
+              <p className="text-[11px] text-muted-foreground">선지</p>
+              {filled.map((c) => (
+                <div key={c.label} className="flex items-start gap-1.5">
+                  <span className="shrink-0 pt-1 text-[11px] text-muted-foreground w-4">{c.label}</span>
+                  <textarea
+                    value={choiceTexts[c.label] ?? c.text}
+                    onChange={(e) =>
+                      setChoiceTexts((prev) => ({ ...prev, [c.label]: e.target.value }))
+                    }
+                    rows={2}
+                    className="flex-1 rounded border border-border bg-card px-2 py-1 text-[11px] text-foreground focus:outline-none focus:border-primary/50"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+          {mergedExplanations.length > 0 && (
+            <div className="space-y-0.5">
+              <p className="text-[11px] text-muted-foreground">
+                해설 (두 문제의 해설을 합친 것 — 비우면 지워집니다)
+              </p>
+              {explanations.map((text, i) => (
+                <textarea
+                  key={i}
+                  value={text}
+                  onChange={(e) =>
+                    setExplanations((prev) => prev.map((v, j) => (j === i ? e.target.value : v)))
+                  }
+                  rows={3}
+                  className="w-full rounded border border-border bg-card px-2 py-1 text-[11px] text-foreground focus:outline-none focus:border-primary/50"
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DiffLine({
+  label,
+  segments,
+  kept,
+  recommended,
+}: {
+  label: string
+  segments: DiffSegment[]
+  kept: boolean
+  recommended?: boolean
+}) {
+  return (
+    <p className="flex-1 text-[11px] text-foreground whitespace-pre-wrap break-all">
       <span className="text-muted-foreground">{label} </span>
+      {recommended && <span className="text-muted-foreground">· 추천 </span>}
       {kept && <span className="text-primary">· 이 본문이 남습니다 </span>}
       {segments.map((s, i) =>
         s.changed ? (
@@ -205,18 +389,21 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
       .sort((a, b) => Number(a.no) - Number(b.no))
   }
 
-  function mergePair(p: SimilarPair) {
+  function mergePair(p: SimilarPair, edit: MergeEdit) {
+    const 남길쪽 = edit.bodyFrom === 'drop' ? '아래' : '위'
+    const 손봄 = edit.passage !== undefined || edit.choiceTexts || edit.explanations
     if (
       !confirm(
         `${p.a.no}번 두 문제를 하나로 합칩니다.\n\n` +
           '아래쪽 항목이 지워지고 그 해설은 위쪽으로 옮겨집니다.\n' +
-          '본문(지문·선지)은 둘 중 더 완전한 쪽이 남습니다.\n' +
+          `본문(지문·선지)은 ${남길쪽}쪽 것이 남습니다.\n` +
+          (손봄 ? '다듬은 내용이 그대로 저장됩니다.\n' : '') +
           '되돌릴 수 없습니다 — 두 지문이 정말 같은 문제인지 확인하고 눌러주세요.'
       )
     ) {
       return
     }
-    mergeQuestionInto(p.a.id, p.b.id)
+    mergeQuestionInto(p.a.id, p.b.id, edit)
     setIgnoredPairs((prev) => new Set(prev).add(pairKey(p)))
     onUnitChanged()
   }
@@ -421,41 +608,17 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
           </p>
           {review.similarPairs
             .filter((p) => !ignoredPairs.has(pairKey(p)))
-            .map((p) => {
-              const diff = diffSegments(p.a.passage, p.b.passage)
-              // 합치면 어느 본문이 남는지 미리 알린다. 판정은 병합과 같은 자를 쓴다
-              const keepsA = completenessScore(p.a) >= completenessScore(p.b)
-              return (
-                <div key={pairKey(p)} className="rounded border border-border p-2 space-y-1.5">
-                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                    <span className="flex-1">
-                      {p.a.subject} · {p.a.no}번 · {p.distance}글자 다름
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => mergePair(p)}
-                      className="shrink-0 px-2 py-0.5 border border-primary/40 text-primary rounded hover:bg-primary/10 transition-colors"
-                    >
-                      같은 문제 — 합치기
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIgnoredPairs((prev) => new Set(prev).add(pairKey(p)))}
-                      className="shrink-0 px-2 py-0.5 border border-border text-muted-foreground rounded hover:bg-muted transition-colors"
-                    >
-                      다른 문제
-                    </button>
-                  </div>
-                  {/* 다른 구간에 색을 깔아 둔다. 두 지문을 눈으로 훑어 한 글자를 찾는 일은
-                      사람이 가장 못하는 일이다 */}
-                  <DiffLine label="위" segments={diff.a} kept={keepsA} />
-                  <DiffLine label="아래" segments={diff.b} kept={!keepsA} />
-                </div>
-              )
-            })}
+            .map((p) => (
+              <SimilarPairCard
+                key={pairKey(p)}
+                pair={p}
+                onMerge={(edit) => mergePair(p, edit)}
+                onIgnore={() => setIgnoredPairs((prev) => new Set(prev).add(pairKey(p)))}
+              />
+            ))}
           <p className="text-[11px] text-muted-foreground pt-1">
-            합치면 아래쪽 항목이 지워지고 해설은 합쳐집니다. 본문은 더 완전한 쪽(채워진 선지가 많은
-            쪽, 같으면 지문이 긴 쪽)이 남습니다. 되돌릴 수 없습니다.
+            합치면 아래쪽 항목이 지워지고 해설은 합쳐집니다. 남길 본문은 직접 고르고, 필요하면
+            합치기 전에 다듬을 수 있습니다. 되돌릴 수 없습니다.
           </p>
         </div>
       )}
