@@ -288,6 +288,10 @@ interface Props {
  */
 const ReparseFromRow = createContext<{ request: (q: Question) => void; disabled: boolean } | null>(null)
 
+// 과목 변경도 같은 통로로 내려보낸다. 줄은 다섯 군데에서 그려지는데, 그 전부에 손잡이를
+// 하나씩 더 매달면 정작 이 기능과 상관없는 자리까지 고쳐야 한다
+const ChangeSubject = createContext<((q: Question, subject: Subject) => void) | null>(null)
+
 export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabled }: Props) {
   // 여러 줄을 동시에 펼쳐둘 수 있다. 단원 분포와 연도 분포를 오가며 견주는 일이 잦은데,
   // 하나만 열리면 앞서 본 줄이 계속 접혀 비교가 끊긴다.
@@ -469,6 +473,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
     <ReparseFromRow.Provider
       value={onReparse ? { request: requestReparseFor, disabled: Boolean(reparseDisabled) } : null}
     >
+    <ChangeSubject.Provider value={changeSubject}>
     <div className="border border-border rounded-lg divide-y divide-border text-sm">
       <div className="px-3 py-2 space-y-0.5">
         <div className="flex items-center justify-between">
@@ -846,6 +851,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
         )}
       </div>
     </div>
+    </ChangeSubject.Provider>
     </ReparseFromRow.Provider>
   )
 }
@@ -878,6 +884,17 @@ function QuestionRow({
         >
           <span className="shrink-0 text-muted-foreground">{open ? '▾' : '▸'}</span>
           <span className="shrink-0 text-muted-foreground tabular-nums w-9">{q.no}번</span>
+          {/* 어느 과목으로 파싱됐는지. 단원 분포처럼 과목별로 묶인 자리에서는 당연해 보이지만,
+              전체 번호순·연도 분포에서는 이것이 없으면 과목이 섞인 것을 눈치챌 수 없다.
+              판정을 못 한 문제는 물음표로 구분한다 — 담겨 있다고 정해진 것은 아니다 */}
+          <span
+            className={`shrink-0 truncate max-w-[4.5rem] ${
+              q.subjectUnsure ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'
+            }`}
+          >
+            {q.subject}
+            {q.subjectUnsure ? '?' : ''}
+          </span>
           <span className="flex-1 truncate text-foreground">{q.passage.slice(0, 40)}</span>
           {duplicates >= 2 && (
             <span className="shrink-0 text-amber-600 dark:text-amber-400">⚠ 중복 {duplicates}건</span>
@@ -949,15 +966,20 @@ function QuestionDetail({
   onDelete: (q: Question) => void
 }) {
   const reparse = useContext(ReparseFromRow)
+  const changeSubject = useContext(ChangeSubject)
   const pages = q.pageFrom !== undefined ? `${q.pageFrom}~${q.pageTo}쪽` : '쪽 모름'
+  // 과목은 따로 뽑아 드롭다운으로 세운다. 나머지는 읽기만 하는 값이라 한 줄로 잇는다
   const meta = [
-    q.subject,
     q.examType,
     q.year === UNKNOWN_YEAR ? '연도 미상' : `${q.year}년`,
     q.unit?.trim() || '단원 없음',
     pages,
     q.sourceFile ?? '파일 미상',
   ].join(' · ')
+  // 과목을 바꾸면 담겨 있던 단원이 새 과목 목록 밖일 수 있다. 단원을 지우지는 않는다 —
+  // 맞게 들어 있던 값까지 날아가므로, 단원 분포의 '⚠ 목록 밖'과 같은 판단으로 짚어만 준다
+  const unit = q.unit?.trim()
+  const unitOutside = Boolean(unit) && canonicalUnit(q.subject, unit!) === null
   const filled = q.choices.filter((c) => c.text?.trim())
   // 해설은 explanation 과 explanations 두 자리에 나뉘어 들어온다. 같은 것이 두 번 실리는
   // 경우가 있어(파싱 이력) 중복을 걸러 전부 보여준다
@@ -984,7 +1006,29 @@ function QuestionDetail({
   return (
     <div className="ml-6 mt-1 mb-2 p-2 rounded bg-muted/50 border border-border space-y-1.5 text-xs">
       <div className="flex items-start gap-2">
-        <p className="flex-1 text-muted-foreground">{meta}</p>
+        <div className="flex-1 flex flex-wrap items-center gap-1.5">
+          {changeSubject ? (
+            <select
+              value={q.subject}
+              onChange={(e) => changeSubject(q, e.target.value as Subject)}
+              title="과목 변경"
+              className={`shrink-0 bg-input border rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring ${
+                q.subjectUnsure
+                  ? 'border-amber-500/50 text-amber-600 dark:text-amber-400'
+                  : 'border-border text-foreground'
+              }`}
+            >
+              {subjectOptions().map((sub) => (
+                <option key={sub} value={sub}>
+                  {sub}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="text-muted-foreground">{q.subject}</span>
+          )}
+          <p className="text-muted-foreground">{meta}</p>
+        </div>
         {/* 결번이 아니어도 이 쪽만 다시 분석할 수 있다. 쪽을 모르는 문제(옛 데이터)에는 안 보인다 */}
         {reparse && q.sourceFile && q.pageFrom !== undefined && (
           <button
@@ -1000,6 +1044,16 @@ function QuestionDetail({
       {duplicates >= 2 && (
         <p className="text-amber-600 dark:text-amber-400">
           같은 번호·같은 지문이 {duplicates}벌 저장돼 있습니다. 쪽 번호를 견줘 한쪽을 지워주세요
+        </p>
+      )}
+      {q.subjectUnsure && (
+        <p className="text-amber-600 dark:text-amber-400">
+          과목 미판정 — 고른 과목 중 첫 번째로 임시로 담아 둔 값입니다
+        </p>
+      )}
+      {unitOutside && (
+        <p className="text-amber-600 dark:text-amber-400">
+          ⚠ 단원 &apos;{unit}&apos; 은(는) {q.subject} 목록 밖입니다 — 단원 분포에서 고쳐주세요
         </p>
       )}
       <p className="text-foreground whitespace-pre-wrap max-h-64 overflow-y-auto">{q.passage}</p>
