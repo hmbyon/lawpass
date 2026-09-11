@@ -21,14 +21,8 @@ const CHUNK_SIZE = 5
 const CHUNK_OVERLAP = 1
 
 const MAX_UPLOAD_BYTES = 4_000_000
-// 구간을 쪼개 다시 시도할 값어치는 있지만, 1페이지까지 좁혀도 안 될 때 '건너뛰기'로 처리하면
-// 안 되는 실패 사유. 페이지 내용이 아니라 통신·플랫폼이 원인이라 다음에는 멀쩡히 될 수 있다
 const TRANSPORT_REASONS = ['UPLOAD_TIMEOUT', 'ACTIVE_TIMEOUT']
 const CHUNK_BUDGET_BYTES = 3_600_000
-// 무료 티어는 분당 15회다. 청크 하나를 과목·시험구분 조합 수만큼 분석하므로 전과목을 고르면
-// 요청이 연달아 나가 한도를 넘긴다. 429가 난 뒤 물러서는 것보다 처음부터 간격을 두는 편이 빠르다 —
-// 429는 개별 요청의 실패가 아니라 분당 예산 소진이라, 재시도가 뒤따르는 요청과 예산을 다툰다.
-// 15회/분이면 4초 간격이 안전선이다
 const MIN_ANALYZE_GAP_MS = 4000
 
 function mb(bytes: number): string {
@@ -102,16 +96,9 @@ interface ReparseState {
   donePages: number
   added: number
   merged: number
-  // 메인 파싱과 같은 뜻 — 어떤 크기로 쪼개도 읽지 못해 포기한 페이지(1-based)
   skipped: number[]
-  // 지금 실제로 보내고 있는 구간. 쪼개는 중이면 화면의 쪽수와 어긋나므로 그대로 보여준다
   activeRange: { from: number; to: number; narrowed: boolean } | null
-  // 입력칸의 값이 어디서 왔는지. 근거가 다르면 신뢰도도 다르므로 화면에 밝힌다
-  //   recorded  파싱 때 기록된 실제 페이지 (앞뒤 이웃 문제로 확정 또는 회차 밀도로 보정)
-  //   none      기록이 없어 비워 둠. 어림값을 채워 넣지 않는다
-  //   estimated 사용자가 '추정해보기'를 눌러 번호 비율로 어림잡은 값
   pageSource: 'recorded' | 'none' | 'estimated'
-  // recorded일 때 근거가 된 구간과, 앞뒤가 모두 확정됐는지
   pageExact: boolean
   confirmedFrom: number | null
   confirmedTo: number | null
@@ -127,12 +114,7 @@ interface JobView {
   chunkTotal?: number
   chunkSize?: number
   resumable?: boolean
-  skippedPages?: number[] // 읽지 못해 건너뛴 페이지(1-based)
-  // 지금 실제로 보내고 있는 페이지 구간(1-based, 양끝 포함).
-  // chunkSize는 파일 시작 때 한 번 정해질 뿐이라, 응답이 커서 더 잘게 쪼개는 중이면
-  // 화면과 실제가 어긋난다. 그 실제를 담는다.
-  // narrowed는 청크 전체가 아니라 쪼개진 일부라는 뜻 — chunkSize와 견주면 안 된다.
-  // 마지막 청크는 원래 짧고, 겹침(CHUNK_OVERLAP) 때문에 중간 청크는 오히려 chunkSize보다 길다
+  skippedPages?: number[]
   activeRange?: { from: number; to: number; narrowed: boolean }
 }
 
@@ -148,23 +130,18 @@ interface ResumeJob {
   view: JobView
 }
 
-type UploadMode = 'file' | 'uri'
+type UploadMode = 'file' | 'uri' | 'json'
 
 interface ParseMeta {
   subjects: Subject[]
   examTypes: ExamType[]
 }
 
-// "API 키가 왜 필요한가요?" 안내를 펼쳐둔 상태. 기기별 UI 설정이라 로컬에만 남긴다
-// (계정 동기화 대상이 아니다). SSR에서 부르면 안 되므로 store.ts의 getApiKey와 같은 방식으로 막는다
 const API_INFO_OPEN_KEY = 'lawpass_api_info_open'
 
 function getApiInfoOpen(): boolean {
   if (typeof window === 'undefined') return false
   const saved = localStorage.getItem(API_INFO_OPEN_KEY)
-  // 키가 아예 없다 = 아직 아무 선택도 하지 않은 첫 방문. 이때는 펼쳐서 보여준다 —
-  // API 키가 없으면 아무것도 못 하는 화면이라 발급 방법이 먼저 눈에 띄어야 한다.
-  // 값이 있으면 그건 사용자가 직접 고른 것이므로 접어둔 선택도 그대로 지킨다
   if (saved === null) return true
   return saved === 'true'
 }
@@ -174,7 +151,6 @@ function setApiInfoOpen(open: boolean) {
   localStorage.setItem(API_INFO_OPEN_KEY, String(open))
 }
 
-// 출처 파일명이 없는 문제들을 파일 목록에서 묶어 부르는 이름 (store.ts의 getSourceFiles와 같은 값)
 const NO_SOURCE_FILE_LABEL = '(출처 없음)'
 
 function sourceFileNameOf(f: { file: File; displayName: string }) {
@@ -300,6 +276,12 @@ export function PdfTab({
   const [files, setFiles] = useState<FileState[]>([])
   const [fileUri, setFileUri] = useState('')
 
+  // JSON 처리 상태
+  const [jsonText, setJsonText] = useState('')
+  const [jsonDisplayName, setJsonDisplayName] = useState('JSON 직접 입력')
+  const [jsonStatus, setJsonStatus] = useState<'idle' | 'parsing' | 'done' | 'error'>('idle')
+  const [jsonError, setJsonError] = useState('')
+
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [generalSubjectText, setGeneralSubjectText] = useState('')
   const [examTypes, setExamTypes] = useState<ExamType[]>(isGeneral ? ['모의고사'] : [])
@@ -318,8 +300,6 @@ export function PdfTab({
   const reparsePanelRef = useRef<HTMLDivElement>(null)
   const [reviewFiles, setReviewFiles] = useState<string[]>([])
   const [reviewRefresh, setReviewRefresh] = useState(0)
-  // 검토 패널은 페이지 한참 아래에 있다. 목록에서 '검토'를 눌렀을 때 그리로 데려가지 않으면
-  // 버튼이 아무 일도 안 한 것처럼 보인다
   const reviewRef = useRef<HTMLDivElement>(null)
 
   function showReview(names: string[], replace = false, scroll = false) {
@@ -330,32 +310,22 @@ export function PdfTab({
       return next
     })
     setReviewRefresh((v) => v + 1)
-    // 패널이 그려진 뒤에 옮겨야 한다
     if (scroll) requestAnimationFrame(() => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
-  // 마지막 분석 요청을 **시작한** 시각. 끝난 시각이 아니다 —
-  // 앞 요청이 이미 4초 넘게 걸렸으면 예산은 그만큼 회복돼 있으므로 더 기다릴 이유가 없다
   const lastAnalyzeAtRef = useRef(0)
 
   async function throttleAnalyze(signal?: AbortSignal) {
     const wait = MIN_ANALYZE_GAP_MS - (Date.now() - lastAnalyzeAtRef.current)
     if (wait > 0) {
       await new Promise((resolve) => setTimeout(resolve, wait))
-      // 기다리는 동안 사용자가 중단했을 수 있다
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
     }
     lastAnalyzeAtRef.current = Date.now()
   }
 
-  // 출처 파일명이 없는 옛 문제는 파일 목록에 '(출처 없음)' 한 줄로 묶여 나온다
-  // (store.ts의 getSourceFiles·mergeSourceFiles가 쓰는 이름과 같아야 한다).
-  // 예전에는 이 필터가 sourceFile이 있는 문제만 통과시켜서, 그 줄의 '검토'를 누르면
-  // 결과가 0개가 되고 패널이 통째로 사라졌다 — 문제가 있는데도 없는 것처럼 보였다.
-  // 재파싱은 여전히 안 된다(원본 파일을 알 수 없다). 목록에 보이기만 하면 된다
   const reviewQuestions = useMemo(
     () => (reviewFiles.length === 0 ? [] : getQuestions().filter((q) => reviewFiles.includes(q.sourceFile ?? NO_SOURCE_FILE_LABEL))),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [reviewFiles, reviewRefresh]
   )
   const [uriStatus, setUriStatus] = useState<'idle' | 'analyzing' | 'done' | 'error'>('idle')
@@ -407,17 +377,12 @@ export function PdfTab({
   }, [])
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // 서버 렌더에서는 저장값을 읽을 수 없으므로 하이드레이션 전에는 접힌 모습으로 둔다
-  // (재개 대기 목록이 hydrated를 쓰는 것과 같은 이유)
   const apiInfoOpen = hydrated && showApiKeyInfo
 
   const activeSubjects: Subject[] = isGeneral
     ? (generalSubjectText.trim() ? [generalSubjectText.trim() as Subject] : [])
     : subjects
 
-  // 펼침 여부는 새로고침·탭 이동 뒤에도 남는다 (PdfTab은 탭을 옮기면 언마운트된다).
-  // 화면에 보이는 상태(apiInfoOpen)를 기준으로 뒤집는다 — 하이드레이션 전에 눌러도
-  // 사용자가 본 모습과 어긋나지 않는다
   function toggleApiKeyInfo(open: boolean) {
     setShowApiKeyInfo(open)
     setApiInfoOpen(open)
@@ -437,7 +402,6 @@ export function PdfTab({
     if (syncedAt === 0) return
     refreshSourceFiles()
     setReviewRefresh((v) => v + 1)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncedAt])
 
   function toggleSubjectExpand(s: string) {
@@ -524,18 +488,40 @@ export function PdfTab({
     })
   }
 
-  // 💡 [에러 발생 시 1페이지 세분화 루프가 포함된 처리 루틴]
-  // 한 페이지 구간을 추출해 저장한다.
-  //
-  // 구간을 통째로 못 읽는 경우(MAX_TOKENS·RECITATION·깨진 JSON)에는 반으로 쪼개 다시 시도하고,
-  // 1페이지까지 좁혀도 안 되면 그 페이지만 건너뛰고 나머지를 계속 처리한다.
-  // 곧장 1페이지로 쪼개지 않고 반씩 줄이는 이유: 5페이지 청크가 분량으로 걸린 경우 보통 2+3이면
-  // 통과하는데, 1페이지씩 5번 부르면 API 호출이 그만큼 낭비된다.
-  //
-  // RECITATION은 분량이 아니라 내용이 원인이라 아무리 쪼개도 같은 페이지에서 다시 발동한다.
-  // 그래서 '건너뛰기'가 선택이 아니라 필수다 — 이게 없으면 그 파일은 영영 진행되지 않는다.
-  //
-  // 사용자가 누른 중단(AbortError)은 절대 삼키지 않고 그대로 올려보낸다
+  function handleJsonImport() {
+    if (!jsonText.trim()) {
+      setJsonError('JSON 텍스트를 입력해주세요.')
+      return
+    }
+    if (activeSubjects.length === 0 || (!isGeneral && examTypes.length === 0)) {
+      setActionError('과목과 시험 구분을 먼저 선택해주세요.')
+      return
+    }
+
+    try {
+      setJsonStatus('parsing')
+      setJsonError('')
+
+      const parsed = JSON.parse(jsonText)
+      const questionsArray = Array.isArray(parsed)
+        ? parsed
+        : (Array.isArray(parsed.questions) ? parsed.questions : [parsed])
+
+      const sourceName = jsonDisplayName.trim() || 'JSON 입력 문제집'
+      const result = addQuestions(questionsArray, sourceName)
+
+      setSummary({ added: result.added, merged: result.merged, skipped: [] })
+      showReview([sourceName], true, true)
+      setJsonStatus('done')
+      setJsonText('')
+      refreshSourceFiles()
+      onQuestionsAdded()
+    } catch (err) {
+      setJsonStatus('error')
+      setJsonError(`유효하지 않은 JSON 형식입니다: ${String(err)}`)
+    }
+  }
+
   async function extractRange(
     sourcePdf: PDFDocument,
     startPage: number,
@@ -556,8 +542,6 @@ export function PdfTab({
     try {
       sink.onRange(startPage + 1, endPage)
       const bytes = await buildChunkBytes(sourcePdf, startPage, endPage)
-      // 413은 서버가 아니라 플랫폼이 되돌려주므로 보내기 전에 걸러야 한다.
-      // 예전에는 여기서 그냥 던져 파일 전체가 멈췄다 — 이제는 쪼갤 수 있는 실패로 취급한다
       if (bytes.byteLength > MAX_UPLOAD_BYTES) {
         throw new IncompleteResponseError(
           `${startPage + 1}~${endPage}쪽이 ${mb(bytes.byteLength)}MB로 업로드 한도(4.5MB)를 넘습니다.`,
@@ -571,17 +555,12 @@ export function PdfTab({
       )
       uri = await uploadPdfToFileApi(apiKey, chunkFile, undefined, signal)
       await waitForFileActive(apiKey, uri, signal)
-      // 과목별 반복은 없앴다. 예전에는 같은 청크를 과목 수만큼 다시 분석했는데,
-      // 모델은 과목을 판정하지도 않았으므로 그건 같은 답을 과목 수만큼 받아
-      // 서로 다른 과목으로 도장 찍어 저장하는 일이었다 (중복·429·비용이 모두 여기서 나왔다).
-      // 이제 후보 목록을 한 번에 보내고 모델이 문제마다 고른다
+
       for (const et of meta.examTypes) {
         await throttleAnalyze(signal)
         const questions = await extractQuestionsFromPdf(
           apiKey, uri, meta.subjects, et, new Date().getFullYear(), signal
         )
-        // 이 청크의 원본 페이지 구간을 그대로 남긴다. 나중에 결번 재파싱이
-        // 번호 비율로 어림잡지 않고 실제 구간을 다시 보낼 수 있게 하기 위한 것이다
         const result = addQuestions(questions, sourceFile, {
           from: startPage + 1,
           to: endPage,
@@ -592,17 +571,10 @@ export function PdfTab({
       return
     } catch (err) {
       if (isAbortError(err)) throw err
-      // 네트워크 끊김·인증 오류처럼 쪼갠다고 풀리지 않는 실패는 그대로 올려보낸다
       if (!isIncompleteResponseError(err)) throw err
 
       const pages = endPage - startPage
       if (pages <= 1) {
-        // 여기서 성격을 갈라야 한다.
-        // 내용이 원인인 실패(RECITATION·분량 초과·깨진 JSON)는 몇 번을 다시 보내도 같은 결과이므로
-        // 그 페이지를 포기하는 게 맞다. 반면 업로드가 안 되는 것은 그 페이지의 성질이 아니라
-        // 통신·플랫폼 문제여서, 건너뛰면 멀쩡한 문제를 잃는다.
-        // 특히 장애 중이면 모든 페이지가 똑같이 실패하므로, 건너뛰기로 처리했다간
-        // 문서 전체가 '완료'로 기록된 채 통째로 비어버린다. 그래서 이쪽은 오류로 올려보낸다
         if (TRANSPORT_REASONS.includes(err.reason)) {
           console.error(`[p.${startPage + 1}] ${err.reason} — 통신 문제라 건너뛰지 않고 중단합니다:`, err.message)
           throw err
@@ -642,8 +614,6 @@ export function PdfTab({
     let chunkTotal = 0
     let totalPages = 0
     let chunkSize = CHUNK_SIZE
-    // 어떤 크기로 쪼개도 읽지 못해 포기한 페이지(1-based). 무엇을 잃었는지 남겨야
-    // 사용자가 결번 재파싱으로 회수를 시도할 수 있다
     const skippedPages: number[] = [...(savedProgress?.skippedPages ?? [])]
 
     const saveProgress = (chunkIndexDone: number) => {
@@ -690,8 +660,6 @@ export function PdfTab({
           chunkIndex: chunkIndex + 1,
         })
 
-        // 구간을 통째로 못 읽으면 extractRange가 반으로 쪼개 다시 시도하고,
-        // 1페이지까지 좁혀도 안 되는 페이지는 건너뛴다. 그래서 이 호출은 청크를 막지 않는다
         await extractRange(sourcePdf, startPage, endPage, entry.file.name, sourceFile, meta, signal, {
           onCount: (added, merged, parsed) => {
             deltaAdded += added
@@ -703,7 +671,6 @@ export function PdfTab({
             const within = (endPage - startPage) > 0 ? donePages / (endPage - startPage) : 1
             update({ progress: ((chunkIndex + within) / chunkTotal) * 100 })
           },
-          // 이 청크의 온전한 범위와 같지 않으면 쪼개진 것이다. 길이로 어림하지 않고 그대로 대조한다
           onRange: (from, to) =>
             update({
               activeRange: { from, to, narrowed: !(from === startPage + 1 && to === endPage) },
@@ -909,7 +876,6 @@ export function PdfTab({
     onQuestionsAdded()
   }
 
-  // 💡 [에러 청크 건너뛰기 로직 구현]
   function skipCurrentChunk(sourceFile: string) {
     const saved = getPdfProgress(sourceFile)
     if (!saved) return
@@ -971,12 +937,6 @@ export function PdfTab({
     try {
       const pdf = await PDFDocument.load(await file.arrayBuffer())
       const pageCount = pdf.getPageCount()
-      // 기록된 실제 페이지가 있으면 그것만 쓴다.
-      // 없으면 비워 둔다 — 어림값을 채워 넣으면 사용자는 그게 근거 있는 값인 줄 안다.
-      // 예전에는 여기서 estimatePageRange를 무조건 채워 242쪽 문서에 1~111쪽이 들어갔다
-      //
-      // 검토 화면이 덩어리의 쪽을 짚어 보냈으면 그걸 그대로 쓴다. 어디가 비었는지 이미
-      // 알고 누른 버튼이라 다시 어림잡을 이유가 없다 (양끝은 문서 범위로만 자른다)
       const hit = req.pageHint
         ? {
             from: Math.max(1, Math.min(req.pageHint.from, pageCount)),
@@ -984,7 +944,6 @@ export function PdfTab({
             exact: true,
           }
         : gapPageRange(req.pages ?? [], req.missing ?? [], pageCount)
-      // 결번 없이 쪽만 짚어 온 요청에는 이 정보가 없다. 그때는 '확인된 구간' 안내를 접는다
       const recorded = req.pages ?? []
       const confirmed = recorded.length > 0
         ? {
@@ -1017,7 +976,7 @@ export function PdfTab({
     setReparse({
       req, file: null, pageCount: 0, fromPage: 1, toPage: 1,
       status: 'needFile', error: null, donePages: 0, added: 0, merged: 0, skipped: [], activeRange: null,
-        pageSource: 'none', pageExact: false, confirmedFrom: null, confirmedTo: null,
+      pageSource: 'none', pageExact: false, confirmedFrom: null, confirmedTo: null,
     })
     const cached = await loadPdfFile(req.sourceFile)
     if (cached) await prepareReparse(req, cached)
@@ -1030,9 +989,6 @@ export function PdfTab({
     await prepareReparse(reparse.req, picked)
   }
 
-  // 기록된 페이지가 없을 때 마지막 수단. 번호 비율을 문서 전체 비율로 환산하는 방식이라
-  // 회차가 문서 어디에 있는지 모르고, 그 회차에서 파싱된 문제가 적을수록 넓게 빗나간다.
-  // 그래서 자동으로 채우지 않고 사용자가 눌렀을 때만, 경고와 함께 보여준다
   function applyEstimate() {
     if (!reparse) return
     const { from, to } = estimatePageRange(reparse.req.nos ?? [], reparse.req.missing ?? [], reparse.pageCount)
@@ -1043,10 +999,6 @@ export function PdfTab({
     setReparse((prev) => (prev ? { ...prev, ...patch } : prev))
   }
 
-  // 결번 재파싱도 메인 파싱과 똑같은 복구 규칙을 따라야 한다.
-  // 예전에는 여기에 자체 청크 루프가 있어서 분할 재시도·1페이지 건너뛰기·겹침이 전부 없었고,
-  // RECITATION 한 번이면 그 자리에서 멈춰 뒤쪽 페이지는 시도조차 못 했다.
-  // 그래서 로직을 새로 짜지 않고 extractRange를 그대로 호출한다
   async function runReparse() {
     const target = reparse
     if (!target?.file || !apiKey || target.status === 'running') return
@@ -1075,9 +1027,6 @@ export function PdfTab({
       }
 
       for (let cursor = from - 1; cursor < to; cursor += chunkSize) {
-        // 청크 경계에 걸친 문제를 놓치지 않도록 메인 흐름과 같은 겹침을 준다.
-        // 결번 재파싱은 바로 그 '경계에서 잘린 문제'를 되찾으려는 기능인데
-        // 예전 구현은 정작 자기가 같은 방식으로 딱 잘라 붙였다
         const startPage = cursor > from - 1 ? Math.max(from - 1, cursor - CHUNK_OVERLAP) : cursor
         const endPage = Math.min(cursor + chunkSize, to)
         const doneBefore = cursor - (from - 1)
@@ -1091,7 +1040,6 @@ export function PdfTab({
               merged += m
               updateReparse({ added, merged })
             },
-            // extractRange는 이 청크 안에서 끝낸 페이지 수를 준다. 구간 전체 기준으로 바꾼다
             onProgress: (donePagesInChunk) =>
               updateReparse({ donePages: Math.min(to - (from - 1), doneBefore + donePagesInChunk) }),
             onRange: (rFrom, rTo) =>
@@ -1119,7 +1067,6 @@ export function PdfTab({
         error: isAbortError(err) ? null : String(err),
         added, merged, skipped: [...skipped], activeRange: null,
       })
-      // 청크 단위로 이미 저장된 것들은 살아 있다. 검토 화면에 반영해 무엇이 들어왔는지 보이게 한다
       if (added > 0 || merged > 0) {
         showReview([target.req.sourceFile])
         onQuestionsAdded()
@@ -1143,7 +1090,6 @@ export function PdfTab({
       let totalAdded = 0
       let totalMerged = 0
       const sourceFile = fileUri.trim().split('/').pop() ?? 'URI 업로드'
-      // extractRange와 같은 이유로 과목 루프를 없앴다 (후보 목록을 한 번에 보낸다)
       for (const et of examTypes) {
         await throttleAnalyze(controller.signal)
         const questions = await extractQuestionsFromPdf(apiKey, fileUri.trim(), activeSubjects, et, new Date().getFullYear(), controller.signal)
@@ -1325,8 +1271,6 @@ export function PdfTab({
                 </div>
                 {!mergeMode && (
                   <>
-                    {/* 검토 화면은 파싱 직후에만 떠서, 그때 놓치면 다시 볼 방법이 없었다.
-                        검토에 필요한 건 저장된 문제들뿐이라 이 버튼만으로 그대로 열린다 */}
                     <button
                       onClick={(e) => { e.stopPropagation(); showReview([name], true, true) }}
                       className="text-xs text-primary hover:text-primary/80 shrink-0 transition-colors"
@@ -1565,6 +1509,16 @@ export function PdfTab({
           >
             🔗 File URI 입력
           </button>
+          <button
+            onClick={() => setUploadMode('json')}
+            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+              uploadMode === 'json'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            📋 JSON 붙여넣기
+          </button>
         </div>
 
         {/* 재개 대기 큐 */}
@@ -1603,8 +1557,6 @@ export function PdfTab({
                     <p className="text-xs text-red-400 break-all">{j.view.error}</p>
                   )}
                   <ActiveRangeNote view={j.view} />
-                  {/* 처음 업로드할 때와 같은 진행 표시. 이어서 처리도 같은 파이프라인을 타는데
-                      여기만 진행 상황이 비어 있어서, 도는 중인지 멈춘 건지 알 수 없었다 */}
                   {j.view.status === 'uploading' && j.view.chunkTotal && (
                     <p className="text-xs text-primary animate-pulse">
                       청크 {j.view.chunkIndex ?? 1}/{j.view.chunkTotal} 업로드 중...
@@ -1622,8 +1574,6 @@ export function PdfTab({
                     </p>
                   )}
 
-                  {/* 도는 동안에는 버튼을 감추고 그 자리를 진행 표시에 내준다.
-                      중단은 아래 '분석 중…' 옆 한 자리로 모았다 (직접 업로드와 같은 배치) */}
                   {!busy && (
                     <div className="flex gap-2 items-center flex-wrap">
                       {j.file ? (
@@ -1646,7 +1596,6 @@ export function PdfTab({
                         </button>
                       )}
 
-                      {/* 💡 [청크 건너뛰기 버튼 추가] */}
                       <button
                         type="button"
                         onClick={() => skipCurrentChunk(j.sourceFile)}
@@ -1797,7 +1746,6 @@ export function PdfTab({
               >
                 {isRunning ? '분석 중...' : '분석 시작'}
               </button>
-              {/* 이어서 처리든 새 파싱이든 멈추는 자리는 여기 하나다 */}
               {isRunning && (
                 <button
                   type="button"
@@ -1820,10 +1768,6 @@ export function PdfTab({
               rel="noopener noreferrer"
               className="flex items-center justify-between w-full px-4 py-3 bg-blue-900/30 border border-blue-700/40 rounded-xl hover:bg-blue-900/40 transition-colors"
             >
-              {/* 글자는 테마 색을 쓴다. 예전에는 blue-300/blue-400 이라 어두운 배경을 전제했는데,
-                  라이트·눈편한 테마에서는 카드가 밝아 제목이 1.0:1·1.3:1 로 사실상 안 보였다.
-                  호버도 blue-900/50 이면 눈편한 테마에서 4.5:1 에 겨우 걸쳐 /40 으로 낮췄다
-                  (이 조합의 최저 대비 5.6:1). 배경의 파란 색조는 그대로 둔다 */}
               <div>
                 <p className="text-sm font-medium text-foreground">Google AI Studio에서 대용량 PDF 업로드</p>
                 <p className="text-xs text-foreground mt-0.5">
@@ -1835,9 +1779,6 @@ export function PdfTab({
 
             <div className="space-y-2">
               <label className="text-xs text-muted-foreground">File URI</label>
-              {/* placeholder 가 긴 URL 이라 흐리면 글자가 아니라 회색 덩어리로 보인다.
-                  muted-foreground 는 이 입력란 배경에서 다크 4.0:1 · 눈편한 4.4:1 로 본문
-                  기준(4.5:1)에 못 미친다. foreground 에 투명도를 준 색이면 세 테마 모두 4.6:1 이상이다 */}
               <input
                 type="text"
                 value={fileUri}
@@ -1863,8 +1804,6 @@ export function PdfTab({
               >
                 {uriStatus === 'analyzing' ? 'Gemini 분석 중...' : '분석 시작'}
               </button>
-              {/* isRunning까지 보는 이유: '이어서 처리 대기' 목록은 모드와 무관하게 늘 떠 있어서,
-                  URI 모드에서 이어서 처리를 시작할 수 있다. 그때 이 버튼이 없으면 멈출 방법이 없다 */}
               {(uriStatus === 'analyzing' || isRunning) && (
                 <button
                   type="button"
@@ -1875,6 +1814,48 @@ export function PdfTab({
                 </button>
               )}
             </div>
+          </div>
+        )}
+
+        {/* JSON 직접 붙여넣기 */}
+        {uploadMode === 'json' && (
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">저장될 문제집 이름</label>
+              <input
+                type="text"
+                value={jsonDisplayName}
+                onChange={(e) => setJsonDisplayName(e.target.value)}
+                placeholder="예: 2026 민법 모의고사 JSON"
+                className="w-full bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">JSON 데이터 붙여넣기</label>
+              <textarea
+                rows={8}
+                value={jsonText}
+                onChange={(e) => {
+                  setJsonText(e.target.value)
+                  setJsonStatus('idle')
+                  setJsonError('')
+                }}
+                placeholder='[{"question": "문제 내용...", "options": ["①...", "②..."], "answer": "1"}]'
+                className="w-full bg-input border border-border rounded-lg p-3 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-y"
+              />
+            </div>
+
+            {jsonError && <p className="text-xs text-red-400 break-all">{jsonError}</p>}
+
+            <button
+              type="button"
+              onClick={handleJsonImport}
+              disabled={!jsonText.trim() || activeSubjects.length === 0 || (!isGeneral && examTypes.length === 0)}
+              className="w-full py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            >
+              JSON 데이터 등록하기
+            </button>
           </div>
         )}
 
@@ -1899,7 +1880,6 @@ export function PdfTab({
           <div ref={reparsePanelRef} className="border border-primary/40 rounded-lg p-3 space-y-2">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                {/* 결번에서 온 요청인지, 사용자가 쪽을 직접 짚은 요청인지에 따라 제목이 갈린다 */}
                 <p className="text-sm font-medium text-foreground">
                   {reparse.req.missing?.length ? '결번 구간 다시 파싱' : '지정한 쪽 다시 파싱'}
                 </p>
@@ -2037,15 +2017,15 @@ export function PdfTab({
 
         {reviewFiles.length > 0 && (
           <div ref={reviewRef}>
-          <ParseReview
-            questions={reviewQuestions}
-            onUnitChanged={() => {
-              setReviewRefresh((v) => v + 1)
-              onQuestionsAdded()
-            }}
-            onReparse={openReparse}
-            reparseDisabled={isRunning}
-          />
+            <ParseReview
+              questions={reviewQuestions}
+              onUnitChanged={() => {
+                setReviewRefresh((v) => v + 1)
+                onQuestionsAdded()
+              }}
+              onReparse={openReparse}
+              reparseDisabled={isRunning}
+            />
           </div>
         )}
       </div>
@@ -2053,10 +2033,6 @@ export function PdfTab({
   )
 }
 
-// 읽지 못해 건너뛴 페이지 안내. 무엇을 잃었는지 밝혀야 사용자가 회수를 시도할 수 있다
-// 입력칸의 페이지 값이 어디서 왔는지 밝힌다.
-// 근거 없는 어림값을 근거 있는 값처럼 보여주면 사용자는 엉뚱한 구간을 재파싱하고도
-// 그게 맞는 줄 안다 — 실제로 242쪽 문서에서 1~111쪽을 돌린 적이 있다
 function ReparseSourceNote({
   state,
   onEstimate,
@@ -2104,10 +2080,6 @@ function ReparseSourceNote({
   )
 }
 
-
-// 지금 실제로 보내고 있는 구간. 기준 청크 크기보다 작으면 "더 잘게 쪼개는 중"이라는 뜻이다.
-// 이걸 안 보여주면 화면은 "3페이지씩"이라고 하는데 실제로는 1쪽씩 재시도하는 상태가 되어,
-// 왜 이렇게 느린지 사용자가 알 길이 없다
 function ActiveRangeNote({ view }: { view: JobView }) {
   const r = view.activeRange
   if (!r || view.status !== 'analyzing') return null
@@ -2142,6 +2114,5 @@ function StatusChip({ status, count }: { status: FileState['status']; count?: nu
     paused: { label: '중단됨', cls: 'text-orange-400' },
     resumable: { label: '재개 대기', cls: 'text-orange-400' },
   }[status]
-  // 크기를 지정하지 않으면 부모에서 물려받아 옆 글자(text-xs)보다 크게 뜬다
   return <span className={`text-xs font-medium ${map.cls}`}>{map.label}</span>
 }
