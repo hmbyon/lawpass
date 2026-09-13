@@ -526,7 +526,10 @@ export function PdfTab({
   ): Question {
     const subject = (item.subject as Subject | undefined) || formSubjects[0]
     const examType = (item.examType as ExamType | undefined) || formExamTypes[0]
-    const year = typeof item.year === 'number' && item.year > 0 ? item.year : new Date().getFullYear()
+    // PDF 경로(app/api/analyze/route.ts)와 같은 원칙 — 연도를 확인할 수 없으면 올해로
+    // 조용히 채우지 않고 0(연도 미상)으로 둔다. 그래야 검토 화면의 연도미상 경고·수정 UI가
+    // JSON으로 들어온 문제에도 그대로 작동한다
+    const year = typeof item.year === 'number' && item.year > 0 ? item.year : 0
     return {
       ...item,
       subject,
