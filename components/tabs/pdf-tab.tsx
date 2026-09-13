@@ -13,7 +13,7 @@ import type { PdfParseProgress } from '@/lib/gemini'
 import { isIncompleteResponseError, IncompleteResponseError } from '@/lib/gemini'
 import { savePdfFile, loadPdfFile, deletePdfFile } from '@/lib/pdfCache'
 import { getAppMode } from '@/lib/appMode'
-import type { Subject, ExamType } from '@/lib/types'
+import type { Subject, ExamType, Question } from '@/lib/types'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const EXAM_TYPES: ExamType[] = ['변호사시험', '모의고사']
@@ -488,6 +488,56 @@ export function PdfTab({
     })
   }
 
+  // JSON으로 붙여넣은 항목 하나를 검사한다. addQuestions가 요구하는(questionBucketKey가
+  // 읽는 no·examType, 화면에 필요한 passage·choices·answer) 필드 중 폼 선택값으로 대신할 수
+  // 없는 것만 확인한다 — subject/examType/year는 아래 applyJsonImportDefaults가 채운다
+  function jsonImportErrors(item: unknown, index: number): string[] {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+      return [`${index + 1}번째 항목: 객체 형식이 아닙니다`]
+    }
+    const q = item as Record<string, unknown>
+    const missing: string[] = []
+    if (typeof q.no !== 'number') missing.push('no(문제번호)')
+    if (typeof q.passage !== 'string' || !q.passage.trim()) missing.push('passage(지문)')
+    if (!Array.isArray(q.choices) || q.choices.length === 0) {
+      missing.push('choices(선지)')
+    } else if (
+      q.choices.some(
+        (c) =>
+          typeof c !== 'object' ||
+          c === null ||
+          typeof (c as Record<string, unknown>).label !== 'string' ||
+          typeof (c as Record<string, unknown>).text !== 'string'
+      )
+    ) {
+      missing.push('choices[].label/text')
+    }
+    if (typeof q.answer !== 'string' || !q.answer.trim()) missing.push('answer(정답)')
+    return missing.length > 0 ? [`${index + 1}번째 문제: ${missing.join(', ')} 누락`] : []
+  }
+
+  // PDF 경로에서는 Gemini가 subject/examType/year를 판정해 채우지만, JSON 붙여넣기에는
+  // 그 역할을 할 모델이 없다. 대신 폼에서 고른 값을 쓴다 — 문제에 이미 값이 있으면 그대로 둔다
+  function applyJsonImportDefaults(
+    item: Record<string, unknown>,
+    index: number,
+    formSubjects: Subject[],
+    formExamTypes: ExamType[]
+  ): Question {
+    const subject = (item.subject as Subject | undefined) || formSubjects[0]
+    const examType = (item.examType as ExamType | undefined) || formExamTypes[0]
+    const year = typeof item.year === 'number' && item.year > 0 ? item.year : new Date().getFullYear()
+    return {
+      ...item,
+      subject,
+      examType,
+      year,
+      id: (item.id as string | undefined) || `${subject}_${examType}_${year}_${item.no}_${Date.now()}_${index}`,
+      addedAt: typeof item.addedAt === 'number' ? item.addedAt : Date.now(),
+      explanation: item.explanation === undefined ? null : (item.explanation as string | null),
+    } as Question
+  }
+
   function handleJsonImport() {
     if (!jsonText.trim()) {
       setJsonError('JSON 텍스트를 입력해주세요.')
@@ -507,8 +557,29 @@ export function PdfTab({
         ? parsed
         : (Array.isArray(parsed.questions) ? parsed.questions : [parsed])
 
+      if (questionsArray.length === 0) {
+        setJsonStatus('error')
+        setJsonError('가져올 문제가 없습니다.')
+        return
+      }
+
+      // 구조가 안 맞는 항목이 하나라도 있으면 전체를 막는다 — 몇 개만 조용히 저장되면
+      // 사용자가 몇 문제가 왜 빠졌는지 알 방법이 없다. JSON.parse 실패를 막는 아래 catch와
+      // 같은 원칙: 문제를 고쳐서 다시 붙여넣게 한다
+      const errors = questionsArray.flatMap((item: unknown, i: number) => jsonImportErrors(item, i))
+      if (errors.length > 0) {
+        setJsonStatus('error')
+        setJsonError(errors.join('\n'))
+        return
+      }
+
+      const formExamTypes = examTypes.length > 0 ? examTypes : (['모의고사'] as ExamType[])
+      const questions = questionsArray.map((item: Record<string, unknown>, i: number) =>
+        applyJsonImportDefaults(item, i, activeSubjects, formExamTypes)
+      )
+
       const sourceName = jsonDisplayName.trim() || 'JSON 입력 문제집'
-      const result = addQuestions(questionsArray, sourceName)
+      const result = addQuestions(questions, sourceName)
 
       setSummary({ added: result.added, merged: result.merged, skipped: [] })
       showReview([sourceName], true, true)
@@ -1841,7 +1912,7 @@ export function PdfTab({
                   setJsonStatus('idle')
                   setJsonError('')
                 }}
-                placeholder='[{"question": "문제 내용...", "options": ["①...", "②..."], "answer": "1"}]'
+                placeholder='[{"no": 1, "passage": "문제 지문...", "choices": [{"label": "①", "text": "..."}, {"label": "②", "text": "..."}], "answer": "①"}]'
                 className="w-full bg-input border border-border rounded-lg p-3 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-y"
               />
             </div>
