@@ -402,6 +402,28 @@ export function updateQuestionUnit(questionId: string, unit: string) {
   saveQuestions(questions)
 }
 
+// 파싱 검토 화면에서 지문을 사람이 고칠 때 쓴다. id 는 그대로 두므로 오답노트 연결은 유지된다.
+// 형광펜은 지문의 글자 위치로 저장돼 있어, 글자가 늘거나 줄면 그 뒤의 형광펜이 어긋난다 —
+// 그건 화면에서 알린다. 여기서 형광펜을 옮기지는 않는다(어디를 어떻게 고쳤는지 모른다)
+export function updateQuestionPassage(questionId: string, passage: string) {
+  const questions = getQuestions()
+  const target = questions.find((q) => q.id === questionId)
+  if (!target) return
+  target.passage = passage
+  saveQuestions(questions)
+}
+
+// 지문에 딸린 표/도면을 통째로 지운다. 도면이 표로 옮겨지며 위치 관계를 잃었을 때,
+// 사람이 그 관계를 지문에 글로 옮겨 쓴 뒤 남은 표를 치우는 용도다.
+// null 이 아니라 필드를 없앤다 — 타입이 선택 필드(passageTable?: TableBlock[])라 '없음'은 undefined 다
+export function clearQuestionPassageTable(questionId: string) {
+  const questions = getQuestions()
+  const target = questions.find((q) => q.id === questionId)
+  if (!target) return
+  delete target.passageTable
+  saveQuestions(questions)
+}
+
 // 파싱 검토 화면에서 잘못 판정된 출제연도를 사람이 고칠 때 쓴다.
 // updateQuestionUnit과 마찬가지로 id는 그대로 둔다
 export function updateQuestionYear(questionId: string, year: number) {

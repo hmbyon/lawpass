@@ -4,11 +4,12 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ExplanationBlock, Question, Subject } from '@/lib/types'
 import {
   updateQuestionUnit, updateQuestionYear, updateQuestionSubject, deleteQuestion, mergeQuestionInto,
-  attachAsExplanation, completenessScore, type MergeEdit,
+  attachAsExplanation, completenessScore, type MergeEdit, updateQuestionPassage, clearQuestionPassageTable,
 } from '@/lib/store'
 import { diffSegments, type DiffSegment } from '@/lib/passageMatch'
 import { canonicalUnit } from '@/lib/units'
 import { PassageTable } from '@/components/passage-table'
+import { loadHighlights } from '@/lib/highlights'
 import {
   buildParseReview, unitWarning, unitOptionsFor, subjectOptions, yearOptions, formatMissing, allMissing,
   filledChoices, hasPassageTable,
@@ -293,6 +294,12 @@ const ReparseFromRow = createContext<{ request: (q: Question) => void; disabled:
 // 하나씩 더 매달면 정작 이 기능과 상관없는 자리까지 고쳐야 한다
 const ChangeSubject = createContext<((q: Question, subject: Subject) => void) | null>(null)
 
+// 지문 고치기·표 지우기도 같은 통로로 내려보낸다
+const EditBody = createContext<{
+  savePassage: (q: Question, passage: string) => void
+  clearTable: (q: Question) => void
+} | null>(null)
+
 export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabled }: Props) {
   // 여러 줄을 동시에 펼쳐둘 수 있다. 단원 분포와 연도 분포를 오가며 견주는 일이 잦은데,
   // 하나만 열리면 앞서 본 줄이 계속 접혀 비교가 끊긴다.
@@ -314,21 +321,28 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
   const [editedUnit, setEditedUnit] = useState<Record<string, string>>({})
   const [editedYear, setEditedYear] = useState<Record<string, number>>({})
   const [editedSubject, setEditedSubject] = useState<Record<string, Subject>>({})
+  const [editedPassage, setEditedPassage] = useState<Record<string, string>>({})
+  const [clearedTables, setClearedTables] = useState<Set<string>>(new Set())
 
   const review = buildParseReview(
     questions.map((q) => {
       const unit = editedUnit[q.id]
       const year = editedYear[q.id]
       const subject = editedSubject[q.id]
-      if (unit === undefined && year === undefined && subject === undefined) return q
-      return {
+      const passage = editedPassage[q.id]
+      const tableCleared = clearedTables.has(q.id)
+      if (unit === undefined && year === undefined && subject === undefined && passage === undefined && !tableCleared) return q
+      const next: Question = {
         ...q,
+        ...(passage !== undefined && { passage }),
         ...(unit !== undefined && { unit }),
         ...(year !== undefined && { year }),
         // 사람이 골랐으면 미판정 표시도 함께 걷는다 (store.updateQuestionSubject와 같은 판단).
         // 그래야 이 문제가 '과목 미판정' 목록에서 바로 빠진다
         ...(subject !== undefined && { subject, subjectUnsure: undefined }),
       }
+      if (tableCleared) delete next.passageTable
+      return next
     })
   )
   if (review.total === 0) return null
@@ -336,6 +350,19 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
   function changeUnit(q: Question, unit: string) {
     updateQuestionUnit(q.id, unit)
     setEditedUnit((prev) => ({ ...prev, [q.id]: unit }))
+    onUnitChanged()
+  }
+
+  function savePassage(q: Question, passage: string) {
+    updateQuestionPassage(q.id, passage)
+    setEditedPassage((prev) => ({ ...prev, [q.id]: passage }))
+    onUnitChanged()
+  }
+
+  function clearTable(q: Question) {
+    if (!confirm(`${q.no}번의 표/도면을 지웁니다.\n\n표 내용은 되돌릴 수 없습니다 — 위치 관계를 지문에 옮겨 쓴 뒤 지워주세요.`)) return
+    clearQuestionPassageTable(q.id)
+    setClearedTables((prev) => new Set(prev).add(q.id))
     onUnitChanged()
   }
 
@@ -475,6 +502,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
       value={onReparse ? { request: requestReparseFor, disabled: Boolean(reparseDisabled) } : null}
     >
     <ChangeSubject.Provider value={changeSubject}>
+    <EditBody.Provider value={{ savePassage, clearTable }}>
     <div className="border border-border rounded-lg divide-y divide-border text-sm">
       <div className="px-3 py-2 space-y-0.5">
         <div className="flex items-center justify-between">
@@ -880,6 +908,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
         )}
       </div>
     </div>
+    </EditBody.Provider>
     </ChangeSubject.Provider>
     </ReparseFromRow.Provider>
   )
@@ -988,6 +1017,60 @@ function DetailSection({ title, children }: { title: string; children: React.Rea
   )
 }
 
+/**
+ * 지문 고치기.
+ *
+ * 형광펜은 지문의 글자 위치로 저장돼 있어, 글자가 늘거나 줄면 그 뒤의 형광펜이 엉뚱한 글자에
+ * 칠해지거나 범위를 넘어 사라진다. 이 기기에 칠해 둔 것이 있으면 그 수를 함께 알린다 —
+ * 다른 기기의 형광펜은 여기서 알 수 없다
+ */
+function PassageEditor({
+  q, draft, onChange, onCancel, onSave,
+}: {
+  q: Question
+  draft: string
+  onChange: (text: string) => void
+  onCancel: () => void
+  onSave: () => void
+}) {
+  const marked = useMemo(
+    () => loadHighlights(q.id).filter((h) => h.field === 'passage' || h.field === 'passage_stem').length,
+    [q.id]
+  )
+  const changed = draft !== q.passage
+  return (
+    <div className="space-y-1">
+      <textarea
+        value={draft}
+        onChange={(e) => onChange(e.target.value)}
+        rows={6}
+        className="w-full rounded border border-border bg-card px-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary/50"
+      />
+      <p className="text-[11px] text-amber-600 dark:text-amber-400">
+        ⚠ 지문을 고치면 이 문제에 칠해 둔 형광펜 위치가 어긋날 수 있습니다
+        {marked > 0 ? ` — 이 기기에만 ${marked}개가 칠해져 있습니다` : ''}. 다른 기기의 형광펜은 여기서 알 수 없습니다
+      </p>
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={!changed || !draft.trim()}
+          className="px-2 py-0.5 border border-primary/40 text-primary rounded text-[11px] hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          저장
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-2 py-0.5 border border-border text-muted-foreground rounded text-[11px] hover:bg-muted transition-colors"
+        >
+          취소
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function QuestionDetail({
   q,
   duplicates,
@@ -999,6 +1082,8 @@ function QuestionDetail({
 }) {
   const reparse = useContext(ReparseFromRow)
   const changeSubject = useContext(ChangeSubject)
+  const editBody = useContext(EditBody)
+  const [draft, setDraft] = useState<string | null>(null)
   const pages = q.pageFrom !== undefined ? `${q.pageFrom}~${q.pageTo}쪽` : '쪽 모름'
   // 과목은 따로 뽑아 드롭다운으로 세운다. 나머지는 읽기만 하는 값이라 한 줄로 잇는다
   const meta = [
@@ -1088,7 +1173,31 @@ function QuestionDetail({
           ⚠ 단원 &apos;{unit}&apos; 은(는) {q.subject} 목록 밖입니다 — 단원 분포에서 고쳐주세요
         </p>
       )}
-      <p className="text-foreground whitespace-pre-wrap max-h-64 overflow-y-auto">{q.passage}</p>
+      {draft === null ? (
+        <div className="flex items-start gap-2">
+          <p className="flex-1 text-foreground whitespace-pre-wrap max-h-64 overflow-y-auto">{q.passage}</p>
+          {editBody && (
+            <button
+              type="button"
+              onClick={() => setDraft(q.passage)}
+              className="shrink-0 px-2 py-0.5 border border-border text-muted-foreground rounded text-[11px] hover:bg-muted transition-colors"
+            >
+              지문 수정
+            </button>
+          )}
+        </div>
+      ) : (
+        <PassageEditor
+          q={q}
+          draft={draft}
+          onChange={setDraft}
+          onCancel={() => setDraft(null)}
+          onSave={() => {
+            editBody?.savePassage(q, draft)
+            setDraft(null)
+          }}
+        />
+      )}
       {/* 추출된 표를 그대로 보인다. 원본과 대조하려면 뽑힌 모양이 눈앞에 있어야 한다.
           형광펜 props 를 넘기지 않으므로 읽기 전용이다 — 값도 모양도 바꾸지 않는다 */}
       {hasPassageTable(q) && (
@@ -1097,6 +1206,15 @@ function QuestionDetail({
             ⚠ 표/도면 — 원본 확인 필요. 도면이었다면 표로 옮기면서 위치 관계가 사라졌을 수 있습니다
           </p>
           <PassageTable tables={q.passageTable!} fieldPrefix={`review_${q.id}`} />
+          {editBody && (
+            <button
+              type="button"
+              onClick={() => editBody.clearTable(q)}
+              className="px-2 py-0.5 border border-red-400/40 text-red-400 rounded text-[11px] hover:bg-red-400/10 transition-colors"
+            >
+              표/도면 지우기
+            </button>
+          )}
         </div>
       )}
       {filled.length > 0 && (
