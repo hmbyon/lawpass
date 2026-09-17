@@ -341,7 +341,8 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
         // 그래야 이 문제가 '과목 미판정' 목록에서 바로 빠진다
         ...(subject !== undefined && { subject, subjectUnsure: undefined }),
       }
-      if (tableCleared) delete next.passageTable
+      // 저장소와 같은 값으로 둔다 ([] — clearQuestionPassageTable 주석 참고)
+      if (tableCleared) next.passageTable = []
       return next
     })
   )
@@ -1296,7 +1297,8 @@ function QuestionDetail({
           </>
         )}
       </div>
-      {(q.subItems?.length || q.passageTable?.length) && (
+      {/* 개수로 조건을 걸면 둘 다 빈 배열일 때 결과가 숫자 0 이 되고, React 는 0 을 글자로 그린다 */}
+      {((q.subItems?.length ?? 0) > 0 || (q.passageTable?.length ?? 0) > 0) && (
         <p className="text-muted-foreground">
           {q.subItems?.length ? `보기 ${q.subItems.length}개 ` : ''}
           {q.passageTable?.length ? `표 ${q.passageTable.length}개` : ''}

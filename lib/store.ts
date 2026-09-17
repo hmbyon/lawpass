@@ -415,12 +415,15 @@ export function updateQuestionPassage(questionId: string, passage: string) {
 
 // 지문에 딸린 표/도면을 통째로 지운다. 도면이 표로 옮겨지며 위치 관계를 잃었을 때,
 // 사람이 그 관계를 지문에 글로 옮겨 쓴 뒤 남은 표를 치우는 용도다.
-// null 이 아니라 필드를 없앤다 — 타입이 선택 필드(passageTable?: TableBlock[])라 '없음'은 undefined 다
+//
+// 필드를 없애지 않고 빈 배열로 둔다. addQuestions 의 병합은 passageTable ??= 라서
+// undefined·null 이면 같은 문제를 다시 가져올 때 표가 되살아나지만, [] 는 값으로 보고
+// 건드리지 않는다. 화면들은 [] 를 '표 없음'으로 읽는다(length > 0 로 거른다)
 export function clearQuestionPassageTable(questionId: string) {
   const questions = getQuestions()
   const target = questions.find((q) => q.id === questionId)
   if (!target) return
-  delete target.passageTable
+  target.passageTable = []
   saveQuestions(questions)
 }
 
