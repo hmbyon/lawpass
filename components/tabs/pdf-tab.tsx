@@ -2102,6 +2102,7 @@ export function PdfTab({
               }}
               onReparse={openReparse}
               reparseDisabled={isRunning}
+              canEditTables={isAdmin}
             />
           </div>
         )}

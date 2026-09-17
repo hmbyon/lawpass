@@ -17,8 +17,22 @@ export interface Choice {
 }
 
 // 지문 안의 표/서식 (약속어음 앞면·뒷면, 계약서 양식, 등기부등본 등)
+/**
+ * 표의 칸 하나.
+ *
+ * 문자열은 병합 없는 칸이다. 추출 파이프라인과 이미 저장된 표는 전부 문자열이라, 마이그레이션
+ * 없이 그대로 읽히도록 두 모양을 함께 받는다. 칸을 읽을 때는 lib/tableGrid.ts 의 normalizeCell 을
+ * 거친다 — 모양을 직접 가리는 코드를 곳곳에 두지 않는다.
+ *
+ * 객체는 표 편집기가 저장하는 모양이다. rowspan·colspan 은 HTML 표와 같은 뜻이고, 없으면 1 이다.
+ * 병합으로 가려진 자리는 배열에 칸이 없다(HTML <tr> 과 같다)
+ */
+export type TableCell = string | { text: string; rowspan?: number; colspan?: number }
+
 export interface TableRow {
-  cells: string[] // 한 행의 칸들. 1칸(전체폭) / 2칸(항목·값) / 4칸(좌우 2단) 모두 가능
+  // 한 행의 칸들. 문자열만 있는 옛 표는 1칸(전체폭) / 2칸(항목·값) / 4칸(좌우 2단)처럼
+  // 행마다 칸 수가 달라도 되고, 그 행 안에서 폭을 고르게 나눈다
+  cells: TableCell[]
 }
 
 export interface TableBlock {

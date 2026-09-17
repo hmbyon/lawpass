@@ -1,6 +1,6 @@
 'use client'
 
-import type { Question, QuestionDrawing, Subject, WrongNote } from './types'
+import type { Question, QuestionDrawing, Subject, TableBlock, WrongNote } from './types'
 import { getAppMode } from './appMode'
 import { normalizePassage, isSameQuestionText } from './passageMatch'
 
@@ -424,6 +424,19 @@ export function clearQuestionPassageTable(questionId: string) {
   const target = questions.find((q) => q.id === questionId)
   if (!target) return
   target.passageTable = []
+  saveQuestions(questions)
+}
+
+// 표 편집기가 고친 표를 통째로 저장한다. id 는 그대로다.
+//
+// 가져오기 병합과 부딪히지 않는다: addQuestions 는 passageTable ??= 라서 값이 있으면(빈 배열
+// 포함) 손대지 않는다. 그래서 여기서 만든 표도, 모두 지워 [] 가 된 표도 같은 문제를 다시
+// 가져올 때 덮이지 않는다 — 표를 비울 때 필드를 없애지 않고 [] 로 두는 것도 그 때문이다
+export function updateQuestionPassageTable(questionId: string, tables: TableBlock[]) {
+  const questions = getQuestions()
+  const target = questions.find((q) => q.id === questionId)
+  if (!target) return
+  target.passageTable = tables
   saveQuestions(questions)
 }
 

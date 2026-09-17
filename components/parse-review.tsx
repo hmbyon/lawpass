@@ -1,14 +1,16 @@
 'use client'
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import type { ExplanationBlock, Question, Subject } from '@/lib/types'
+import type { ExplanationBlock, Question, Subject, TableBlock } from '@/lib/types'
 import {
   updateQuestionUnit, updateQuestionYear, updateQuestionSubject, deleteQuestion, mergeQuestionInto,
   attachAsExplanation, completenessScore, type MergeEdit, updateQuestionPassage, clearQuestionPassageTable,
+  updateQuestionPassageTable,
 } from '@/lib/store'
 import { diffSegments, type DiffSegment } from '@/lib/passageMatch'
 import { canonicalUnit } from '@/lib/units'
 import { PassageTable } from '@/components/passage-table'
+import { PassageTableEditor } from '@/components/passage-table-editor'
 import { loadHighlights } from '@/lib/highlights'
 import {
   buildParseReview, unitWarning, unitOptionsFor, subjectOptions, yearOptions, formatMissing, allMissing,
@@ -277,6 +279,8 @@ interface Props {
   // 없으면 재파싱 버튼을 숨긴다 (원본을 다룰 수 없는 화면에서도 이 패널을 쓸 수 있게)
   onReparse?: (req: ReparseRequest) => void
   reparseDisabled?: boolean
+  // 표 편집기를 보일지. 관리자에게만 연다 — 판정은 상위(PdfTab)가 이미 가진 isAdmin 을 그대로 받는다
+  canEditTables?: boolean
 }
 
 // 파싱 직후 결과를 점검하는 패널.
@@ -298,9 +302,11 @@ const ChangeSubject = createContext<((q: Question, subject: Subject) => void) | 
 const EditBody = createContext<{
   savePassage: (q: Question, passage: string) => void
   clearTable: (q: Question) => void
+  saveTables: (q: Question, tables: TableBlock[]) => void
+  canEditTables: boolean
 } | null>(null)
 
-export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabled }: Props) {
+export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabled, canEditTables = false }: Props) {
   // 여러 줄을 동시에 펼쳐둘 수 있다. 단원 분포와 연도 분포를 오가며 견주는 일이 잦은데,
   // 하나만 열리면 앞서 본 줄이 계속 접혀 비교가 끊긴다.
   // 연도는 숫자지만 키를 문자열로 통일해 두 집합이 같은 방식으로 다뤄지게 한다
@@ -364,6 +370,19 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
     if (!confirm(`${q.no}번의 표/도면을 지웁니다.\n\n표 내용은 되돌릴 수 없습니다 — 위치 관계를 지문에 옮겨 쓴 뒤 지워주세요.`)) return
     clearQuestionPassageTable(q.id)
     setClearedTables((prev) => new Set(prev).add(q.id))
+    onUnitChanged()
+  }
+
+  function saveTables(q: Question, tables: TableBlock[]) {
+    updateQuestionPassageTable(q.id, tables)
+    // 지웠다가 다시 만든 경우, 화면에 남아 있던 '지웠음' 표시가 새 표를 가리지 않게 걷는다.
+    // 표 자체는 상위가 목록을 다시 읽으며(onUnitChanged) 저장소 값으로 들어온다
+    setClearedTables((prev) => {
+      if (!prev.has(q.id)) return prev
+      const next = new Set(prev)
+      next.delete(q.id)
+      return next
+    })
     onUnitChanged()
   }
 
@@ -503,7 +522,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
       value={onReparse ? { request: requestReparseFor, disabled: Boolean(reparseDisabled) } : null}
     >
     <ChangeSubject.Provider value={changeSubject}>
-    <EditBody.Provider value={{ savePassage, clearTable }}>
+    <EditBody.Provider value={{ savePassage, clearTable, saveTables, canEditTables }}>
     <div className="border border-border rounded-lg divide-y divide-border text-sm">
       <div className="px-3 py-2 space-y-0.5">
         <div className="flex items-center justify-between">
@@ -1085,6 +1104,7 @@ function QuestionDetail({
   const changeSubject = useContext(ChangeSubject)
   const editBody = useContext(EditBody)
   const [draft, setDraft] = useState<string | null>(null)
+  const [editingTable, setEditingTable] = useState(false)
   const pages = q.pageFrom !== undefined ? `${q.pageFrom}~${q.pageTo}쪽` : '쪽 모름'
   // 과목은 따로 뽑아 드롭다운으로 세운다. 나머지는 읽기만 하는 값이라 한 줄로 잇는다
   const meta = [
@@ -1201,22 +1221,55 @@ function QuestionDetail({
       )}
       {/* 추출된 표를 그대로 보인다. 원본과 대조하려면 뽑힌 모양이 눈앞에 있어야 한다.
           형광펜 props 를 넘기지 않으므로 읽기 전용이다 — 값도 모양도 바꾸지 않는다 */}
-      {hasPassageTable(q) && (
+      {/* 표 편집 중이면 편집기가 표 자리를 대신한다. 저장·취소 전까지 원래 표는 그대로다 */}
+      {editingTable && editBody?.canEditTables ? (
+        <PassageTableEditor
+          questionId={q.id}
+          tables={q.passageTable}
+          onCancel={() => setEditingTable(false)}
+          onSave={(tables) => {
+            editBody.saveTables(q, tables)
+            setEditingTable(false)
+          }}
+        />
+      ) : hasPassageTable(q) ? (
         <div className="space-y-1">
           <p className="text-amber-600 dark:text-amber-400">
             ⚠ 표/도면 — 원본 확인 필요. 도면이었다면 표로 옮기면서 위치 관계가 사라졌을 수 있습니다
           </p>
           <PassageTable tables={q.passageTable!} fieldPrefix={`review_${q.id}`} />
-          {editBody && (
-            <button
-              type="button"
-              onClick={() => editBody.clearTable(q)}
-              className="px-2 py-0.5 border border-red-400/40 text-red-400 rounded text-[11px] hover:bg-red-400/10 transition-colors"
-            >
-              표/도면 지우기
-            </button>
-          )}
+          <div className="flex items-center gap-1.5">
+            {editBody?.canEditTables && (
+              <button
+                type="button"
+                onClick={() => setEditingTable(true)}
+                className="px-2 py-0.5 border border-primary/40 text-primary rounded text-[11px] hover:bg-primary/10 transition-colors"
+              >
+                표 편집
+              </button>
+            )}
+            {editBody && (
+              <button
+                type="button"
+                onClick={() => editBody.clearTable(q)}
+                className="px-2 py-0.5 border border-red-400/40 text-red-400 rounded text-[11px] hover:bg-red-400/10 transition-colors"
+              >
+                표/도면 지우기
+              </button>
+            )}
+          </div>
         </div>
+      ) : (
+        // 표를 놓쳤거나(추출 누락) 지운 뒤 다시 그려야 하는 경우. 빈 1×1 표부터 시작한다
+        editBody?.canEditTables && (
+          <button
+            type="button"
+            onClick={() => setEditingTable(true)}
+            className="px-2 py-0.5 border border-border text-muted-foreground rounded text-[11px] hover:bg-muted transition-colors"
+          >
+            표 만들기
+          </button>
+        )
       )}
       {filled.length > 0 && (
         <div className="space-y-0.5">
