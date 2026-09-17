@@ -463,7 +463,7 @@ export function AppShell({ user }: Props) {
       <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-5">
         {/* PdfTab만 key를 주지 않는다. 파싱 큐·재개 목록·검토 패널은 동기화가 끝났다고 해서
             버려도 되는 상태가 아니다. 대신 syncedAt을 넘겨 필요한 값만 다시 읽게 한다 */}
-        {tab === 'pdf' && <PdfTab syncedAt={syncedAt} onQuestionsAdded={refreshAndSync} />}
+        {tab === 'pdf' && <PdfTab syncedAt={syncedAt} onQuestionsAdded={refreshAndSync} isAdmin={isAdmin} />}
         {/* 공유받은 문제를 합쳐 넘긴다. 합치는 것은 화면에 보여줄 배열뿐이고,
             문항에 붙은 poolId 가 그대로 따라가 오답노트·학습 세션 사본에도 출처가 남는다.
             선학습은 세션을 시작할 때 이 배열에서 고른 문항을 통째로 스냅샷으로 잡으므로,

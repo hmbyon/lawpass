@@ -14,6 +14,7 @@ import { isIncompleteResponseError, IncompleteResponseError } from '@/lib/gemini
 import { savePdfFile, loadPdfFile, deletePdfFile } from '@/lib/pdfCache'
 import { getAppMode } from '@/lib/appMode'
 import type { Subject, ExamType } from '@/lib/types'
+import { importQuestionsJson, LAW_SUBJECTS } from '@/lib/jsonImport'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const EXAM_TYPES: ExamType[] = ['변호사시험', '모의고사']
@@ -153,6 +154,31 @@ function setApiInfoOpen(open: boolean) {
 
 const NO_SOURCE_FILE_LABEL = '(출처 없음)'
 
+// JSON 가져오기 입력칸의 예시. lib/jsonImport.ts 가 받는 모양 그대로다
+const JSON_PLACEHOLDER = JSON.stringify(
+  [
+    {
+      no: 1,
+      subject: '민법',
+      examType: '모의고사',
+      year: 2026,
+      unit: '민법총칙',
+      passage: '다음 설명 중 옳은 것은?',
+      choices: [
+        { label: '①', text: '…' },
+        { label: '②', text: '…' },
+        { label: '③', text: '…' },
+        { label: '④', text: '…' },
+        { label: '⑤', text: '…' },
+      ],
+      answer: '②',
+      explanation: '해설 전문…',
+    },
+  ],
+  null,
+  2
+)
+
 function sourceFileNameOf(f: { file: File; displayName: string }) {
   return f.displayName.trim() || f.file.name.replace(/\.pdf$/i, '')
 }
@@ -262,9 +288,12 @@ const PROGRESS_VIEW_OPTIONS: { id: ProgressViewMode; label: string }[] = [
 export function PdfTab({
   onQuestionsAdded,
   syncedAt = 0,
+  isAdmin = false,
 }: {
   onQuestionsAdded: () => void
   syncedAt?: number
+  /** JSON 가져오기는 외부 파이프라인 결과를 넣는 개발용 입구라 관리자에게만 연다 */
+  isAdmin?: boolean
 }) {
   const [appMode] = useState(() => getAppMode())
   const isGeneral = appMode === 'general'
@@ -280,7 +309,9 @@ export function PdfTab({
   const [jsonText, setJsonText] = useState('')
   const [jsonDisplayName, setJsonDisplayName] = useState('JSON 직접 입력')
   const [jsonStatus, setJsonStatus] = useState<'idle' | 'parsing' | 'done' | 'error'>('idle')
-  const [jsonError, setJsonError] = useState('')
+  // 문제가 여럿이면 전부 보여야 한 번에 고칠 수 있다. 첫 오류에서 멈추면 고치고 다시 넣기를 반복한다
+  const [jsonErrors, setJsonErrors] = useState<string[]>([])
+  const jsonFileRef = useRef<HTMLInputElement>(null)
 
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [generalSubjectText, setGeneralSubjectText] = useState('')
@@ -489,36 +520,45 @@ export function PdfTab({
   }
 
   function handleJsonImport() {
+    if (!isAdmin) return
     if (!jsonText.trim()) {
-      setJsonError('JSON 텍스트를 입력해주세요.')
+      setJsonErrors(['JSON 텍스트를 입력해주세요.'])
       return
     }
-    if (activeSubjects.length === 0 || (!isGeneral && examTypes.length === 0)) {
-      setActionError('과목과 시험 구분을 먼저 선택해주세요.')
-      return
-    }
-
-    try {
-      setJsonStatus('parsing')
-      setJsonError('')
-
-      const parsed = JSON.parse(jsonText)
-      const questionsArray = Array.isArray(parsed)
-        ? parsed
-        : (Array.isArray(parsed.questions) ? parsed.questions : [parsed])
-
-      const sourceName = jsonDisplayName.trim() || 'JSON 입력 문제집'
-      const result = addQuestions(questionsArray, sourceName)
-
-      setSummary({ added: result.added, merged: result.merged, skipped: [] })
-      showReview([sourceName], true, true)
-      setJsonStatus('done')
-      setJsonText('')
-      refreshSourceFiles()
-      onQuestionsAdded()
-    } catch (err) {
+    setJsonStatus('parsing')
+    // 과목·시험 구분은 문제마다 JSON 에 적힌 것을 쓴다. 화면에서 고른 값은 그것이 없을 때만
+    // 채움값이 된다 — 그래서 고르지 않아도 넣을 수 있다
+    const { questions, errors } = importQuestionsJson(jsonText, {
+      subjects: activeSubjects,
+      examTypes,
+      allowedSubjects: isGeneral ? null : LAW_SUBJECTS,
+    })
+    if (errors.length > 0) {
+      // 하나라도 걸리면 아무것도 저장하지 않는다. 반쯤 들어간 문제집은 검토하기 더 어렵다
       setJsonStatus('error')
-      setJsonError(`유효하지 않은 JSON 형식입니다: ${String(err)}`)
+      setJsonErrors(errors)
+      return
+    }
+    const sourceName = jsonDisplayName.trim() || 'JSON 입력 문제집'
+    const result = addQuestions(questions, sourceName)
+    setSummary({ added: result.added, merged: result.merged, skipped: [] })
+    showReview([sourceName], true, true)
+    setJsonStatus('done')
+    setJsonErrors([])
+    setJsonText('')
+    refreshSourceFiles()
+    onQuestionsAdded()
+  }
+
+  // 파일을 고르면 내용을 붙여넣기 칸으로 옮긴다. 붙여넣기와 같은 길을 타서, 넣기 전에 눈으로 볼 수 있다
+  async function handleJsonFile(file: File | undefined) {
+    if (!file) return
+    setJsonText(await file.text())
+    setJsonStatus('idle')
+    setJsonErrors([])
+    // 이름을 아직 안 정했으면 파일명을 문제집 이름으로 쓴다
+    if (jsonDisplayName === 'JSON 직접 입력' || !jsonDisplayName.trim()) {
+      setJsonDisplayName(file.name.replace(/\.json$/i, ''))
     }
   }
 
@@ -1509,6 +1549,7 @@ export function PdfTab({
           >
             🔗 File URI 입력
           </button>
+          {isAdmin && (
           <button
             onClick={() => setUploadMode('json')}
             className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
@@ -1517,8 +1558,9 @@ export function PdfTab({
                 : 'bg-muted text-muted-foreground hover:text-foreground'
             }`}
           >
-            📋 JSON 붙여넣기
+            📋 JSON 가져오기
           </button>
+          )}
         </div>
 
         {/* 재개 대기 큐 */}
@@ -1817,8 +1859,8 @@ export function PdfTab({
           </div>
         )}
 
-        {/* JSON 직접 붙여넣기 */}
-        {uploadMode === 'json' && (
+        {/* JSON 가져오기 — 관리자 전용. 버튼을 숨겨도 상태가 남아 있을 수 있어 여기서도 막는다 */}
+        {isAdmin && uploadMode === 'json' && (
           <div className="space-y-3">
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">저장될 문제집 이름</label>
@@ -1832,26 +1874,61 @@ export function PdfTab({
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">JSON 데이터 붙여넣기</label>
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-xs text-muted-foreground">JSON 데이터 (파일을 고르거나 붙여넣기)</label>
+                <button
+                  type="button"
+                  onClick={() => jsonFileRef.current?.click()}
+                  className="shrink-0 text-xs text-primary hover:text-primary/80 transition-colors"
+                >
+                  📂 파일 선택
+                </button>
+                <input
+                  ref={jsonFileRef}
+                  type="file"
+                  accept=".json,application/json"
+                  className="hidden"
+                  onChange={(e) => {
+                    void handleJsonFile(e.target.files?.[0])
+                    // 같은 파일을 고쳐서 다시 고를 수 있게 비운다
+                    e.target.value = ''
+                  }}
+                />
+              </div>
               <textarea
                 rows={8}
                 value={jsonText}
                 onChange={(e) => {
                   setJsonText(e.target.value)
                   setJsonStatus('idle')
-                  setJsonError('')
+                  setJsonErrors([])
                 }}
-                placeholder='[{"question": "문제 내용...", "options": ["①...", "②..."], "answer": "1"}]'
+                placeholder={JSON_PLACEHOLDER}
                 className="w-full bg-input border border-border rounded-lg p-3 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-y"
               />
             </div>
 
-            {jsonError && <p className="text-xs text-red-400 break-all">{jsonError}</p>}
+            {jsonErrors.length > 0 && (
+              <div className="rounded-lg border border-red-400/30 bg-red-400/5 p-2 space-y-1">
+                <p className="text-xs text-red-400">
+                  {jsonErrors.length}건이 형식에 맞지 않아 아무것도 저장하지 않았습니다
+                </p>
+                <ul className="max-h-48 overflow-y-auto space-y-0.5">
+                  {jsonErrors.map((msg, i) => (
+                    <li key={i} className="text-[11px] text-red-400 break-all">{msg}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <p className="text-[11px] text-muted-foreground">
+              과목·시험 구분은 문제마다 JSON 에 적힌 값을 씁니다. 없는 문제만 위에서 하나씩 고른 값으로 채웁니다.
+              id·addedAt 은 넣지 않아도 됩니다 (저장할 때 만듭니다).
+            </p>
 
             <button
               type="button"
               onClick={handleJsonImport}
-              disabled={!jsonText.trim() || activeSubjects.length === 0 || (!isGeneral && examTypes.length === 0)}
+              disabled={!jsonText.trim() || jsonStatus === 'parsing'}
               className="w-full py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
             >
               JSON 데이터 등록하기
