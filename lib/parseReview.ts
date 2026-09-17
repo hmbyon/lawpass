@@ -143,6 +143,10 @@ export interface ParseReview {
   // 가까우면서 전혀 다른 문제가 실제로 있고("상계/예약" 편집 거리 2), 병합은 되돌릴 수 없다.
   // 후보만 짚어주고 사람이 두 지문을 나란히 본 뒤 정한다
   similarPairs: SimilarPair[]
+  // 지문에 표/도면(passageTable)이 딸린 문제들. 제목·내용과 상관없이 값이 있으면 전부다.
+  // 표로 옮기는 과정에서 도면의 위치 관계(토지 배치도 등)가 사라질 수 있는데, 그건 표만
+  // 봐서는 코드도 사람도 알 수 없다 — 원본과 대조해야만 안다. 그래서 고치지 않고 짚기만 한다
+  tableQuestions: Question[]
   // 문제가 아니라 해설 조각으로 보이는 항목. 청크가 해설 한복판에서 시작하면 모델이
   // 앞 문제를 못 본 채 "번호 없는 새 문제"를 만든다.
   // 자동으로 지우거나 붙이지 않는다 — 어느 문제의 해설인지 코드가 알 근거가 없다
@@ -562,6 +566,11 @@ function cutRuns(key: string, list: Question[]): Run[] {
 }
 
 // 저장된 문제들로부터 검토 결과를 만든다.
+/** 원본과 대조가 필요한 표/도면이 딸린 문제인가. 빈 배열은 표가 없는 것으로 본다 */
+export function hasPassageTable(q: Question): boolean {
+  return Array.isArray(q.passageTable) && q.passageTable.length > 0
+}
+
 // 청크 겹침으로 생긴 중복은 addQuestions가 이미 병합했으므로 여기서 다시 다루지 않는다
 export function buildParseReview(questions: Question[]): ParseReview {
   // ── A. 번호 연속성 ──
@@ -570,6 +579,7 @@ export function buildParseReview(questions: Question[]): ParseReview {
   const similarPairs = findSimilarPairs(questions)
   const notQuestions = questions.filter(isNotQuestion)
   const unsureSubjects = questions.filter((q) => q.subjectUnsure)
+  const tableQuestions = questions.filter(hasPassageTable)
   const duplicateIds = findDuplicates(questions)
 
   // 파일·과목·시험구분으로 먼저 나눈다. 이때 저장 배열 순서를 그대로 유지해야
@@ -718,6 +728,7 @@ export function buildParseReview(questions: Question[]): ParseReview {
     similarPairs,
     notQuestions,
     unsureSubjects,
+    tableQuestions,
     singletonRuns,
     duplicateIds,
     units,
@@ -729,6 +740,7 @@ export function buildParseReview(questions: Question[]): ParseReview {
       groups.some((g) => g.verdict === 'suspect' || g.verdict === 'unknown') ||
       unknownYearCount > 0 ||
       unsureSubjects.length > 0 ||
+      tableQuestions.length > 0 ||
       yearConflicts.length > 0 ||
       similarPairs.length > 0 ||
       notQuestions.length > 0 ||

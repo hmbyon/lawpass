@@ -8,9 +8,10 @@ import {
 } from '@/lib/store'
 import { diffSegments, type DiffSegment } from '@/lib/passageMatch'
 import { canonicalUnit } from '@/lib/units'
+import { PassageTable } from '@/components/passage-table'
 import {
   buildParseReview, unitWarning, unitOptionsFor, subjectOptions, yearOptions, formatMissing, allMissing,
-  filledChoices,
+  filledChoices, hasPassageTable,
   gapLabel, gapNumbers, UNKNOWN_YEAR,
   type GroupCheck, type UnitCount, type YearCount, type QuestionPage, type SimilarPair,
   // 이 파일의 컴포넌트 이름과 겹쳐서 갈아 끼운다
@@ -706,6 +707,34 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
         </div>
       )}
 
+      {/* 표/도면 — 과목 미판정과 같은 모양이다. 다만 고칠 수단은 두지 않는다.
+          표로 옮기며 사라진 위치 관계는 원본을 봐야만 알 수 있어, 코드가 할 일은 짚는 것뿐이다 */}
+      {review.tableQuestions.length > 0 && (
+        <div className="px-3 py-2 space-y-1.5">
+          <p className="text-xs text-muted-foreground">표/도면</p>
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            ⚠ 표/도면이 딸린 문제가 {review.tableQuestions.length}개 있습니다. 표로 옮기면서 위치 관계(배치도 등)가
+            사라졌을 수 있습니다 — 원본과 대조해주세요
+          </p>
+          <div className="ml-2 mt-1 mb-1.5 pl-2 border-l-2 border-border space-y-1">
+            {byQuestionNo(review.tableQuestions).map((q) => (
+              <QuestionRow
+                key={q.id}
+                q={q}
+                duplicates={review.duplicateIds[q.id] ?? 0}
+                open={openQuestion === q.id}
+                onToggle={() => setOpenQuestion(openQuestion === q.id ? null : q.id)}
+                onDelete={removeQuestion}
+              />
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground pt-1">
+            펼치면 추출된 표와 쪽 번호가 보입니다. 원본의 그 쪽과 나란히 놓고 칸의 배치가 같은 뜻인지 확인하세요.
+            자동으로 고치지 않습니다.
+          </p>
+        </div>
+      )}
+
       {/* 연도 분포 */}
       <div className="px-3 py-2 space-y-1.5">
         <p className="text-xs text-muted-foreground">출제연도 분포</p>
@@ -896,6 +925,9 @@ function QuestionRow({
             {q.subjectUnsure ? '?' : ''}
           </span>
           <span className="flex-1 truncate text-foreground">{q.passage.slice(0, 40)}</span>
+          {hasPassageTable(q) && (
+            <span className="shrink-0 text-amber-600 dark:text-amber-400">⚠ 표/도면</span>
+          )}
           {duplicates >= 2 && (
             <span className="shrink-0 text-amber-600 dark:text-amber-400">⚠ 중복 {duplicates}건</span>
           )}
@@ -1057,6 +1089,16 @@ function QuestionDetail({
         </p>
       )}
       <p className="text-foreground whitespace-pre-wrap max-h-64 overflow-y-auto">{q.passage}</p>
+      {/* 추출된 표를 그대로 보인다. 원본과 대조하려면 뽑힌 모양이 눈앞에 있어야 한다.
+          형광펜 props 를 넘기지 않으므로 읽기 전용이다 — 값도 모양도 바꾸지 않는다 */}
+      {hasPassageTable(q) && (
+        <div className="space-y-1">
+          <p className="text-amber-600 dark:text-amber-400">
+            ⚠ 표/도면 — 원본 확인 필요. 도면이었다면 표로 옮기면서 위치 관계가 사라졌을 수 있습니다
+          </p>
+          <PassageTable tables={q.passageTable!} fieldPrefix={`review_${q.id}`} />
+        </div>
+      )}
       {filled.length > 0 && (
         <div className="space-y-0.5">
           {filled.map((c) => (
