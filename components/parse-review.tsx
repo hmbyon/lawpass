@@ -279,8 +279,9 @@ interface Props {
   // 없으면 재파싱 버튼을 숨긴다 (원본을 다룰 수 없는 화면에서도 이 패널을 쓸 수 있게)
   onReparse?: (req: ReparseRequest) => void
   reparseDisabled?: boolean
-  // 표 편집기를 보일지. 관리자에게만 연다 — 판정은 상위(PdfTab)가 이미 가진 isAdmin 을 그대로 받는다
-  canEditTables?: boolean
+  // 관리자인지. 펼친 상세의 고치는 버튼(지문 수정·표 편집·표 만들기·표/도면 지우기)을 이것으로만 연다.
+  // 판정은 상위(PdfTab)가 이미 가진 isAdmin 을 그대로 받는다 — 여기서 따로 가리지 않는다
+  isAdmin?: boolean
 }
 
 // 파싱 직후 결과를 점검하는 패널.
@@ -303,10 +304,10 @@ const EditBody = createContext<{
   savePassage: (q: Question, passage: string) => void
   clearTable: (q: Question) => void
   saveTables: (q: Question, tables: TableBlock[]) => void
-  canEditTables: boolean
+  isAdmin: boolean
 } | null>(null)
 
-export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabled, canEditTables = false }: Props) {
+export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabled, isAdmin = false }: Props) {
   // 여러 줄을 동시에 펼쳐둘 수 있다. 단원 분포와 연도 분포를 오가며 견주는 일이 잦은데,
   // 하나만 열리면 앞서 본 줄이 계속 접혀 비교가 끊긴다.
   // 연도는 숫자지만 키를 문자열로 통일해 두 집합이 같은 방식으로 다뤄지게 한다
@@ -360,13 +361,16 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
     onUnitChanged()
   }
 
+  // 아래 세 함수는 버튼이 숨겨져 있어도 다시 한 번 막는다. 통로(컨텍스트)로 누구든 부를 수 있어서다
   function savePassage(q: Question, passage: string) {
+    if (!isAdmin) return
     updateQuestionPassage(q.id, passage)
     setEditedPassage((prev) => ({ ...prev, [q.id]: passage }))
     onUnitChanged()
   }
 
   function clearTable(q: Question) {
+    if (!isAdmin) return
     if (!confirm(`${q.no}번의 표/도면을 지웁니다.\n\n표 내용은 되돌릴 수 없습니다 — 위치 관계를 지문에 옮겨 쓴 뒤 지워주세요.`)) return
     clearQuestionPassageTable(q.id)
     setClearedTables((prev) => new Set(prev).add(q.id))
@@ -374,6 +378,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
   }
 
   function saveTables(q: Question, tables: TableBlock[]) {
+    if (!isAdmin) return
     updateQuestionPassageTable(q.id, tables)
     // 지웠다가 다시 만든 경우, 화면에 남아 있던 '지웠음' 표시가 새 표를 가리지 않게 걷는다.
     // 표 자체는 상위가 목록을 다시 읽으며(onUnitChanged) 저장소 값으로 들어온다
@@ -522,7 +527,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
       value={onReparse ? { request: requestReparseFor, disabled: Boolean(reparseDisabled) } : null}
     >
     <ChangeSubject.Provider value={changeSubject}>
-    <EditBody.Provider value={{ savePassage, clearTable, saveTables, canEditTables }}>
+    <EditBody.Provider value={{ savePassage, clearTable, saveTables, isAdmin }}>
     <div className="border border-border rounded-lg divide-y divide-border text-sm">
       <div className="px-3 py-2 space-y-0.5">
         <div className="flex items-center justify-between">
@@ -1197,7 +1202,7 @@ function QuestionDetail({
       {draft === null ? (
         <div className="flex items-start gap-2">
           <p className="flex-1 text-foreground whitespace-pre-wrap max-h-64 overflow-y-auto">{q.passage}</p>
-          {editBody && (
+          {editBody?.isAdmin && (
             <button
               type="button"
               onClick={() => setDraft(q.passage)}
@@ -1222,7 +1227,7 @@ function QuestionDetail({
       {/* 추출된 표를 그대로 보인다. 원본과 대조하려면 뽑힌 모양이 눈앞에 있어야 한다.
           형광펜 props 를 넘기지 않으므로 읽기 전용이다 — 값도 모양도 바꾸지 않는다 */}
       {/* 표 편집 중이면 편집기가 표 자리를 대신한다. 저장·취소 전까지 원래 표는 그대로다 */}
-      {editingTable && editBody?.canEditTables ? (
+      {editingTable && editBody?.isAdmin ? (
         <PassageTableEditor
           questionId={q.id}
           tables={q.passageTable}
@@ -1239,7 +1244,7 @@ function QuestionDetail({
           </p>
           <PassageTable tables={q.passageTable!} fieldPrefix={`review_${q.id}`} />
           <div className="flex items-center gap-1.5">
-            {editBody?.canEditTables && (
+            {editBody?.isAdmin && (
               <button
                 type="button"
                 onClick={() => setEditingTable(true)}
@@ -1248,7 +1253,7 @@ function QuestionDetail({
                 표 편집
               </button>
             )}
-            {editBody && (
+            {editBody?.isAdmin && (
               <button
                 type="button"
                 onClick={() => editBody.clearTable(q)}
@@ -1261,7 +1266,7 @@ function QuestionDetail({
         </div>
       ) : (
         // 표를 놓쳤거나(추출 누락) 지운 뒤 다시 그려야 하는 경우. 빈 1×1 표부터 시작한다
-        editBody?.canEditTables && (
+        editBody?.isAdmin && (
           <button
             type="button"
             onClick={() => setEditingTable(true)}
