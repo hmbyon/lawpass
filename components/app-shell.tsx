@@ -15,6 +15,7 @@ import { countUnreadFeedback, countUnreadReplies } from '@/lib/firebaseServices/
 import { SettingsModal } from '@/components/settings-modal'
 import { AdminFeedbackModal } from '@/components/admin-feedback-modal'
 import { PdfTab } from '@/components/tabs/pdf-tab'
+import { DashboardTab } from '@/components/tabs/dashboard-tab'
 import { CbtTab } from '@/components/tabs/cbt-tab'
 import { StudyTab } from '@/components/tabs/study-tab'
 import { WrongTab } from '@/components/tabs/wrong-tab'
@@ -41,6 +42,7 @@ export function syncBadges(state: { syncing: boolean; syncError: string | null; 
 }
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
+  // 첫 탭은 관리자에게는 'PDF 분석', 일반 사용자에게는 '학습 현황'이다 (AppShell 에서 갈아 끼운다)
   { id: 'pdf', label: 'PDF 분석', icon: '📄' },
   { id: 'cbt', label: 'CBT 실전', icon: '⚡' },
   { id: 'study', label: '선학습', icon: '📖' },
@@ -77,6 +79,10 @@ export function AppShell({ user }: Props) {
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
   // 관리자 계정에서만 안읽은 피드백 수를 조회해 헤더 버튼에 표시한다
   const isAdmin = isAdminEmail(user.email)
+  // 첫 탭 자리는 같지만 사람에 따라 다른 화면이다. 이름도 그 화면에 맞춘다
+  const tabs = isAdmin
+    ? TABS
+    : TABS.map((t) => (t.id === 'pdf' ? { ...t, label: '학습 현황', icon: '📊' } : t))
   const [unreadFeedback, setUnreadFeedback] = useState(0)
   // 관리자는 헤더 피드백 버튼으로 피드백 전용 관리자 모달을 연다
   const [showAdminFeedback, setShowAdminFeedback] = useState(false)
@@ -432,7 +438,7 @@ export function AppShell({ user }: Props) {
       <nav className="sticky top-14 z-30 bg-background/90 backdrop-blur-sm border-b border-border no-print">
         <div className="max-w-3xl mx-auto px-2">
           <div className="flex overflow-x-auto scrollbar-hide">
-            {TABS.map((t) => (
+            {tabs.map((t) => (
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
@@ -463,7 +469,15 @@ export function AppShell({ user }: Props) {
       <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-5">
         {/* PdfTab만 key를 주지 않는다. 파싱 큐·재개 목록·검토 패널은 동기화가 끝났다고 해서
             버려도 되는 상태가 아니다. 대신 syncedAt을 넘겨 필요한 값만 다시 읽게 한다 */}
-        {tab === 'pdf' && <PdfTab syncedAt={syncedAt} onQuestionsAdded={refreshAndSync} isAdmin={isAdmin} />}
+        {/* 첫 탭은 관리자 여부로 화면 자체를 가른다. 일반 사용자에게는 PdfTab — 업로드·Gemini 파싱·
+            검토 화면 — 이 아예 마운트되지 않는다. 버튼을 숨기는 것이 아니라 트리가 없다.
+            PdfTab 안의 버튼별 isAdmin 게이트는 안전망으로 그대로 둔다 */}
+        {tab === 'pdf' &&
+          (isAdmin ? (
+            <PdfTab syncedAt={syncedAt} onQuestionsAdded={refreshAndSync} isAdmin={isAdmin} />
+          ) : (
+            <DashboardTab key={syncedAt} questions={[...questions, ...poolQuestions]} wrongNotes={wrongNotes} />
+          ))}
         {/* 공유받은 문제를 합쳐 넘긴다. 합치는 것은 화면에 보여줄 배열뿐이고,
             문항에 붙은 poolId 가 그대로 따라가 오답노트·학습 세션 사본에도 출처가 남는다.
             선학습은 세션을 시작할 때 이 배열에서 고른 문항을 통째로 스냅샷으로 잡으므로,

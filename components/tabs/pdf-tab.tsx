@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import { PDFDocument } from 'pdf-lib'
 import { getApiKey, setApiKey, addQuestions, getSourceFiles, deleteQuestionsBySource, mergeSourceFiles, getQuestions, getWrongNotes } from '@/lib/store'
 import { ParseReview, type ReparseRequest } from '@/components/parse-review'
+import { ProgressTable, computeProgress, type ProgressRow } from '@/components/progress-table'
 import { formatMissing, gapPageRange } from '@/lib/parseReview'
 import {
   uploadPdfToFileApi, waitForFileActive, extractQuestionsFromPdf, deleteFile,
@@ -197,94 +198,6 @@ function resumeJobView(progress: PdfParseProgress): JobView {
   }
 }
 
-interface ProgressRow {
-  examType: ExamType
-  year: number
-  unit: string
-  total: number
-  solved: number
-}
-
-function computeProgress(): Record<string, ProgressRow[]> {
-  const questions = getQuestions()
-  const wrongNotes = getWrongNotes()
-  const solvedIds = new Set(
-    wrongNotes.filter((n) => (n.totalCount ?? 0) > 0).map((n) => n.questionId)
-  )
-
-  const rowMap = new Map<string, ProgressRow & { subject: Subject }>()
-  for (const q of questions) {
-    const unit = q.unit?.trim() || '(단원 미지정)'
-    const key = `${q.subject}|${q.examType}|${q.year}|${unit}`
-    const row = rowMap.get(key) ?? { subject: q.subject, examType: q.examType, year: q.year, unit, total: 0, solved: 0 }
-    row.total += 1
-    if (solvedIds.has(q.id)) row.solved += 1
-    rowMap.set(key, row)
-  }
-
-  const bySubject: Record<string, ProgressRow[]> = {}
-  for (const { subject, ...row } of rowMap.values()) {
-    if (!bySubject[subject]) bySubject[subject] = []
-    bySubject[subject].push(row)
-  }
-  for (const subject in bySubject) {
-    bySubject[subject].sort((a, b) =>
-      a.examType !== b.examType
-        ? a.examType.localeCompare(b.examType)
-        : b.year !== a.year
-          ? b.year - a.year
-          : a.unit.localeCompare(b.unit)
-    )
-  }
-  return bySubject
-}
-
-function groupRowsByYear(rows: ProgressRow[]) {
-  const map = new Map<number, ProgressRow[]>()
-  for (const r of rows) {
-    const arr = map.get(r.year) ?? []
-    arr.push(r)
-    map.set(r.year, arr)
-  }
-  return Array.from(map.entries())
-    .map(([year, yearRows]) => ({
-      year,
-      rows: yearRows.slice().sort((a, b) => a.examType.localeCompare(b.examType) || a.unit.localeCompare(b.unit)),
-      total: yearRows.reduce((sum, r) => sum + r.total, 0),
-      solved: yearRows.reduce((sum, r) => sum + r.solved, 0),
-    }))
-    .sort((a, b) => b.year - a.year)
-}
-
-function groupRowsByUnit(rows: ProgressRow[]) {
-  const map = new Map<string, ProgressRow[]>()
-  for (const r of rows) {
-    const arr = map.get(r.unit) ?? []
-    arr.push(r)
-    map.set(r.unit, arr)
-  }
-  return Array.from(map.entries())
-    .map(([unit, unitRows]) => ({
-      unit,
-      total: unitRows.reduce((sum, r) => sum + r.total, 0),
-      solved: unitRows.reduce((sum, r) => sum + r.solved, 0),
-    }))
-    .sort((a, b) => a.unit.localeCompare(b.unit))
-}
-
-function progressStatus(solved: number, total: number) {
-  const icon = solved === 0 ? '⬜' : solved === total ? '✅' : '🔄'
-  const label = solved === 0 ? '미완료' : solved === total ? '완료' : '진행중'
-  return { icon, label }
-}
-
-type ProgressViewMode = 'year' | 'unit' | 'all'
-const PROGRESS_VIEW_OPTIONS: { id: ProgressViewMode; label: string }[] = [
-  { id: 'year', label: '연도별' },
-  { id: 'unit', label: '단원별' },
-  { id: 'all', label: '전체목록' },
-]
-
 export function PdfTab({
   onQuestionsAdded,
   syncedAt = 0,
@@ -363,15 +276,12 @@ export function PdfTab({
   const [uriError, setUriError] = useState('')
   const [sourceFiles, setSourceFiles] = useState<{ name: string; count: number }[]>([])
   const [progress, setProgress] = useState<Record<string, ProgressRow[]>>({})
-  const [expandedSubjects, setExpandedSubjects] = useState<Set<string>>(new Set())
-  const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set())
-  const [progressView, setProgressView] = useState<ProgressViewMode>('all')
   const [mergeMode, setMergeMode] = useState(false)
   const [mergeSelected, setMergeSelected] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     setSourceFiles(getSourceFiles())
-    setProgress(computeProgress())
+    setProgress(computeProgress(getQuestions(), getWrongNotes()))
 
     let cancelled = false
     ;(async () => {
@@ -421,7 +331,7 @@ export function PdfTab({
 
   function refreshSourceFiles() {
     setSourceFiles(getSourceFiles())
-    setProgress(computeProgress())
+    setProgress(computeProgress(getQuestions(), getWrongNotes()))
   }
 
   const reparseOpen = reparse !== null
@@ -434,24 +344,6 @@ export function PdfTab({
     refreshSourceFiles()
     setReviewRefresh((v) => v + 1)
   }, [syncedAt])
-
-  function toggleSubjectExpand(s: string) {
-    setExpandedSubjects((prev) => {
-      const next = new Set(prev)
-      if (next.has(s)) next.delete(s)
-      else next.add(s)
-      return next
-    })
-  }
-
-  function toggleYearExpand(key: string) {
-    setExpandedYears((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
 
   function saveKey(k: string) {
     setApiKeyLocal(k)
@@ -1332,134 +1224,7 @@ export function PdfTab({
       )}
 
       {/* 진도표 */}
-      {Object.keys(progress).length > 0 && (
-        <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <h2 className="font-semibold text-sm text-foreground">진도표</h2>
-            <div className="flex gap-1.5">
-              {PROGRESS_VIEW_OPTIONS.map((opt) => (
-                <button
-                  key={opt.id}
-                  onClick={() => setProgressView(opt.id)}
-                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
-                    progressView === opt.id
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-muted text-muted-foreground border-border hover:text-foreground'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="space-y-2">
-            {[
-              ...SUBJECTS.filter((s) => progress[s]?.length),
-              ...Object.keys(progress).filter((s) => !SUBJECTS.includes(s as Subject) && progress[s]?.length),
-            ].map((s) => {
-              const rows = progress[s]
-              const total = rows.reduce((sum, r) => sum + r.total, 0)
-              const solved = rows.reduce((sum, r) => sum + r.solved, 0)
-              const expanded = expandedSubjects.has(s)
-              return (
-                <div key={s} className="bg-muted rounded-lg overflow-hidden">
-                  <button
-                    onClick={() => toggleSubjectExpand(s)}
-                    className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/70 transition-colors"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className={`transition-transform text-muted-foreground ${expanded ? 'rotate-90' : ''}`}>▶</span>
-                      <span className="text-sm font-medium text-foreground">{s}</span>
-                    </div>
-                    <span className="text-xs text-muted-foreground shrink-0">
-                      {solved}/{total}문제
-                    </span>
-                  </button>
-                  {expanded && (
-                    <div className="px-3 pb-3 space-y-1.5">
-                      {progressView === 'all' &&
-                        groupRowsByYear(rows).map((yg) => {
-                          const yearKey = `${s}|${yg.year}`
-                          const yearExpanded = expandedYears.has(yearKey)
-                          return (
-                            <div key={yg.year} className="bg-card border border-border rounded-lg overflow-hidden">
-                              <button
-                                onClick={() => toggleYearExpand(yearKey)}
-                                className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-accent transition-colors"
-                              >
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className={`text-xs transition-transform text-muted-foreground ${yearExpanded ? 'rotate-90' : ''}`}>▶</span>
-                                  <span className="text-xs font-medium text-foreground">{yg.year}년</span>
-                                </div>
-                                <span className="text-xs text-muted-foreground shrink-0">
-                                  {yg.solved}/{yg.total}문제
-                                </span>
-                              </button>
-                              {yearExpanded && (
-                                <div className="px-3 pb-2 space-y-1.5">
-                                  {yg.rows.map((r, i) => {
-                                    const { icon, label } = progressStatus(r.solved, r.total)
-                                    return (
-                                      <div
-                                        key={i}
-                                        className="flex items-center justify-between gap-2 bg-muted rounded-lg px-3 py-2"
-                                      >
-                                        <div className="flex-1 min-w-0">
-                                          <p className="text-xs font-medium text-foreground truncate">
-                                            {r.examType} · {r.unit}
-                                          </p>
-                                        </div>
-                                        <span className="text-xs shrink-0">
-                                          {icon} {label} ({r.solved}/{r.total})
-                                        </span>
-                                      </div>
-                                    )
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })}
-
-                      {progressView === 'year' &&
-                        groupRowsByYear(rows).map((yg) => {
-                          const { icon, label } = progressStatus(yg.solved, yg.total)
-                          return (
-                            <div
-                              key={yg.year}
-                              className="flex items-center justify-between gap-2 bg-card border border-border rounded-lg px-3 py-2"
-                            >
-                              <span className="text-xs font-medium text-foreground">{yg.year}년</span>
-                              <span className="text-xs shrink-0">
-                                {icon} {label} ({yg.solved}/{yg.total})
-                              </span>
-                            </div>
-                          )
-                        })}
-
-                      {progressView === 'unit' &&
-                        groupRowsByUnit(rows).map((ug) => {
-                          const { icon, label } = progressStatus(ug.solved, ug.total)
-                          return (
-                            <div
-                              key={ug.unit}
-                              className="flex items-center justify-between gap-2 bg-card border border-border rounded-lg px-3 py-2"
-                            >
-                              <span className="text-xs font-medium text-foreground truncate">{ug.unit}</span>
-                              <span className="text-xs shrink-0">
-                                {icon} {label} ({ug.solved}/{ug.total})
-                              </span>
-                            </div>
-                          )
-                        })}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
+      <ProgressTable progress={progress} />
 
       {/* Meta */}
       <div className="bg-card border border-border rounded-xl p-4 space-y-4">
