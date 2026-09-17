@@ -1921,7 +1921,7 @@ export function PdfTab({
               </div>
             )}
             <p className="text-[11px] text-muted-foreground">
-              과목·시험 구분은 문제마다 JSON 에 적힌 값을 씁니다. 없는 문제만 위에서 하나씩 고른 값으로 채웁니다.
+              과목·시험 구분은 문제마다 JSON 에 적힌 값을 씁니다. 값이 없는 문제만 위에서 하나씩 고른 값으로 채우고, 적힌 값이 허용 밖이면 채우지 않고 오류로 알립니다.
               id·addedAt 은 넣지 않아도 됩니다 (저장할 때 만듭니다).
             </p>
 

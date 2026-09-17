@@ -13,7 +13,7 @@ import { SUBJECT_UNITS } from './units'
  *  - id·addedAt 은 모델이 아니라 프로그램이 붙이는 값이라 외부 JSON 에 없는 것이 정상이다.
  *    gemini.ts 가 하듯 여기서 만든다
  *  - 과목·시험 구분은 문제마다 JSON 에 적힌 것을 쓴다. 한 파일에 여러 과목이 섞일 수 있다.
- *    없거나 허용 값이 아닐 때만 화면에서 고른 값으로 채운다
+ *    **값이 없을 때만** 화면에서 고른 값으로 채우고, 적힌 값이 허용 밖이면 오류로 알린다
  */
 
 const LABELS = ['①', '②', '③', '④', '⑤']
@@ -45,6 +45,12 @@ function itemsOf(parsed: unknown): unknown[] | null {
   }
   return null
 }
+
+/**
+ * 값이 없는가. 키가 아예 없는 것뿐 아니라 null·빈 문자열도 '적힌 값이 없다'로 본다 —
+ * 어느 쪽이든 과목을 말해 주는 정보가 없어, 채워도 덮어쓰는 것이 아니다
+ */
+const isBlank = (v: unknown): boolean => v === undefined || v === null || (typeof v === 'string' && v.trim() === '')
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 
@@ -99,21 +105,27 @@ export function importQuestionsJson(text: string, fallback: ImportFallback, now:
       problems.push('explanation 은 문자열이거나 null 이어야 합니다')
     }
 
-    // 과목: JSON 값 → 없거나 허용 밖이면 화면에서 하나만 고른 값
+    // 과목·시험 구분은 '값이 없음'과 '값이 틀림'을 가른다.
+    //  - 없으면 화면에서 하나만 고른 값으로 채운다
+    //  - 적혀 있는데 허용 밖이면 채우지 않고 알린다. 합본에는 다른 과목이 섞여 있을 수 있어,
+    //    '민사법' 같은 값을 화면에서 고른 '민법'으로 조용히 덮으면 민사소송법·상법 문제가
+    //    민법으로 들어간다. 그건 틀린 값을 고친 것이 아니라 새 오류를 만든 것이다
     let subject: string | null = null
-    if (subjectOk(raw.subject)) subject = raw.subject
-    else if (onlySubject) subject = onlySubject
-    else if (raw.subject === undefined || raw.subject === null || raw.subject === '') {
-      problems.push('subject 가 없습니다 — 화면에서 과목을 하나만 고르면 그 값으로 채웁니다')
+    if (isBlank(raw.subject)) {
+      if (onlySubject) subject = onlySubject
+      else problems.push('subject 가 없습니다 — 화면에서 과목을 하나만 고르면 그 값으로 채웁니다')
+    } else if (subjectOk(raw.subject)) {
+      subject = raw.subject
     } else {
       problems.push(`subject '${String(raw.subject)}' 은(는) 허용 값이 아닙니다 (${(fallback.allowedSubjects ?? []).join('/')})`)
     }
 
     let examType: ExamType | null = null
-    if (typeof raw.examType === 'string' && EXAM_TYPES.includes(raw.examType as ExamType)) examType = raw.examType as ExamType
-    else if (onlyExamType) examType = onlyExamType
-    else if (raw.examType === undefined || raw.examType === null || raw.examType === '') {
-      problems.push('examType 이 없습니다 — 화면에서 시험 구분을 하나만 고르면 그 값으로 채웁니다')
+    if (isBlank(raw.examType)) {
+      if (onlyExamType) examType = onlyExamType
+      else problems.push('examType 이 없습니다 — 화면에서 시험 구분을 하나만 고르면 그 값으로 채웁니다')
+    } else if (typeof raw.examType === 'string' && EXAM_TYPES.includes(raw.examType as ExamType)) {
+      examType = raw.examType as ExamType
     } else {
       problems.push(`examType '${String(raw.examType)}' 은(는) 허용 값이 아닙니다 (변호사시험/모의고사)`)
     }
