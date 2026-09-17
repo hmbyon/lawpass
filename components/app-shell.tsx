@@ -494,6 +494,7 @@ export function AppShell({ user }: Props) {
         <OnboardingModal
           onClose={() => setShowOnboarding(false)}
           onSelectTab={(selectedTab) => setTab(selectedTab)}
+          isAdmin={isAdmin}
         />
       )}
 

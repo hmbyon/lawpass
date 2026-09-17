@@ -7,6 +7,9 @@ import { EXAMPASS_ENTRY_ENABLED } from '@/lib/featureFlags'
 interface OnboardingModalProps {
   onClose: () => void
   onSelectTab: (tab: 'pdf' | 'cbt' | 'study' | 'wrong' | 'memo') => void
+  // 첫 탭이 관리자에게는 'PDF 분석', 일반 사용자에게는 '학습 현황'이라 2단계 안내가 다르다.
+  // 로그인 전(auth-gate)에는 누구인지 모르므로 넘기지 않는다 — 대부분인 일반 사용자 안내가 뜬다
+  isAdmin?: boolean
 }
 
 /**
@@ -14,7 +17,7 @@ interface OnboardingModalProps {
  * 예전에는 배열이 모듈 상수라 앱 이름이 'ExamPass'로 박혀 있었고, LawPass 로 쓰는 사람에게도
  * "ExamPass AI는…"이라고 나갔다
  */
-function buildSteps(appTitle: string, isGeneral: boolean) {
+function buildSteps(appTitle: string, isGeneral: boolean, isAdmin: boolean) {
   return [
   {
     icon: '🏠',
@@ -37,6 +40,8 @@ function buildSteps(appTitle: string, isGeneral: boolean) {
       },
     ],
   },
+  ...(isAdmin
+    ? [
   {
     icon: '📄',
     title: '2. PDF 분석',
@@ -58,6 +63,27 @@ function buildSteps(appTitle: string, isGeneral: boolean) {
       '📊 진도표에서 과목/연도/단원별 학습 완료율을 확인하세요.',
     ],
   },
+      ]
+    : [
+  {
+    icon: '📊',
+    title: '2. 학습 현황',
+    badge: '공유 문제집으로 시작',
+    desc: '풀 문제는 공유받은 문제집으로 받아요. 받은 문제는 CBT 실전·선학습에서 바로 풀 수 있고, 학습 현황에서 진도를 한눈에 볼 수 있어요.',
+    tab: 'pdf' as const,
+    bullets: [
+      '⚙️ 설정 → "공유받은 문제집"에서 "받기"를 누르면 문제집이 내 기기로 들어와요.',
+      '문제집이 새로 고쳐지면 "업데이트 있음"이 떠요. "새 판본 받기"로 최신 판본을 받을 수 있어요.',
+      '설정에 "공유받은 문제집"이 보이지 않으면 아직 받을 수 있는 문제집이 없는 거예요.',
+      '📊 학습 현황에서 전체·과목별·문제집별 문제 수와, 진도표(과목/연도/단원별 완료율)를 확인하세요.',
+      '☁️ 헤더에 동기화 상태가 떠요. "미동기화"나 "⚠️ 동기화 실패"가 보이면 눌러서 다시 올릴 수 있어요.',
+      // 모드 전환은 진입점이 닫힌 동안 없는 기능이라, 안내에서도 뺀다
+      EXAMPASS_ENTRY_ENABLED
+        ? '⚙️ 설정에서 LawPass ↔ ExamPass 모드를 바꿀 수 있어요. "전체 데이터 초기화"는 되돌릴 수 없으니 주의하세요.'
+        : '⚙️ 설정의 "전체 데이터 초기화"는 되돌릴 수 없으니 주의하세요.',
+    ],
+  },
+      ]),
   {
     icon: '⚡',
     title: '3. CBT 실전 모드',
@@ -112,13 +138,13 @@ function buildSteps(appTitle: string, isGeneral: boolean) {
   ]
 }
 
-export function OnboardingModal({ onClose, onSelectTab }: OnboardingModalProps) {
+export function OnboardingModal({ onClose, onSelectTab, isAdmin = false }: OnboardingModalProps) {
   const [currentStep, setCurrentStep] = useState(0)
   const [dontShowAgain, setDontShowAgain] = useState(false)
   // 렌더 중에 읽지 않는다 — 서버에서는 localStorage 가 없어 law 로 나오므로 화면이 한 번 어긋난다
   // (quiz-filter.tsx 가 쓰는 방식과 같다)
   const [appMode] = useState(() => getAppMode())
-  const STEPS = buildSteps(appMode === 'general' ? 'ExamPass' : 'LawPass', appMode === 'general')
+  const STEPS = buildSteps(appMode === 'general' ? 'ExamPass' : 'LawPass', appMode === 'general', isAdmin)
 
   const step = STEPS[currentStep]
   const isFirst = currentStep === 0
