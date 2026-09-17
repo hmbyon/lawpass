@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import { PDFDocument } from 'pdf-lib'
 import { getApiKey, setApiKey, addQuestions, getSourceFiles, deleteQuestionsBySource, mergeSourceFiles, getQuestions, getWrongNotes } from '@/lib/store'
 import { ParseReview, type ReparseRequest } from '@/components/parse-review'
-import { ProgressTable, computeProgress, type ProgressRow } from '@/components/progress-table'
+import { ProgressTable, computeProgress, progressQuestions, type ProgressRow } from '@/components/progress-table'
 import { formatMissing, gapPageRange } from '@/lib/parseReview'
 import {
   uploadPdfToFileApi, waitForFileActive, extractQuestionsFromPdf, deleteFile,
@@ -281,7 +281,7 @@ export function PdfTab({
 
   useEffect(() => {
     setSourceFiles(getSourceFiles())
-    setProgress(computeProgress(getQuestions(), getWrongNotes()))
+    setProgress(computeProgress(progressQuestions(), getWrongNotes()))
 
     let cancelled = false
     ;(async () => {
@@ -331,7 +331,7 @@ export function PdfTab({
 
   function refreshSourceFiles() {
     setSourceFiles(getSourceFiles())
-    setProgress(computeProgress(getQuestions(), getWrongNotes()))
+    setProgress(computeProgress(progressQuestions(), getWrongNotes()))
   }
 
   const reparseOpen = reparse !== null

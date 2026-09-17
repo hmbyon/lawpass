@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import type { ExamType, Question, Subject, WrongNote } from '@/lib/types'
+import { getPoolQuestions, getQuestions } from '@/lib/store'
 
 /**
  * 진도표 — 과목·연도·단원별 풀이 현황.
@@ -23,10 +24,18 @@ export interface ProgressRow {
 /**
  * 과목 → (시험구분·연도·단원)별 문제 수와 푼 수.
  *
- * 예전에는 안에서 getQuestions()·getWrongNotes() 를 읽었다. 이제 두 화면이 쓴다 — 관리자의
- * PDF 분석은 내가 올린 문제를, 일반 사용자의 학습 현황은 실제로 푸는 문제(내 문제 + 공유받은
- * 문제집)를 센다. 그래서 무엇을 셀지만 밖에서 받고, 세는 규칙은 그대로 둔다
+ * 예전에는 안에서 getQuestions()·getWrongNotes() 를 읽었다. 이제 두 화면이 쓰므로 무엇을 셀지를
+ * 밖에서 받고, 세는 규칙은 그대로 둔다. 세는 대상은 역할과 상관없이 하나다 — progressQuestions
  */
+/**
+ * 진도표가 세는 문제. 관리자든 일반 사용자든 같다 — 내 문제 + 공유받은 문제집.
+ * CBT·선학습이 풀게 하는 목록(app-shell 의 [...questions, ...poolQuestions])과 같은 범위다.
+ * 내 문제만 세면 올린 문제가 없는 사람에게는 늘 빈 표가 뜬다
+ */
+export function progressQuestions(): Question[] {
+  return [...getQuestions(), ...getPoolQuestions()]
+}
+
 export function computeProgress(questions: Question[], wrongNotes: WrongNote[]): Record<string, ProgressRow[]> {
   const solvedIds = new Set(
     wrongNotes.filter((n) => (n.totalCount ?? 0) > 0).map((n) => n.questionId)

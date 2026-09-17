@@ -11,8 +11,8 @@ import { ProgressTable, computeProgress } from '@/components/progress-table'
  * 관리자에게는 같은 자리에 'PDF 분석'(업로드·파싱·검토)이 뜬다. 일반 사용자는 문제를 만들지
  * 않고 받아서 푼다 — 그래서 여기에는 조회만 있다: 가진 문제의 요약과 진도표.
  *
- * 세는 대상은 CBT·선학습이 쓰는 것과 같은 목록(내 문제 + 공유받은 문제집)이다. 진도표를 내 문제로만
- * 세면, 올린 문제가 없는 일반 사용자에게는 늘 빈 표가 뜬다
+ * 세는 대상은 CBT·선학습이 쓰는 것과 같은 목록(내 문제 + 공유받은 문제집)이다. 관리자의 PDF 분석
+ * 진도표도 같은 범위를 센다 (progress-table.tsx 의 progressQuestions)
  */
 
 const SUBJECT_ORDER = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
