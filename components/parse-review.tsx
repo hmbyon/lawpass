@@ -36,10 +36,13 @@ import {
  */
 function SimilarPairCard({
   pair,
+  canEdit,
   onMerge,
   onIgnore,
 }: {
   pair: SimilarPair
+  // 관리자가 아니면 두 지문의 차이만 보여주고, 고르기·다듬기·합치기·다른 문제는 그리지 않는다
+  canEdit: boolean
   onMerge: (edit: MergeEdit) => void
   onIgnore: () => void
 }) {
@@ -90,6 +93,8 @@ function SimilarPairCard({
         <span className="flex-1">
           {pair.a.subject} · {pair.a.no}번 · {pair.distance}글자 다름
         </span>
+        {canEdit && (
+        <>
         <button
           type="button"
           onClick={() => setEditing((v) => !v)}
@@ -115,6 +120,8 @@ function SimilarPairCard({
         >
           다른 문제
         </button>
+        </>
+        )}
       </div>
 
       {/* 다른 구간에 색을 깔아 둔다. 두 지문을 눈으로 훑어 한 글자를 찾는 일은
@@ -126,6 +133,7 @@ function SimilarPairCard({
             side === which ? 'bg-primary/5' : 'hover:bg-muted/50'
           }`}
         >
+          {canEdit && (
           <input
             type="radio"
             name={`keep-${pair.a.id}-${pair.b.id}`}
@@ -133,6 +141,7 @@ function SimilarPairCard({
             onChange={() => setSide(which)}
             className="mt-[3px] shrink-0 accent-[oklch(0.65_0.2_290)]"
           />
+          )}
           <DiffLine
             label={which === 'a' ? '위' : '아래'}
             segments={which === 'a' ? diff.a : diff.b}
@@ -142,7 +151,7 @@ function SimilarPairCard({
         </label>
       ))}
 
-      {editing && (
+      {canEdit && editing && (
         <div className="space-y-1.5 rounded bg-muted/50 border border-border p-2">
           <p className="text-[11px] text-muted-foreground">
             고른 쪽({side === 'a' ? '위' : '아래'})의 본문과, 합쳐질 해설을 그대로 다듬습니다.
@@ -356,6 +365,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
   if (review.total === 0) return null
 
   function changeUnit(q: Question, unit: string) {
+    if (!isAdmin) return
     updateQuestionUnit(q.id, unit)
     setEditedUnit((prev) => ({ ...prev, [q.id]: unit }))
     onUnitChanged()
@@ -392,6 +402,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
   }
 
   function changeSubject(q: Question, subject: Subject) {
+    if (!isAdmin) return
     updateQuestionSubject(q.id, subject)
     setEditedSubject((prev) => ({ ...prev, [q.id]: subject }))
     onUnitChanged()
@@ -447,6 +458,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
   }
 
   function mergePair(p: SimilarPair, edit: MergeEdit) {
+    if (!isAdmin) return
     const 남길쪽 = edit.bodyFrom === 'drop' ? '아래' : '위'
     const 손봄 = edit.passage !== undefined || edit.choiceTexts || edit.explanations
     if (
@@ -467,6 +479,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
 
   /** 해설 조각을 사람이 고른 문제의 해설로 옮긴다. 고르기 전에는 아무 일도 하지 않는다 */
   function attachOrphan(orphan: Question, targetId: string) {
+    if (!isAdmin) return
     const target = questions.find((q) => q.id === targetId)
     if (!target) return
     if (
@@ -482,6 +495,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
   }
 
   function changeYear(q: Question, year: number) {
+    if (!isAdmin) return
     updateQuestionYear(q.id, year)
     setEditedYear((prev) => ({ ...prev, [q.id]: year }))
     onUnitChanged()
@@ -489,6 +503,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
 
   // 되돌릴 수 없으므로 지문 앞부분까지 보여주고 확인을 받는다
   function removeQuestion(q: Question) {
+    if (!isAdmin) return
     const preview = q.passage.replace(/\s+/g, ' ').trim().slice(0, 60)
     if (!confirm(`${q.no}번 문제를 삭제할까요?\n\n${preview}…\n\n되돌릴 수 없습니다.`)) return
     deleteQuestion(q.id)
@@ -511,7 +526,20 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
    * 쪽은 파싱 때 기록해 둔 그 문제의 구간을 그대로 넘긴다(pageHint). 사용자가 쪽을 찾아
    * 헤맬 필요가 없고, 패널에서 다시 고칠 수도 있다
    */
+  // 결번 줄의 '재파싱'. 문제를 새로 추가·병합하는 길이라 다른 수정 기능과 같이 막는다
+  function requestReparse(req: ReparseRequest) {
+    if (!isAdmin || !onReparse) return
+    onReparse(req)
+  }
+
+  // 유사 후보의 '다른 문제'. 저장은 하지 않지만 합치기 판단의 일부라 같이 막는다
+  function ignorePair(p: SimilarPair) {
+    if (!isAdmin) return
+    setIgnoredPairs((prev) => new Set(prev).add(pairKey(p)))
+  }
+
   function requestReparseFor(q: Question) {
+    if (!isAdmin) return
     if (!onReparse || !q.sourceFile || q.pageFrom === undefined || q.pageTo === undefined) return
     onReparse({
       sourceFile: q.sourceFile,
@@ -524,9 +552,9 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
 
   return (
     <ReparseFromRow.Provider
-      value={onReparse ? { request: requestReparseFor, disabled: Boolean(reparseDisabled) } : null}
+      value={onReparse && isAdmin ? { request: requestReparseFor, disabled: Boolean(reparseDisabled) } : null}
     >
-    <ChangeSubject.Provider value={changeSubject}>
+    <ChangeSubject.Provider value={isAdmin ? changeSubject : null}>
     <EditBody.Provider value={{ savePassage, clearTable, saveTables, isAdmin }}>
     <div className="border border-border rounded-lg divide-y divide-border text-sm">
       <div className="px-3 py-2 space-y-0.5">
@@ -590,7 +618,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
             <GroupRow
               key={g.runId}
               g={g}
-              onReparse={onReparse}
+              onReparse={onReparse && isAdmin ? requestReparse : undefined}
               reparseDisabled={reparseDisabled}
             />
           ))
@@ -627,6 +655,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
                   ))}
                 </div>
               )}
+              {isAdmin && (
               <div className="flex items-center gap-2">
                 <select
                   value=""
@@ -648,6 +677,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
                   삭제
                 </button>
               </div>
+              )}
             </div>
           ))}
           <p className="text-[11px] text-muted-foreground pt-1">
@@ -671,8 +701,9 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
               <SimilarPairCard
                 key={pairKey(p)}
                 pair={p}
+                canEdit={isAdmin}
                 onMerge={(edit) => mergePair(p, edit)}
-                onIgnore={() => setIgnoredPairs((prev) => new Set(prev).add(pairKey(p)))}
+                onIgnore={() => ignorePair(p)}
               />
             ))}
           <p className="text-[11px] text-muted-foreground pt-1">
@@ -703,6 +734,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
                 <span className="shrink-0 text-[11px] text-amber-600 dark:text-amber-400">
                   {(q.yearConflict ?? []).map((y) => (y === UNKNOWN_YEAR ? '미상' : `${y}년`)).join(' / ')}
                 </span>
+                {isAdmin && (
                 <select
                   value=""
                   onChange={(e) => e.target.value && changeYear(q, Number(e.target.value))}
@@ -713,6 +745,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
                     <option key={y} value={y}>{y}년</option>
                   ))}
                 </select>
+                )}
               </QuestionRow>
             ))}
           </div>
@@ -740,6 +773,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
                 onDelete={removeQuestion}
               >
                 {/* 지금 담긴 과목을 선택 상태로 두지 않는다. 판정된 값처럼 보이면 안 되므로 */}
+                {isAdmin && (
                 <select
                   value=""
                   onChange={(e) => e.target.value && changeSubject(q, e.target.value as Subject)}
@@ -750,6 +784,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
                     <option key={s} value={s}>{s}</option>
                   ))}
                 </select>
+                )}
               </QuestionRow>
             ))}
           </div>
@@ -831,7 +866,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
                   openId={openQuestion}
                   onOpen={setOpenQuestion}
                   onDelete={removeQuestion}
-                  onChange={changeYear}
+                  onChange={isAdmin ? changeYear : undefined}
                 />
               )}
             </div>
@@ -879,7 +914,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
                   openId={openQuestion}
                   onOpen={setOpenQuestion}
                   onDelete={removeQuestion}
-                  onChange={changeUnit}
+                  onChange={isAdmin ? changeUnit : undefined}
                 />
               )}
             </div>
@@ -1364,6 +1399,7 @@ function QuestionDetail({
       )}
       <div className="flex items-center justify-between gap-2 pt-0.5">
         <p className="text-[11px] text-muted-foreground break-all">id: {q.id}</p>
+        {editBody?.isAdmin && (
         <button
           type="button"
           onClick={() => onDelete(q)}
@@ -1371,6 +1407,7 @@ function QuestionDetail({
         >
           이 문제 삭제
         </button>
+        )}
       </div>
     </div>
   )
@@ -1389,7 +1426,7 @@ function YearQuestionList({
   openId: string | null
   onOpen: (id: string | null) => void
   onDelete: (q: Question) => void
-  onChange: (q: Question, year: number) => void
+  onChange?: (q: Question, year: number) => void  // 없으면 연도 변경 드롭다운을 그리지 않는다
 }) {
   const options = yearOptions()
   return (
@@ -1403,6 +1440,7 @@ function YearQuestionList({
           onToggle={() => onOpen(openId === q.id ? null : q.id)}
           onDelete={onDelete}
         >
+          {onChange && (
           <select
             value={options.includes(row.year) ? row.year : ''}
             onChange={(e) => e.target.value && onChange(q, Number(e.target.value))}
@@ -1413,6 +1451,7 @@ function YearQuestionList({
               <option key={y} value={y}>{y}년</option>
             ))}
           </select>
+          )}
         </QuestionRow>
       ))}
     </div>
@@ -1432,7 +1471,7 @@ function UnitQuestionList({
   openId: string | null
   onOpen: (id: string | null) => void
   onDelete: (q: Question) => void
-  onChange: (q: Question, unit: string) => void
+  onChange?: (q: Question, unit: string) => void  // 없으면 단원 변경 드롭다운을 그리지 않는다
 }) {
   const options = unitOptionsFor(row.subject)
   // 과목명이 앞에 붙은 값("행정법총론")은 저장된 그대로는 목록에 없다. 가리키는 정식 단원을
@@ -1449,6 +1488,7 @@ function UnitQuestionList({
           onToggle={() => onOpen(openId === q.id ? null : q.id)}
           onDelete={onDelete}
         >
+          {onChange && (
           <select
             value={selected}
             onChange={(e) => e.target.value && onChange(q, e.target.value)}
@@ -1459,6 +1499,7 @@ function UnitQuestionList({
               <option key={u} value={u}>{u}</option>
             ))}
           </select>
+          )}
         </QuestionRow>
       ))}
     </div>
