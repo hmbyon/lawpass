@@ -11,6 +11,7 @@ import { diffSegments, type DiffSegment } from '@/lib/passageMatch'
 import { canonicalUnit } from '@/lib/units'
 import { PassageTable } from '@/components/passage-table'
 import { PassageTableEditor } from '@/components/passage-table-editor'
+import { QuestionImages } from '@/components/question-images'
 import { loadHighlights } from '@/lib/highlights'
 import {
   buildParseReview, unitWarning, unitOptionsFor, subjectOptions, yearOptions, formatMissing, allMissing,
@@ -313,6 +314,9 @@ const EditBody = createContext<{
   savePassage: (q: Question, passage: string) => void
   clearTable: (q: Question) => void
   saveTables: (q: Question, tables: TableBlock[]) => void
+  // 도면 이미지는 저장 자체를 QuestionImages 가 한다(원격 문서 + 로컬 ID 목록).
+  // 여기서는 붙이거나 뗀 뒤 목록을 다시 읽을 길만 내려보낸다
+  imagesChanged: () => void
   isAdmin: boolean
 } | null>(null)
 
@@ -555,7 +559,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
       value={onReparse && isAdmin ? { request: requestReparseFor, disabled: Boolean(reparseDisabled) } : null}
     >
     <ChangeSubject.Provider value={isAdmin ? changeSubject : null}>
-    <EditBody.Provider value={{ savePassage, clearTable, saveTables, isAdmin }}>
+    <EditBody.Provider value={{ savePassage, clearTable, saveTables, imagesChanged: onUnitChanged, isAdmin }}>
     <div className="border border-border rounded-lg divide-y divide-border text-sm">
       <div className="px-3 py-2 space-y-0.5">
         <div className="flex items-center justify-between">
@@ -1311,6 +1315,14 @@ function QuestionDetail({
           </button>
         )
       )}
+      {/* 도면 이미지 — 표 컨트롤과 같은 자리에 둔다. 표/도면 경고가 붙은 문제 안에만 두면
+          표를 지운 문제나 애초에 표로 안 걸린 도면 문제에서는 붙일 길이 없다 */}
+      <QuestionImages
+        questionId={q.id}
+        imageIds={q.images}
+        isAdmin={editBody?.isAdmin ?? false}
+        onChanged={() => editBody?.imagesChanged()}
+      />
       {filled.length > 0 && (
         <div className="space-y-0.5">
           {filled.map((c) => (

@@ -118,6 +118,30 @@ export interface Question {
   // 하나로 뭉치면 판례별로 모을 수 없어 이 필드를 만든 이유가 사라진다.
   // 이 필드가 생기기 전에 파싱된 문제에는 없다
   cases?: CaseRef[]
+  // 이 문제에 첨부된 도면 이미지의 문서 ID 목록. 배열 순서가 곧 표시 순서다.
+  //
+  // 그림 자체(base64)는 여기 담지 않는다 — 문제 목록은 조각(shard)으로 나뉘어 통째로
+  // 오르내리는데, 장당 수백 KB인 이미지를 그 안에 넣으면 동기화가 통째로 무거워진다.
+  // 실제 이미지는 questionImages 문서에 따로 있고(lib/firebaseServices/questionImages.ts),
+  // 문제 상세를 열 때 이 ID 로 그때그때 읽는다
+  images?: string[]
+}
+
+/**
+ * 표로는 표현이 안 되는 도면(꺾인 토지 배치 등)을 원본에서 캡쳐해 붙인 이미지 한 장.
+ *
+ * passageTable 과 경쟁하지 않는다 — 표로 되는 것은 표로 두고, rowspan·colspan 으로
+ * 원천적으로 표현이 안 되는 모양만 이것으로 간다.
+ *
+ * 문서 하나가 곧 이미지 한 장이다. Firestore 문서 한도(1MiB)가 그대로 장당 한도이므로
+ * 올리기 전에 반드시 lib/imageCompress.ts 를 거친다
+ */
+export interface QuestionImage {
+  id: string
+  questionId: string
+  dataUrl: string // "data:image/jpeg;base64,..." (압축 후)
+  caption?: string
+  createdAt: number
 }
 
 export interface ErrorAnalysis {

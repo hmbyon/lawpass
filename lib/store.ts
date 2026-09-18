@@ -232,6 +232,8 @@ export function addQuestions(
     found.subChoiceExplanations ??= q.subChoiceExplanations
     found.subItems ??= q.subItems
     found.passageTable ??= q.passageTable
+    // 첨부한 도면 이미지 ID 목록. 사람이 붙인 값이라 다시 가져온 파싱 결과가 덮으면 안 된다
+    found.images ??= q.images
     // 연도도 ??= 가 아니다. 병합 키에서 연도를 뺐기 때문에(questionBucketKey 주석) 같은 문제를
     // 두 청크가 다른 연도로 판정해도 한 건으로 합쳐지는데, 예전에는 아무것도 하지 않아
     // '먼저 저장된 값'이 그대로 굳었다 — 못 읽은 값(0)이 먼저 오면 맞는 연도가 뒤에 와도 미상으로 남았다.
@@ -437,6 +439,31 @@ export function updateQuestionPassageTable(questionId: string, tables: TableBloc
   const target = questions.find((q) => q.id === questionId)
   if (!target) return
   target.passageTable = tables
+  saveQuestions(questions)
+}
+
+// 문제에 붙인 도면 이미지의 ID 를 목록 끝에 잇는다. 그림 자체는 여기 없다 —
+// Firestore 의 questionImages 문서에 있고(lib/firebaseServices/questionImages.ts),
+// 로컬에는 그 문서를 찾을 ID 만 남는다. 배열 순서가 곧 표시 순서다
+export function attachQuestionImages(questionId: string, imageIds: string[]) {
+  if (imageIds.length === 0) return
+  const questions = getQuestions()
+  const target = questions.find((q) => q.id === questionId)
+  if (!target) return
+  // 같은 ID 가 두 번 들어가면 같은 그림이 두 장 보인다 (저장 실패 후 재시도 등)
+  const existing = new Set(target.images ?? [])
+  target.images = [...(target.images ?? []), ...imageIds.filter((id) => !existing.has(id))]
+  saveQuestions(questions)
+}
+
+// 이미지 한 장을 문제에서 뗀다. 원격 문서 삭제는 호출부가 따로 한다 —
+// 여기서 같이 지우면 localStorage 함수가 네트워크를 타게 되고, 실패했을 때
+// 로컬과 원격 중 어느 쪽이 남았는지 알 수 없게 된다
+export function detachQuestionImage(questionId: string, imageId: string) {
+  const questions = getQuestions()
+  const target = questions.find((q) => q.id === questionId)
+  if (!target?.images) return
+  target.images = target.images.filter((id) => id !== imageId)
   saveQuestions(questions)
 }
 
