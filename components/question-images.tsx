@@ -27,9 +27,14 @@ interface Props {
   /** Question.images — 저장된 순서가 곧 표시 순서다 */
   imageIds: string[] | undefined
   /** 표 편집·표 만들기와 같은 판정을 그대로 받는다. 여기서 따로 가리지 않는다 */
-  isAdmin: boolean
+  isAdmin?: boolean
   /** 붙이거나 뗀 뒤 상위 목록을 다시 읽도록 */
-  onChanged: () => void
+  onChanged?: () => void
+  /**
+   * 선학습·CBT 처럼 문제를 푸는 화면. 관리자여도 첨부·삭제는 검토 화면에서만 한다 —
+   * 여기서는 '이미지 첨부' 머리말도 빼고 그림만, 풀면서 읽을 수 있는 크기로 보여준다
+   */
+  readOnly?: boolean
 }
 
 const button =
@@ -37,8 +42,9 @@ const button =
 
 const kb = (bytes: number) => `${Math.round(bytes / 1024)}KB`
 
-export function QuestionImages({ questionId, imageIds, isAdmin, onChanged }: Props) {
+export function QuestionImages({ questionId, imageIds, isAdmin: isAdminProp = false, onChanged, readOnly = false }: Props) {
   const ids = imageIds ?? []
+  const isAdmin = isAdminProp && !readOnly
   const [images, setImages] = useState<QuestionImage[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -102,7 +108,7 @@ export function QuestionImages({ questionId, imageIds, isAdmin, onChanged }: Pro
       if (fileRef.current) fileRef.current.value = ''
       if (added.length > 0) {
         setImages((prev) => [...(prev ?? []), ...added])
-        onChanged()
+        onChanged?.()
       }
       setBusy(false)
     }
@@ -116,7 +122,7 @@ export function QuestionImages({ questionId, imageIds, isAdmin, onChanged }: Pro
       await deleteQuestionImage(image.id)
       detachQuestionImage(questionId, image.id)
       setImages((prev) => (prev ?? []).filter((x) => x.id !== image.id))
-      onChanged()
+      onChanged?.()
     } catch (e) {
       setError(e instanceof Error ? e.message : '이미지를 지우지 못했습니다')
     } finally {
@@ -129,6 +135,7 @@ export function QuestionImages({ questionId, imageIds, isAdmin, onChanged }: Pro
 
   return (
     <div className="space-y-1">
+      {!readOnly && (
       <div className="flex flex-wrap items-center gap-1.5">
         <p className="text-[11px] text-muted-foreground">
           이미지 첨부{ids.length > 0 ? ` (${ids.length}장)` : ''}
@@ -152,6 +159,7 @@ export function QuestionImages({ questionId, imageIds, isAdmin, onChanged }: Pro
           </>
         )}
       </div>
+      )}
 
       {error && <p className="text-[11px] text-red-500">{error}</p>}
 
@@ -168,7 +176,9 @@ export function QuestionImages({ questionId, imageIds, isAdmin, onChanged }: Pro
                   <img
                     src={image.dataUrl}
                     alt={image.caption ?? `첨부 이미지 ${i + 1}`}
-                    className="h-24 w-auto rounded border border-border bg-card object-contain"
+                    className={`${
+                      readOnly ? 'max-h-80 max-w-full' : 'h-24'
+                    } w-auto rounded border border-border bg-card object-contain`}
                   />
                 </a>
                 {isAdmin && (

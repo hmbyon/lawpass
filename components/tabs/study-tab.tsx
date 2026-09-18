@@ -23,6 +23,7 @@ import {
 } from '@/lib/highlights'
 import type { BoldRange } from '@/lib/highlights'
 import { PassageTable } from '@/components/passage-table'
+import { QuestionImages } from '@/components/question-images'
 import { DrawLayer, useDrawBoard } from '@/components/quiz/draw-layer'
 import { DrawingPad, useDockedPad } from '@/components/drawing-pad'
 
@@ -925,6 +926,10 @@ function StudyBulkPreview({
             registerRef={(key, el) => { fieldRefs.current[key] = el }}
           />
         )}
+
+        {/* 표로 안 되는 도면. 해설을 펼쳐도 같은 카드 안이라 끝까지 남는다.
+            그림은 이 문제가 그려질 때 그 문제 것만 읽는다 */}
+        <QuestionImages questionId={q.id} imageIds={q.images} readOnly />
 
         {/* ㄱㄴㄷㄹ 보기 항목 */}
         {subChoices && (

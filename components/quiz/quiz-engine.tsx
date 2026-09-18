@@ -7,6 +7,7 @@ import { addWrongNote, addCorrectNote, saveSession, clearSavedSession, getRiskLe
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
 import { PassageTable } from '@/components/passage-table'
+import { QuestionImages } from '@/components/question-images'
 import { DrawLayer, useDrawBoard } from '@/components/quiz/draw-layer'
 
 interface QuizItem {
@@ -326,6 +327,8 @@ export function QuizEngine({
             <PassageTable tables={q.passageTable} />
           </div>
         )}
+        {/* 지금 보는 문제 것만 그려지므로 그 문제의 그림만 그때 읽는다 — 세션 전체를 미리 받지 않는다 */}
+        <QuestionImages questionId={q.id} imageIds={q.images} readOnly />
         <div className="space-y-2">
           {q.choices.map((c) => (
             <label
@@ -468,14 +471,20 @@ function ResultsView({
                 <span className="text-muted-foreground text-sm shrink-0">{expandedId === note.id ? '▲' : '▼'}</span>
               </button>
 
-              {expandedId === note.id && note.analysis && (
+              {/* 해설을 펼친 문제만 그림을 읽는다. 분석이 없어도 그림은 볼 수 있게 펼친다 */}
+              {expandedId === note.id && (note.analysis || (note.question.images?.length ?? 0) > 0) && (
                 <div className="border-t border-border px-4 py-3 space-y-3 text-sm">
-                  <InfoRow label="핵심개념" value={note.analysis.핵심개념} />
-                  <InfoRow label="관련조문" value={note.analysis.관련조문} />
-                  <InfoRow label="원인상세" value={note.analysis.원인상세} />
-                  <InfoRow label="개념요약" value={note.analysis.개념요약} />
-                  <InfoRow label="혼동주의" value={note.analysis.혼동주의} />
-                  <InfoRow label="체크포인트" value={note.analysis.체크포인트} />
+                  <QuestionImages questionId={note.question.id} imageIds={note.question.images} readOnly />
+                  {note.analysis && (
+                    <>
+                      <InfoRow label="핵심개념" value={note.analysis.핵심개념} />
+                      <InfoRow label="관련조문" value={note.analysis.관련조문} />
+                      <InfoRow label="원인상세" value={note.analysis.원인상세} />
+                      <InfoRow label="개념요약" value={note.analysis.개념요약} />
+                      <InfoRow label="혼동주의" value={note.analysis.혼동주의} />
+                      <InfoRow label="체크포인트" value={note.analysis.체크포인트} />
+                    </>
+                  )}
                 </div>
               )}
             </div>
