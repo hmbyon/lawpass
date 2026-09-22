@@ -3,7 +3,7 @@ import type { Question, ExplanationBlock } from '@/lib/types'
 import { QuizFilter } from '@/components/quiz/quiz-filter'
 import { QuizEngine } from '@/components/quiz/quiz-engine'
 import {
-  addBookmark, removeBookmark, getWrongNotes, updateChoiceMemo, getQuestionDrawing,
+  addBookmark, removeBookmark, getWrongNotes, getChoiceMemosFor, saveChoiceMemoFor, getQuestionDrawing,
   addSavedStudySession, getSavedStudySessions, removeSavedStudySession,
   firstUnlearnedIndex, lastLearnedIndex, unquizzedLearnedIndices,
   clearSavedSession, getSavedSession
@@ -573,12 +573,12 @@ function StudyBulkPreview({
   })
   const [choiceMemoOpen, setChoiceMemoOpen] = useState<string | null>(null)
   const [choiceMemoText, setChoiceMemoText] = useState('')
+  // 북마크 여부와 상관없이 그 문제의 메모를 읽는다 (옛 메모는 오답노트에서 함께 가져온다)
   const [choiceMemos, setChoiceMemos] = useState<Record<string, Record<string, string>>>(() => {
-    const notes = getWrongNotes()
     const result: Record<string, Record<string, string>> = {}
     for (const q of questions) {
-      const note = notes.find((n) => n.questionId === q.id)
-      if (note?.choiceMemos) result[q.id] = note.choiceMemos
+      const memos = getChoiceMemosFor(q.id)
+      if (Object.keys(memos).length > 0) result[q.id] = memos
     }
     return result
   })
@@ -803,15 +803,12 @@ function StudyBulkPreview({
     // 형광펜을 칠했다는 이유로 자동으로 켜지 않는다
   }
 
-  // 형광펜/선지메모가 모두 사라지면 자동으로 북마크 해제 (수동 추가분도 동일하게 처리)
-  // 삭제 직후 state는 아직 갱신 전이므로 남은 형광펜/메모를 인자로 받는다. 해제했으면 true 반환
-  function unbookmarkIfEmpty(
-    remainingHighlights: Highlight[],
-    remainingMemos: Record<string, string> = choiceMemos[q.id] ?? {}
-  ): boolean {
+  // 형광펜이 모두 사라지면 북마크 해제. 선지 메모는 이제 북마크와 무관해 따지지 않는다.
+  // 삭제 직후 state는 아직 갱신 전이므로 남은 형광펜을 인자로 받는다. 해제했으면 true 반환
+  // (지금은 부르는 곳이 없다 — removeHighlight 는 228d037 부터 북마크를 건드리지 않는다)
+  function unbookmarkIfEmpty(remainingHighlights: Highlight[]): boolean {
     if (!bookmarked.has(q.id)) return false
     if (remainingHighlights.length > 0) return false
-    if (Object.keys(remainingMemos).length > 0) return false
     removeBookmark(q.id)
     setBookmarked((prev) => { const next = new Set(prev); next.delete(q.id); return next })
     onDone()
@@ -837,16 +834,10 @@ function StudyBulkPreview({
     onDone()
   }
 
+  // 메모는 오답노트와 따로 저장한다. 써도 오답노트에 추가되지 않고, 지워도 북마크가 풀리지 않는다
   function saveChoiceMemo(label: string, memo: string) {
     const trimmed = memo.trim()
-    // 메모를 지우는 경우엔 북마크를 새로 만들지 않는다 (바로 아래에서 해제 대상이 되므로)
-    if (trimmed && !isBookmarked) {
-      addBookmark(q)
-      setBookmarked((prev) => new Set([...prev, q.id]))
-    }
-    const notes = getWrongNotes()
-    const note = notes.find((n) => n.questionId === q.id)
-    if (note) updateChoiceMemo(note.id, label, memo)
+    saveChoiceMemoFor(q.id, label, memo)
 
     const nextMemos = { ...(choiceMemos[q.id] ?? {}) }
     if (trimmed) nextMemos[label] = memo
@@ -855,9 +846,7 @@ function StudyBulkPreview({
 
     setChoiceMemoOpen(null)
     setChoiceMemoText('')
-    // 해제된 경우 unbookmarkIfEmpty가 onDone을 호출하므로 중복 동기화를 피한다
-    const unbookmarked = !trimmed && unbookmarkIfEmpty(highlights, nextMemos)
-    if (!unbookmarked) onDone()
+    onDone()
   }
 
   return (
@@ -991,7 +980,7 @@ function StudyBulkPreview({
                   </div>
 
                   {existingMemo && !isOpen && (
-                    <div className="ml-3 mt-1 px-2 py-1 bg-yellow-900/20 border-l-2 border-yellow-500/50 rounded-r text-xs text-yellow-300">
+                    <div className="ml-3 mt-1 px-2 py-1 bg-yellow-100 text-yellow-900 border-l-2 border-yellow-500/50 rounded-r text-xs dark:bg-yellow-900/20 dark:text-yellow-300">
                       {existingMemo}
                     </div>
                   )}
@@ -1132,7 +1121,7 @@ function StudyBulkPreview({
                 </div>
 
                 {existingMemo && !isOpen && (
-                  <div className="ml-3 mt-1 px-2 py-1 bg-yellow-900/20 border-l-2 border-yellow-500/50 rounded-r text-xs text-yellow-300">
+                  <div className="ml-3 mt-1 px-2 py-1 bg-yellow-100 text-yellow-900 border-l-2 border-yellow-500/50 rounded-r text-xs dark:bg-yellow-900/20 dark:text-yellow-300">
                     {existingMemo}
                   </div>
                 )}

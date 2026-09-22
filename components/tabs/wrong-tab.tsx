@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import type { WrongNote, Subject } from '@/lib/types'
 import { resolveErrorCause, CAUSE_LABELS } from '@/lib/types'
-import { deleteWrongNote, saveWrongNotes, updateWrongNoteMemo, getRiskLevel , updateWrongNoteMemoInclusion } from '@/lib/store'
+import { deleteWrongNote, saveWrongNotes, updateWrongNoteMemo, getRiskLevel , updateWrongNoteMemoInclusion, getChoiceMemosFor } from '@/lib/store'
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
 import { FilterChips } from '@/components/filter-chips'
@@ -35,6 +35,8 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
     onMemoSaved()
   }
   const [highlights, setHighlights] = useState(() => loadHighlights(note.question.id))
+  // 선지 메모는 오답노트와 따로 저장된다. 옛 메모(note.choiceMemos)도 이 안에 합쳐져 온다
+  const [choiceMemos] = useState(() => getChoiceMemosFor(note.questionId))
 
   function saveMemo() {
     updateWrongNoteMemo(note.id, memo)
@@ -99,9 +101,9 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
                   {c.label === note.question.answer && <span className="ml-auto shrink-0">✓ 정답</span>}
                   {c.label === note.userAnswer && c.label !== note.question.answer && <span className="ml-auto shrink-0">✗ 내 답</span>}
                 </div>
-                {note.choiceMemos?.[c.label] && (
+                {choiceMemos[c.label] && (
                   <div className="ml-2 mt-0.5 px-2 py-1 bg-yellow-100 text-yellow-900 border-l-2 border-yellow-500/50 rounded-r text-xs dark:bg-yellow-900/20 dark:text-yellow-300">
-                    📌 {note.choiceMemos[c.label]}
+                    📌 {choiceMemos[c.label]}
                   </div>
                 )}
               </div>

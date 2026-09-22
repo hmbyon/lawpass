@@ -17,6 +17,9 @@ const BASE_KEYS = {
   // push가 올리는 것은 questions뿐이므로, 키를 나누는 것만으로 남의 문제가 내 트리로
   // 올라가지 않는다 (docs/shared-pool-design.md §1.2)
   poolQuestions: 'lawpass_pool_questions',
+  // 선지 메모. 오답노트(WrongNote)와 따로 둔다 — 메모만 써도 오답노트에 항목이 생기면 안 된다.
+  // 형태: { [questionId]: { [선지 라벨]: 메모 } }
+  choiceMemos: 'lawpass_choice_memos',
 } as const
 
 const MODE_SCOPED_BASE_KEYS: string[] = [
@@ -25,6 +28,7 @@ const MODE_SCOPED_BASE_KEYS: string[] = [
   BASE_KEYS.savedSession,
   BASE_KEYS.savedStudySession,
   BASE_KEYS.savedStudySessions,
+  BASE_KEYS.choiceMemos,
 ]
 
 function modeKey(base: string): string {
@@ -54,6 +58,7 @@ const STORED_BASE_KEYS: string[] = [
   BASE_KEYS.savedSession,
   BASE_KEYS.savedStudySession,
   BASE_KEYS.savedStudySessions,
+  BASE_KEYS.choiceMemos,
 ]
 const STORED_KEYS: string[] = STORED_BASE_KEYS.flatMap((base) => [`${base}_law`, `${base}_general`])
 
@@ -1136,6 +1141,45 @@ export function updateChoiceMemo(id: string, choiceLabel: string, memo: string) 
     notes[idx] = { ...notes[idx], choiceMemos }
     saveWrongNotes(notes)
   }
+}
+
+// ── 선지 메모 (오답노트와 분리된 저장소) ──
+// 예전에는 WrongNote.choiceMemos 에 적었다. 그래서 메모를 쓰려면 그 문제가 오답노트에 있어야
+// 했고, 메모를 쓰는 순간 오답노트에 자동으로 추가됐다. 이제 메모는 따로 두고, 옛 메모는
+// 읽을 때만 WrongNote 에서 가져온다(updateChoiceMemo 는 옛 데이터 호환용으로 남긴다).
+//
+// 옛 메모를 지우면 새 저장소에 빈 문자열을 남긴다. 라벨을 그냥 지우면 WrongNote 쪽 옛 메모가
+// 다시 비쳐 보여 삭제가 되지 않는다. 빈 문자열은 '지웠음' 표시라 읽을 때 걸러낸다
+type ChoiceMemoStore = Record<string, Record<string, string>>
+
+function getChoiceMemoStore(): ChoiceMemoStore {
+  return safeGet<ChoiceMemoStore>(modeKey(BASE_KEYS.choiceMemos), {})
+}
+
+function legacyChoiceMemos(questionId: string): Record<string, string> {
+  return getWrongNotes().find((n) => n.questionId === questionId)?.choiceMemos ?? {}
+}
+
+/** 그 문제의 선지 메모. 새 저장소가 있는 라벨은 새 저장소가, 없으면 옛 WrongNote 의 메모가 보인다 */
+export function getChoiceMemosFor(questionId: string): Record<string, string> {
+  const merged = { ...legacyChoiceMemos(questionId), ...(getChoiceMemoStore()[questionId] ?? {}) }
+  const result: Record<string, string> = {}
+  for (const [label, memo] of Object.entries(merged)) {
+    if (memo.trim()) result[label] = memo
+  }
+  return result
+}
+
+/** 선지 메모를 새 저장소에만 적는다. WrongNote 와 북마크는 건드리지 않는다. 빈 문자열이면 지운다 */
+export function saveChoiceMemoFor(questionId: string, label: string, memo: string) {
+  const store = getChoiceMemoStore()
+  const memos = { ...(store[questionId] ?? {}) }
+  if (memo.trim()) memos[label] = memo
+  else if (legacyChoiceMemos(questionId)[label]?.trim()) memos[label] = '' // 옛 메모가 비치지 않게
+  else delete memos[label]
+  if (Object.keys(memos).length > 0) store[questionId] = memos
+  else delete store[questionId]
+  safeSet(modeKey(BASE_KEYS.choiceMemos), store)
 }
 
 // ── 문제별 그림판 ──
