@@ -29,7 +29,10 @@ export interface Highlight {
   start: number
   end: number
   color: HighlightColor
-  style?: HighlightStyle // 없으면 'fill' (기존 데이터 호환)
+  style?: HighlightStyle // 옛 데이터의 단일 스타일. 새로 칠하는 것은 styles 에 적는다
+  // 한 구간에 겹쳐 적용한 스타일들(형광펜+밑줄 등). 색은 위의 color 하나를 함께 쓴다.
+  // 옛 데이터에는 없으므로 읽을 때는 반드시 stylesOf() 를 거친다
+  styles?: HighlightStyle[]
 }
 
 export const HIGHLIGHT_CLASSES: Record<HighlightColor, string> = {
@@ -43,61 +46,68 @@ export const HIGHLIGHT_CLASSES: Record<HighlightColor, string> = {
   gray: 'bg-gray-300/70 dark:bg-gray-500/40',
 }
 
-// 밑줄 모드: <mark>의 브라우저 기본 배경을 없애고 아래 테두리만 남긴다.
+// 아래 네 맵(밑줄·취소선·원·X표시)은 '장식만' 담는다. 배경색은 여기 두지 않고
+// highlightClassName 이 한 번만 정한다 — 형광펜과 함께 켜면 형광펜 배경색이, 아니면
+// bg-transparent 가 붙는다. 맵마다 bg-transparent 를 박아두면 형광펜 배경색과 같은 속성을
+// 두고 다투는데, Tailwind 는 클래스를 적은 순서가 아니라 스타일시트 순서로 이겨서 결과를
+// 예측할 수 없다.
+//
+// 밑줄: 아래 테두리만 그린다.
 // text-decoration 대신 border를 쓰는 이유는 지우개 hover의 line-through/decoration과 충돌하지 않기 위해서다
 export const HIGHLIGHT_UNDERLINE_CLASSES: Record<HighlightColor, string> = {
-  yellow: 'bg-transparent border-b-2 border-yellow-500 dark:border-yellow-400',
-  green: 'bg-transparent border-b-2 border-emerald-500 dark:border-emerald-400',
-  pink: 'bg-transparent border-b-2 border-pink-500 dark:border-pink-400',
-  blue: 'bg-transparent border-b-2 border-blue-500 dark:border-blue-400',
-  purple: 'bg-transparent border-b-2 border-purple-500 dark:border-purple-400',
-  orange: 'bg-transparent border-b-2 border-orange-500 dark:border-orange-400',
-  red: 'bg-transparent border-b-2 border-red-500 dark:border-red-400',
-  gray: 'bg-transparent border-b-2 border-gray-500 dark:border-gray-400',
+  yellow: 'border-b-2 border-yellow-500 dark:border-yellow-400',
+  green: 'border-b-2 border-emerald-500 dark:border-emerald-400',
+  pink: 'border-b-2 border-pink-500 dark:border-pink-400',
+  blue: 'border-b-2 border-blue-500 dark:border-blue-400',
+  purple: 'border-b-2 border-purple-500 dark:border-purple-400',
+  orange: 'border-b-2 border-orange-500 dark:border-orange-400',
+  red: 'border-b-2 border-red-500 dark:border-red-400',
+  gray: 'border-b-2 border-gray-500 dark:border-gray-400',
 }
 
 // 취소선: 밑줄과 달리 text-decoration 을 그대로 쓴다. 지우개 hover 가 line-through 를
 // 신호로 쓰고 있어 겹치는데, 그건 renderHighlighted 에서 이 스타일만 다른 신호로 바꾼다
 export const HIGHLIGHT_STRIKE_CLASSES: Record<HighlightColor, string> = {
-  yellow: 'bg-transparent line-through decoration-2 decoration-yellow-500 dark:decoration-yellow-400',
-  green: 'bg-transparent line-through decoration-2 decoration-emerald-500 dark:decoration-emerald-400',
-  pink: 'bg-transparent line-through decoration-2 decoration-pink-500 dark:decoration-pink-400',
-  blue: 'bg-transparent line-through decoration-2 decoration-blue-500 dark:decoration-blue-400',
-  purple: 'bg-transparent line-through decoration-2 decoration-purple-500 dark:decoration-purple-400',
-  orange: 'bg-transparent line-through decoration-2 decoration-orange-500 dark:decoration-orange-400',
-  red: 'bg-transparent line-through decoration-2 decoration-red-500 dark:decoration-red-400',
-  gray: 'bg-transparent line-through decoration-2 decoration-gray-500 dark:decoration-gray-400',
+  yellow: 'line-through decoration-2 decoration-yellow-500 dark:decoration-yellow-400',
+  green: 'line-through decoration-2 decoration-emerald-500 dark:decoration-emerald-400',
+  pink: 'line-through decoration-2 decoration-pink-500 dark:decoration-pink-400',
+  blue: 'line-through decoration-2 decoration-blue-500 dark:decoration-blue-400',
+  purple: 'line-through decoration-2 decoration-purple-500 dark:decoration-purple-400',
+  orange: 'line-through decoration-2 decoration-orange-500 dark:decoration-orange-400',
+  red: 'line-through decoration-2 decoration-red-500 dark:decoration-red-400',
+  gray: 'line-through decoration-2 decoration-gray-500 dark:decoration-gray-400',
 }
 
 // 동그라미: 여러 줄에 걸치면 box-decoration-clone 이 줄마다 온전한 상자를 그린다.
 // 그게 없으면 첫 줄 왼쪽과 마지막 줄 오른쪽에만 테두리가 붙어 반쪽짜리가 된다
 export const HIGHLIGHT_CIRCLE_CLASSES: Record<HighlightColor, string> = {
-  yellow: 'bg-transparent border-2 border-yellow-500 dark:border-yellow-400',
-  green: 'bg-transparent border-2 border-emerald-500 dark:border-emerald-400',
-  pink: 'bg-transparent border-2 border-pink-500 dark:border-pink-400',
-  blue: 'bg-transparent border-2 border-blue-500 dark:border-blue-400',
-  purple: 'bg-transparent border-2 border-purple-500 dark:border-purple-400',
-  orange: 'bg-transparent border-2 border-orange-500 dark:border-orange-400',
-  red: 'bg-transparent border-2 border-red-500 dark:border-red-400',
-  gray: 'bg-transparent border-2 border-gray-500 dark:border-gray-400',
+  yellow: 'border-2 border-yellow-500 dark:border-yellow-400',
+  green: 'border-2 border-emerald-500 dark:border-emerald-400',
+  pink: 'border-2 border-pink-500 dark:border-pink-400',
+  blue: 'border-2 border-blue-500 dark:border-blue-400',
+  purple: 'border-2 border-purple-500 dark:border-purple-400',
+  orange: 'border-2 border-orange-500 dark:border-orange-400',
+  red: 'border-2 border-red-500 dark:border-red-400',
+  gray: 'border-2 border-gray-500 dark:border-gray-400',
 }
 
 // X표시: 대각선 두 줄을 겹쳐 ×를 만든다. 한 줄만 그으면 취소선과 구별되지 않는다.
 // 그라디언트는 인라인 조각마다 각각 칠해지므로 여러 줄에 걸치면 줄마다 ×가 하나씩 생긴다 —
 // 다만 범위가 길수록 대각선이 완만해져 ×보다 리본에 가까워진다. 한 문장 안에서 쓰는 표시다.
 //
-// bg-transparent 를 빠뜨리면 안 된다. <mark> 의 브라우저 기본 배경(노랑)이 그대로 비쳐,
-// 노란 형광펜을 함께 칠한 것처럼 보인다 — 밑줄·취소선·원이 모두 이것을 달고 있는 이유다.
+// 그라디언트는 background-image 라 형광펜의 background-color 와 실제로는 겹치지 않지만,
+// 다른 장식과 같은 규칙으로 배경색은 빼고 둔다. 형광펜 없이 쓸 때 <mark> 의 브라우저 기본
+// 배경(노랑)이 비치지 않도록 bg-transparent 를 붙이는 일은 highlightClassName 이 한다.
 // 색을 임의 값으로 박는 자리라 Tailwind 팔레트의 500 색상값을 그대로 적는다
 export const HIGHLIGHT_CROSS_CLASSES: Record<HighlightColor, string> = {
-  yellow: 'bg-transparent bg-[linear-gradient(to_top_right,transparent_47%,#eab308_47%,#eab308_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#eab308_47%,#eab308_53%,transparent_53%)]',
-  green: 'bg-transparent bg-[linear-gradient(to_top_right,transparent_47%,#10b981_47%,#10b981_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#10b981_47%,#10b981_53%,transparent_53%)]',
-  pink: 'bg-transparent bg-[linear-gradient(to_top_right,transparent_47%,#ec4899_47%,#ec4899_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#ec4899_47%,#ec4899_53%,transparent_53%)]',
-  blue: 'bg-transparent bg-[linear-gradient(to_top_right,transparent_47%,#3b82f6_47%,#3b82f6_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#3b82f6_47%,#3b82f6_53%,transparent_53%)]',
-  purple: 'bg-transparent bg-[linear-gradient(to_top_right,transparent_47%,#a855f7_47%,#a855f7_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#a855f7_47%,#a855f7_53%,transparent_53%)]',
-  orange: 'bg-transparent bg-[linear-gradient(to_top_right,transparent_47%,#f97316_47%,#f97316_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#f97316_47%,#f97316_53%,transparent_53%)]',
-  red: 'bg-transparent bg-[linear-gradient(to_top_right,transparent_47%,#ef4444_47%,#ef4444_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#ef4444_47%,#ef4444_53%,transparent_53%)]',
-  gray: 'bg-transparent bg-[linear-gradient(to_top_right,transparent_47%,#6b7280_47%,#6b7280_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#6b7280_47%,#6b7280_53%,transparent_53%)]',
+  yellow: 'bg-[linear-gradient(to_top_right,transparent_47%,#eab308_47%,#eab308_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#eab308_47%,#eab308_53%,transparent_53%)]',
+  green: 'bg-[linear-gradient(to_top_right,transparent_47%,#10b981_47%,#10b981_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#10b981_47%,#10b981_53%,transparent_53%)]',
+  pink: 'bg-[linear-gradient(to_top_right,transparent_47%,#ec4899_47%,#ec4899_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#ec4899_47%,#ec4899_53%,transparent_53%)]',
+  blue: 'bg-[linear-gradient(to_top_right,transparent_47%,#3b82f6_47%,#3b82f6_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#3b82f6_47%,#3b82f6_53%,transparent_53%)]',
+  purple: 'bg-[linear-gradient(to_top_right,transparent_47%,#a855f7_47%,#a855f7_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#a855f7_47%,#a855f7_53%,transparent_53%)]',
+  orange: 'bg-[linear-gradient(to_top_right,transparent_47%,#f97316_47%,#f97316_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#f97316_47%,#f97316_53%,transparent_53%)]',
+  red: 'bg-[linear-gradient(to_top_right,transparent_47%,#ef4444_47%,#ef4444_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#ef4444_47%,#ef4444_53%,transparent_53%)]',
+  gray: 'bg-[linear-gradient(to_top_right,transparent_47%,#6b7280_47%,#6b7280_53%,transparent_53%),linear-gradient(to_bottom_right,transparent_47%,#6b7280_47%,#6b7280_53%,transparent_53%)]',
 }
 
 // 색과 무관한 모양. 여기서 한 번만 정해야 rounded-sm 과 원의 반경이 같은 요소에
@@ -114,39 +124,54 @@ export const HIGHLIGHT_CROSS_CLASSES: Record<HighlightColor, string> = {
 // 세로 여백이 타원이 글자를 얼마나 품는지를 정한다. 타원은 네 귀퉁이를 잘라내므로
 // 0.15em 이면 글자 윗변의 가운데 60% 만 덮고 양끝이 밖으로 나온다. 0.25em 이면 71% 다.
 // 더 키우면 더 품지만 위아래 줄을 침범한다 — 여기가 그 절충점이다
-const STYLE_SHAPE: Record<HighlightStyle, string> = {
-  fill: 'rounded-sm',
-  underline: 'rounded-sm',
-  strike: 'rounded-sm',
-  circle: 'rounded-[50%] px-[0.5em] py-[0.25em] box-decoration-clone',
-  cross: 'rounded-sm',
-}
+const SHAPE_DEFAULT = 'rounded-sm'
+const SHAPE_CIRCLE = 'rounded-[50%] px-[0.5em] py-[0.25em] box-decoration-clone'
 
-const STYLE_COLOR_CLASSES: Record<HighlightStyle, Record<HighlightColor, string>> = {
-  fill: HIGHLIGHT_CLASSES,
+// 형광펜(fill)은 배경이라 장식 목록에 없다
+const DECORATION_CLASSES: Record<Exclude<HighlightStyle, 'fill'>, Record<HighlightColor, string>> = {
   underline: HIGHLIGHT_UNDERLINE_CLASSES,
   strike: HIGHLIGHT_STRIKE_CLASSES,
   circle: HIGHLIGHT_CIRCLE_CLASSES,
   cross: HIGHLIGHT_CROSS_CLASSES,
 }
 
-/** 스타일마다 고를 수 있는 색. 선으로 그리는 쪽은 회색도 보인다 */
-export const STYLE_COLORS: Record<HighlightStyle, HighlightColor[]> = {
-  fill: HIGHLIGHT_COLORS,
-  underline: UNDERLINE_COLORS,
-  strike: UNDERLINE_COLORS,
-  circle: UNDERLINE_COLORS,
-  cross: UNDERLINE_COLORS,
+// 저장·표시 순서. 누른 순서와 무관하게 같은 조합은 같은 배열이 된다
+const STYLE_ORDER: HighlightStyle[] = ['fill', 'underline', 'strike', 'circle', 'cross']
+
+/** 모르는 값을 걸러 순서대로 정리한다. 남는 것이 없으면 옛 기본값인 형광펜이다 */
+function normalizeStyles(styles: readonly (HighlightStyle | undefined)[]): HighlightStyle[] {
+  const picked = STYLE_ORDER.filter((s) => styles.includes(s))
+  return picked.length > 0 ? picked : ['fill']
 }
 
-/** 옛 데이터에는 style 이 없다. 모르는 값이 들어와도 배경 칠하기로 돌린다 */
-export function styleOf(style: HighlightStyle | undefined): HighlightStyle {
-  return style && style in STYLE_COLOR_CLASSES ? style : 'fill'
+/**
+ * 하이라이트에 적용된 스타일들. 옛 데이터는 styles 가 없고 style 하나만(또는 그것도 없이) 있다.
+ * 스타일을 읽는 곳은 모두 이것을 거친다
+ */
+export function stylesOf(h: Highlight): HighlightStyle[] {
+  return normalizeStyles(h.styles && h.styles.length > 0 ? h.styles : [h.style ?? 'fill'])
 }
 
-export function highlightClassName(style: HighlightStyle | undefined, color: HighlightColor): string {
-  const s = styleOf(style)
-  return `${STYLE_SHAPE[s]} ${STYLE_COLOR_CLASSES[s][color]}`
+/** 고를 수 있는 색. 선으로 그리는 스타일이 하나라도 켜져 있으면 회색도 보인다 */
+export function colorsForStyles(styles: readonly HighlightStyle[]): HighlightColor[] {
+  return styles.some((s) => s !== 'fill') ? UNDERLINE_COLORS : HIGHLIGHT_COLORS
+}
+
+/**
+ * 모양·배경·장식을 따로 정해 합친다. 같은 CSS 속성을 두 클래스가 다투지 않게 하려는 것이다.
+ *  - 모양: 원이 있으면 원, 없으면 rounded-sm
+ *  - 배경: 형광펜이 있으면 그 색, 없으면 bg-transparent (<mark> 기본 노랑을 지운다)
+ *  - 장식: 형광펜을 뺀 나머지 스타일의 선·테두리·그라디언트
+ * 원과 X표시처럼 모양이 어울리지 않는 조합도 깨지지만 않으면 그대로 둔다
+ */
+export function highlightClassName(styles: readonly HighlightStyle[], color: HighlightColor): string {
+  const s = normalizeStyles(styles)
+  const shape = s.includes('circle') ? SHAPE_CIRCLE : SHAPE_DEFAULT
+  const background = s.includes('fill') ? HIGHLIGHT_CLASSES[color] : 'bg-transparent'
+  const decorations = s
+    .filter((x): x is Exclude<HighlightStyle, 'fill'> => x !== 'fill')
+    .map((x) => DECORATION_CLASSES[x][color])
+  return [shape, background, ...decorations].join(' ')
 }
 
 export const HIGHLIGHT_SWATCH_CLASSES: Record<HighlightColor, string> = {
@@ -183,8 +208,37 @@ export function saveHighlights(questionId: string, highlights: Highlight[]) {
   }
 }
 
-export function withoutOverlaps(highlights: Highlight[], field: string, start: number, end: number) {
-  return highlights.filter((h) => h.field !== field || h.end <= start || h.start >= end)
+/** 같은 필드에서 [start,end) 와 겹치는 하이라이트를 뺀다. keepId 는 남긴다 */
+export function withoutOverlaps(
+  highlights: Highlight[],
+  field: string,
+  start: number,
+  end: number,
+  keepId?: string
+) {
+  return highlights.filter((h) => h.id === keepId || h.field !== field || h.end <= start || h.start >= end)
+}
+
+/**
+ * 새로 칠한 구간을 반영한 목록을 돌려준다.
+ *
+ * 구간이 기존 하이라이트와 정확히 같으면 지우지 않고 그 하이라이트에 스타일을 더한다
+ * (형광펜 위에 밑줄을 그어도 형광펜이 남는다). 색은 이번에 고른 색으로 바뀐다 — 색은
+ * 하이라이트마다 하나라서, 마지막에 고른 색이 전체의 색이 된다.
+ * 부분적으로만 겹치면 예전처럼 겹치는 것을 지우고 새로 만든다
+ */
+export function applyHighlightStyles(
+  highlights: Highlight[],
+  target: { id: string; field: string; start: number; end: number; color: HighlightColor; styles: readonly HighlightStyle[] }
+): Highlight[] {
+  const { id, field, start, end, color } = target
+  const styles = normalizeStyles(target.styles)
+  const same = highlights.find((h) => h.field === field && h.start === start && h.end === end)
+  if (same) {
+    const merged: Highlight = { ...same, color, styles: normalizeStyles([...stylesOf(same), ...styles]) }
+    return withoutOverlaps(highlights, field, start, end, same.id).map((h) => (h.id === same.id ? merged : h))
+  }
+  return [...withoutOverlaps(highlights, field, start, end), { id, field, start, end, color, styles }]
 }
 
 // 🧹 빨간색 지우개 커서 SVG
@@ -231,12 +285,12 @@ function applyBold(
 /**
  * 지우개 hover 신호.
  *
- * 기본은 빨간 취소선인데, 이미 취소선이 그어진 스타일(취소선)에는 그어봐야 달라지는 것이
+ * 기본은 빨간 취소선인데, 이미 취소선이 그어진 스타일(취소선이 켜진 하이라이트)에는 그어봐야 달라지는 것이
  * 없어 지워질 것이라는 신호가 되지 못한다. 그쪽은 흐려지는 것으로 알린다.
  * X표시는 대각선만 있어 가로줄이 겹쳐도 구별된다 — 기본 신호를 그대로 쓴다
  */
-function eraserHoverClass(style: HighlightStyle | undefined): string {
-  return styleOf(style) === 'strike'
+function eraserHoverClass(styles: readonly HighlightStyle[]): string {
+  return styles.includes('strike')
     ? 'hover:bg-red-500/30 hover:opacity-40'
     : 'hover:bg-red-500/30 hover:line-through hover:decoration-red-500 hover:decoration-2'
 }
@@ -257,6 +311,7 @@ export function renderHighlighted(
   const nodes: React.ReactNode[] = []
   let cursor = 0
   for (const h of fieldHighlights) {
+    const styles = stylesOf(h)
     if (h.start > cursor) nodes.push(applyBold(text.slice(cursor, h.start), cursor, bolds, field))
     nodes.push(
       <mark
@@ -271,8 +326,8 @@ export function renderHighlighted(
         style={{
           cursor: onRemove ? `url("${ERASER_CURSOR_SVG}") 4 20, pointer` : 'default',
         }}
-        className={`${highlightClassName(h.style, h.color)} transition-all ${
-          onRemove ? eraserHoverClass(h.style) : ''
+        className={`${highlightClassName(styles, h.color)} transition-all ${
+          onRemove ? eraserHoverClass(styles) : ''
         }`}
       >
         {applyBold(text.slice(h.start, h.end), h.start, bolds, field)}

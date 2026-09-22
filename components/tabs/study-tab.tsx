@@ -14,11 +14,11 @@ import {
   HighlightStyle,
   Highlight,
   HIGHLIGHT_SWATCH_CLASSES,
-  STYLE_COLORS,
+  colorsForStyles,
   HIGHLIGHT_COLOR_LABELS,
   loadHighlights,
   saveHighlights,
-  withoutOverlaps,
+  applyHighlightStyles,
   renderHighlighted,
 } from '@/lib/highlights'
 import type { BoldRange } from '@/lib/highlights'
@@ -603,7 +603,10 @@ function StudyBulkPreview({
 
   const [highlights, setHighlights] = useState<Highlight[]>(() => loadHighlights(q.id))
   const [highlightPopup, setHighlightPopup] = useState<{ field: string; start: number; end: number; x: number; y: number } | null>(null)
-  const [highlightStyle, setHighlightStyle] = useState<HighlightStyle>('fill') // 연속 적용 편하도록 선택을 유지
+  // 켜둔 스타일들(형광펜·밑줄 등을 함께 켤 수 있다). 연속 적용 편하도록 선택을 유지한다
+  const [highlightStyles, setHighlightStyles] = useState<HighlightStyle[]>(['fill'])
+  // 다 꺼두고 색을 누르면 옛 기본값인 형광펜으로 칠한다
+  const activeStyles: HighlightStyle[] = highlightStyles.length > 0 ? highlightStyles : ['fill']
   // 형광펜과 별개의 레이어다. 글자에 매이지 않아 지문 옆 여백에도 그을 수 있다
   const board = useDrawBoard()
 
@@ -790,8 +793,8 @@ function StudyBulkPreview({
       selectionTimerRef.current = null
     }
     const { field, start, end } = highlightPopup
-    const cleaned = withoutOverlaps(highlights, field, start, end)
-    const next = [...cleaned, { id: `h_${Date.now()}`, field, start, end, color, style: highlightStyle }]
+    // 이미 칠한 구간과 정확히 같으면 그 하이라이트에 스타일을 더하고, 부분만 겹치면 교체한다
+    const next = applyHighlightStyles(highlights, { id: `h_${Date.now()}`, field, start, end, color, styles: activeStyles })
     setHighlights(next)
     saveHighlights(q.id, next)
     setHighlightPopup(null)
@@ -1243,9 +1246,14 @@ function StudyBulkPreview({
               <button
                 key={style}
                 type="button"
-                onClick={() => setHighlightStyle(style)}
+                aria-pressed={highlightStyles.includes(style)}
+                onClick={() =>
+                  setHighlightStyles((prev) =>
+                    prev.includes(style) ? prev.filter((s) => s !== style) : [...prev, style]
+                  )
+                }
                 className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
-                  highlightStyle === style
+                  highlightStyles.includes(style)
                     ? 'border-primary text-primary bg-primary/10'
                     : 'border-border text-muted-foreground hover:text-foreground'
                 }`}
@@ -1262,15 +1270,16 @@ function StudyBulkPreview({
             </button>
           </div>
           <div className="flex items-center gap-1.5">
-            {STYLE_COLORS[highlightStyle].map((color) => (
+            {colorsForStyles(activeStyles).map((color) => (
               <button
                 key={color}
                 type="button"
                 onClick={() => applyHighlight(color)}
-                title={`${HIGHLIGHT_COLOR_LABELS[color]} ${STYLE_LABELS[highlightStyle]}`}
+                title={`${HIGHLIGHT_COLOR_LABELS[color]} ${activeStyles.map((s) => STYLE_LABELS[s]).join('+')}`}
                 className="w-6 h-6 rounded-full border border-black/10 hover:scale-110 transition-transform"
               >
-                <StyleSwatch style={highlightStyle} color={color} />
+                {/* 미리보기는 한 가지만 그린다. 형광펜이 켜져 있으면 그 색 동그라미, 아니면 첫 스타일 */}
+                <StyleSwatch style={activeStyles.includes('fill') ? 'fill' : activeStyles[0]} color={color} />
               </button>
             ))}
           </div>
