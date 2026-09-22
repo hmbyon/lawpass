@@ -31,26 +31,339 @@ function modeKey(base: string): string {
   return `${base}_${getAppMode()}`
 }
 
-// 모드 분리 이전에 저장된 데이터(접미사 없는 키)를 law 모드 키로 1회 이관
-function migrateLegacyKeys() {
-  if (typeof window === 'undefined') return
-  for (const base of MODE_SCOPED_BASE_KEYS) {
-    const legacyValue = localStorage.getItem(base)
-    if (legacyValue === null) continue
-    const lawKey = `${base}_law`
-    if (localStorage.getItem(lawKey) === null) {
-      localStorage.setItem(lawKey, legacyValue)
-    }
-    localStorage.removeItem(base)
+// ── 저장소: 메모리 캐시 + IndexedDB ──
+//
+// 문제·오답노트는 localStorage 한도(5MB 안팎)를 넘길 만큼 커진다. 넘기면 setItem이
+// QuotaExceededError를 던지고, 예전 safeSet은 콘솔에만 찍고 넘어가서 저장이 조용히 사라졌다.
+// 그래서 아래 여섯 종류는 IndexedDB에 둔다. 다만 이 파일의 get*/save* 는 모두 동기 함수이고
+// 부르는 쪽도 그렇게 쓰고 있으므로, 시작할 때 IndexedDB를 한 번 읽어 메모리에 올려두고
+// 읽기는 메모리에서 바로 돌려준다. 쓰기는 메모리를 먼저 고치고 IndexedDB에는 뒤따라 적는다.
+//
+// localStorage에는 데이터 대신 짧은 표식(idb:<판번호>)만 남긴다. 두 가지 이유다.
+//  1. 바깥 코드가 localStorage를 직접 본다 — accountSwitch.ts의 clearAccountData·unsyncedModes,
+//     설정의 '전체 데이터 초기화'는 lawpass 키를 localStorage에서 지우거나 비었는지 본다.
+//     표식이 남아 있으면 그 코드가 고치지 않아도 그대로 맞게 돈다: 지워진 표식은 '비웠다'는
+//     신호로 읽어 메모리와 IndexedDB도 비우고, 표식이 있으면 '데이터가 있다'로 보인다.
+//     (그래서 빈 값을 저장할 때는 표식도 지운다 — 남겨두면 빈 데이터가 미동기화로 보인다)
+//  2. 다른 탭이 쓴 것을 알아챈다. 판번호가 바뀌면 storage 이벤트가 오고 그때 다시 읽는다.
+// 'idb:' 는 JSON으로 읽히지 않는 글자라, 예전 방식으로 저장된 JSON 데이터와 헷갈리지 않는다.
+const STORED_BASE_KEYS: string[] = [
+  BASE_KEYS.questions,
+  BASE_KEYS.poolQuestions,
+  BASE_KEYS.wrongNotes,
+  BASE_KEYS.savedSession,
+  BASE_KEYS.savedStudySession,
+  BASE_KEYS.savedStudySessions,
+]
+const STORED_KEYS: string[] = STORED_BASE_KEYS.flatMap((base) => [`${base}_law`, `${base}_general`])
+
+const MARKER_PREFIX = 'idb:'
+const IDB_NAME = 'lawpass_store'
+const IDB_STORE = 'kv'
+
+interface StoredRecord {
+  v: string
+  json: string
+}
+
+// 캐시는 JSON 문자열로 들고 있다. 읽을 때마다 새로 파싱해서 돌려주므로, 부르는 쪽이 받은
+// 배열을 고쳐도 캐시가 바뀌지 않는다 — localStorage에서 매번 파싱하던 때와 같은 성질이다
+const cache = new Map<string, StoredRecord>()
+// 시작 시 읽기가 끝나기 전에 쓴 키. 그 값이 IndexedDB의 것보다 새것이라 덮어쓰지 않는다
+const writtenBeforeHydration = new Set<string>()
+let hydrated = false
+// IndexedDB를 못 쓰는 환경(미지원·사생활 보호 모드 등)이면 예전처럼 localStorage에 쓴다
+let idbBroken = false
+let dbPromise: Promise<IDBDatabase> | null = null
+let warnedEarlyRead = false
+// 읽어오기 전에 읽혀서 '빈 값'으로 잘못 보인 키. 이 키에 그 직후 쓰는 값은 빈 목록을 바탕으로
+// 만든 것일 수 있다(예: pull이 빈 로컬에 원격을 합쳐 저장). 그 값이 저장된 데이터를 덮으면
+// 올리지 못한 변경이 사라지므로, 읽어오기가 끝날 때까지 IndexedDB에 적지 않고 붙잡아 둔다
+const readWhileUnknown = new Set<string>()
+// localStorage에 표식(또는 예전 방식의 JSON)을 적지 못한 키. 이 키는 표식이 없어도 '지워졌다'로
+// 읽지 않는다 — 그렇게 읽으면 메모리에만 남은 마지막 사본까지 버리게 된다
+const markerWriteFailed = new Set<string>()
+
+function isMarker(raw: string): boolean {
+  return raw.startsWith(MARKER_PREFIX)
+}
+
+function isEmptyValue(value: unknown): boolean {
+  return value === undefined || value === null || (Array.isArray(value) && value.length === 0)
+}
+
+function newVersion(): string {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+}
+
+function lsGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
   }
 }
 
-migrateLegacyKeys()
+function lsSet(key: string, value: string): boolean {
+  try {
+    localStorage.setItem(key, value)
+    return true
+  } catch (e) {
+    console.error('[v0] localStorage write failed', e)
+    return false
+  }
+}
+
+function lsRemove(key: string) {
+  try {
+    localStorage.removeItem(key)
+  } catch {
+    // 무시
+  }
+}
+
+// 모드 분리 이전의 접미사 없는 키. law 키로 옮겨갈 옛 데이터다
+function legacyUnsuffixedKey(key: string): string | null {
+  if (!key.endsWith('_law')) return null
+  const base = key.slice(0, -'_law'.length)
+  return MODE_SCOPED_BASE_KEYS.includes(base) ? base : null
+}
+
+function openDb(): Promise<IDBDatabase> {
+  if (dbPromise) return dbPromise
+  dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('IndexedDB를 지원하지 않는 환경'))
+      return
+    }
+    const req = indexedDB.open(IDB_NAME, 1)
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(IDB_STORE)) req.result.createObjectStore(IDB_STORE)
+    }
+    req.onsuccess = () => {
+      const db = req.result
+      // 다른 탭이 판을 올리려 하면 막지 않고 비켜준다
+      db.onversionchange = () => db.close()
+      resolve(db)
+    }
+    req.onerror = () => reject(req.error)
+    req.onblocked = () => reject(new Error('IndexedDB가 다른 탭에 막혀 열리지 않음'))
+  })
+  return dbPromise
+}
+
+function idbRun<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  return openDb().then(
+    (db) =>
+      new Promise<T>((resolve, reject) => {
+        const tx = db.transaction(IDB_STORE, mode)
+        const req = fn(tx.objectStore(IDB_STORE))
+        tx.oncomplete = () => resolve(req.result)
+        tx.onerror = () => reject(tx.error ?? req.error)
+        tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
+      })
+  )
+}
+
+function idbPut(key: string, record: StoredRecord): Promise<void> {
+  return idbRun('readwrite', (store) => store.put(record, key)).then(() => undefined)
+}
+
+function idbDelete(key: string) {
+  idbRun('readwrite', (store) => store.delete(key)).catch(() => {
+    // 지우기 실패는 다음 시작 때 표식이 없는 것을 보고 다시 지운다
+  })
+}
+
+// IndexedDB에 못 적었을 때의 마지막 안전망. 예전과 같이 localStorage에 통째로 적어본다
+// (넘치면 예전처럼 콘솔 에러만 남는다. 메모리에는 남아 있어 이번 세션 동안은 그대로 보인다)
+function fallbackToLocalStorage(key: string, reason: unknown) {
+  if (!idbBroken) console.error('[store] IndexedDB 저장 실패 — localStorage로 대신 저장합니다', reason)
+  idbBroken = true
+  const current = cache.get(key)
+  if (current && !lsSet(key, current.json)) markerWriteFailed.add(key)
+}
+
+function persist(key: string, record: StoredRecord) {
+  idbPut(key, record).catch((e) => {
+    // 그사이 더 새 값이 적혔으면 그쪽의 저장이 알아서 처리한다
+    if (cache.get(key)?.v === record.v) fallbackToLocalStorage(key, e)
+  })
+}
+
+// 모드 분리 이전에 저장된 데이터(접미사 없는 키)와 localStorage에 JSON으로 들어 있던
+// 예전 데이터를 IndexedDB로 1회 옮기고, 옮긴 뒤 localStorage에는 표식만 남긴다.
+// 표식은 IndexedDB에 실제로 적힌 뒤에 바꾼다 — 그 전에 지우면 적기가 실패했을 때 남는 사본이 없다
+function migrateLegacyKeys(records: Map<string, StoredRecord>) {
+  for (const key of STORED_KEYS) {
+    if (writtenBeforeHydration.has(key)) continue
+    const legacyBase = legacyUnsuffixedKey(key)
+    const raw = lsGet(key)
+    const legacyRaw = legacyBase ? lsGet(legacyBase) : null
+
+    let json: string | null = null
+    if (raw !== null && !isMarker(raw)) json = raw
+    else if (raw === null && legacyRaw !== null) json = legacyRaw
+    if (json === null) continue
+
+    const record = { v: newVersion(), json }
+    cache.set(key, record)
+    records.delete(key)
+    idbPut(key, record).then(
+      () => {
+        if (cache.get(key)?.v !== record.v) return
+        lsSet(key, MARKER_PREFIX + record.v)
+        if (legacyBase) lsRemove(legacyBase)
+      },
+      (e) => {
+        // localStorage의 원본이 그대로 남아 있으니 잃은 것은 없다. 다음 시작 때 다시 옮긴다
+        console.error('[store] IndexedDB로 옮기지 못했습니다 — localStorage 데이터를 그대로 씁니다', e)
+        idbBroken = true
+      }
+    )
+  }
+  // 이미 law 키가 있는 경우의 접미사 없는 옛 키는 예전 코드처럼 그냥 지운다
+  for (const base of MODE_SCOPED_BASE_KEYS) {
+    const lawRaw = lsGet(`${base}_law`)
+    if (lsGet(base) !== null && lawRaw !== null && isMarker(lawRaw)) lsRemove(base)
+  }
+}
+
+function hydrate(): Promise<void> {
+  if (typeof window === 'undefined') return Promise.resolve()
+  return openDb()
+    .then(
+      (db) =>
+        new Promise<Map<string, StoredRecord>>((resolve, reject) => {
+          const tx = db.transaction(IDB_STORE, 'readonly')
+          const store = tx.objectStore(IDB_STORE)
+          const records = new Map<string, StoredRecord>()
+          for (const key of STORED_KEYS) {
+            const req = store.get(key)
+            req.onsuccess = () => {
+              if (req.result) records.set(key, req.result as StoredRecord)
+            }
+          }
+          tx.oncomplete = () => resolve(records)
+          tx.onerror = () => reject(tx.error)
+          tx.onabort = () => reject(tx.error ?? new Error('IndexedDB 트랜잭션 중단'))
+        })
+    )
+    .then((records) => {
+      migrateLegacyKeys(records)
+      for (const key of readWhileUnknown) {
+        if (!writtenBeforeHydration.has(key)) continue
+        const record = records.get(key)
+        const held = cache.get(key)
+        if (record) {
+          // 저장돼 있던 쪽을 살린다. 붙잡아 둔 값은 빈 목록을 보고 만든 것이라 믿을 수 없다
+          console.error(`[store] 읽어오기 전에 ${key}를 빈 값으로 보고 저장하려 했습니다 — 저장된 데이터를 유지합니다`)
+          cache.set(key, record)
+          lsSet(key, MARKER_PREFIX + record.v)
+        } else if (held) {
+          persist(key, held)
+        }
+      }
+      for (const key of STORED_KEYS) {
+        if (writtenBeforeHydration.has(key) || cache.has(key)) continue
+        const raw = lsGet(key)
+        const record = records.get(key)
+        if (raw === null) {
+          // 표식이 없는데 IndexedDB에 남아 있다 = 꺼져 있는 동안 누군가 localStorage에서
+          // 지웠다(계정 전환·전체 초기화 후 새로고침). 그 뜻대로 IndexedDB도 비운다
+          if (record) idbDelete(key)
+          continue
+        }
+        if (!isMarker(raw)) continue
+        if (record) {
+          cache.set(key, record)
+          // 적기 도중 탭이 닫혀 표식과 판번호가 어긋났을 수 있다. 실제로 있는 쪽에 맞춘다
+          if (raw !== MARKER_PREFIX + record.v) lsSet(key, MARKER_PREFIX + record.v)
+        } else {
+          // 표식은 있는데 데이터가 없다 — 적기가 끝나기 전에 닫힌 경우다. 표식을 치운다
+          lsRemove(key)
+        }
+      }
+    })
+    .catch((e) => {
+      console.error('[store] IndexedDB를 열지 못했습니다 — localStorage로 저장합니다', e)
+      idbBroken = true
+    })
+    .finally(() => {
+      hydrated = true
+      window.dispatchEvent(new Event('lawpass:store-ready'))
+    })
+}
+
+// 다른 탭이 쓴 값을 받아온다. 표식이 바뀐 것만 알리므로 내용은 IndexedDB에서 다시 읽는다
+function listenOtherTabs() {
+  if (typeof window === 'undefined') return
+  window.addEventListener('storage', (e) => {
+    if (e.storageArea !== localStorage) return
+    if (e.key === null) {
+      // 다른 탭에서 localStorage.clear()
+      cache.clear()
+      return
+    }
+    if (!STORED_KEYS.includes(e.key)) return
+    const key = e.key
+    const raw = e.newValue
+    if (raw === null) {
+      cache.delete(key)
+      return
+    }
+    if (!isMarker(raw)) {
+      cache.set(key, { v: newVersion(), json: raw })
+      return
+    }
+    if (cache.get(key)?.v === raw.slice(MARKER_PREFIX.length)) return
+    idbRun<StoredRecord | undefined>('readonly', (store) => store.get(key))
+      .then((record) => {
+        if (record && lsGet(key) === MARKER_PREFIX + record.v) cache.set(key, record)
+      })
+      .catch(() => {
+        // 다음에 이 탭에서 쓰면 그 값이 남는다 — 예전에도 탭끼리는 마지막에 쓴 쪽이 이겼다
+      })
+  })
+}
+
+/**
+ * IndexedDB에서 읽어오기가 끝나면 풀리는 약속. 끝나기 전의 get* 은 빈 값을 돌려줄 수 있다.
+ * 끝나면 window에 'lawpass:store-ready' 이벤트도 보낸다
+ */
+export const storeReady: Promise<void> = hydrate()
+listenOtherTabs()
+
+function readJson(key: string): string | null {
+  const raw = lsGet(key)
+  if (raw === null) {
+    // 표식이 사라졌는데 메모리에 값이 있다 = 바깥에서 localStorage를 직접 지웠다
+    // (clearAccountData·전체 초기화·clear* 함수). 메모리와 IndexedDB도 따라 비운다
+    if (cache.has(key) && !markerWriteFailed.has(key)) {
+      cache.delete(key)
+      idbDelete(key)
+    }
+    if (cache.has(key)) return cache.get(key)!.json
+    // 첫 실행에서 옮기기 전이면 접미사 없는 옛 키에 데이터가 있다
+    const legacyBase = legacyUnsuffixedKey(key)
+    return legacyBase ? lsGet(legacyBase) : null
+  }
+  const cached = cache.get(key)
+  if (cached) return cached.json
+  // 예전 방식의 JSON이 그대로 있다(옮기기 전이거나 IndexedDB를 못 쓰는 환경) — 그대로 읽는다
+  if (!isMarker(raw)) return raw
+  if (!hydrated && !warnedEarlyRead) {
+    warnedEarlyRead = true
+    console.warn(`[store] IndexedDB에서 읽어오기 전에 ${key}를 읽었습니다 — 빈 값으로 보입니다`)
+  }
+  if (!hydrated) readWhileUnknown.add(key)
+  return null
+}
 
 function safeGet<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback
   try {
-    const raw = localStorage.getItem(key)
+    const raw = readJson(key)
     return raw ? (JSON.parse(raw) as T) : fallback
   } catch {
     return fallback
@@ -59,11 +372,33 @@ function safeGet<T>(key: string, fallback: T): T {
 
 function safeSet(key: string, value: unknown) {
   if (typeof window === 'undefined') return
+  if (!hydrated) writtenBeforeHydration.add(key)
+
+  if (isEmptyValue(value)) {
+    cache.delete(key)
+    markerWriteFailed.delete(key)
+    lsRemove(key)
+    idbDelete(key)
+    return
+  }
+
+  let json: string
   try {
-    localStorage.setItem(key, JSON.stringify(value))
+    json = JSON.stringify(value)
   } catch (e) {
     console.error('[v0] localStorage write failed', e)
+    return
   }
+
+  const record = { v: newVersion(), json }
+  cache.set(key, record)
+  // 표식은 바로 바꾼다. IndexedDB에 적히기를 기다리면 그사이 읽기가 '지워졌다'로 오해한다
+  const ok = lsSet(key, idbBroken ? json : MARKER_PREFIX + record.v)
+  if (ok) markerWriteFailed.delete(key)
+  else markerWriteFailed.add(key)
+  if (idbBroken) return
+  if (!hydrated && readWhileUnknown.has(key)) return // 읽어오기가 끝나면 hydrate가 정리한다
+  persist(key, record)
 }
 
 // ── 동기화 대기 플래그 ──
