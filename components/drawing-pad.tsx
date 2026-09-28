@@ -63,6 +63,27 @@ export function useDockedPad(): boolean {
 // 띄운 창의 최소 폭. 4:3 이라 이보다 좁으면 캔버스가 손가락보다 작아진다
 const MIN_WINDOW = 200
 
+/**
+ * 붙박이 패널의 폭 한계.
+ *
+ * 기본 폭은 문제 카드(42rem) 옆에 남는 자리에 맞춰져 있는데, 그 자리는 오른쪽 여백뿐이라
+ * 왼쪽 여백이 통째로 논다. 넓히면 그쪽까지 쓸 수 있어야 하므로 위는 넉넉히 연다 —
+ * 지문을 얼마나 가릴지는 그리는 사람이 정할 일이다.
+ * 대신 화면 밖으로는 못 나가게 하고(화면 폭 - 여백), 아래는 캔버스가 손가락보다
+ * 작아지지 않는 선에서 막는다
+ */
+const MIN_DOCK = 220
+const DOCK_MARGIN = 24
+
+function maxDockWidth(): number {
+  if (typeof window === 'undefined') return MIN_DOCK
+  return Math.max(MIN_DOCK, window.innerWidth - DOCK_MARGIN)
+}
+
+function clampDock(w: number): number {
+  return Math.max(MIN_DOCK, Math.min(w, maxDockWidth()))
+}
+
 
 function round(v: number): number {
   return Math.round(v * PRECISION) / PRECISION
@@ -133,6 +154,10 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
   const [saved, setSaved] = useState(false)
   // 띄운 창의 자리와 폭. 높이는 4:3 이라 폭이 정한다 — 폭 하나만 붙들면 된다
   const [win, setWin] = useState<{ x: number; y: number; w: number } | null>(null)
+  // 붙박이 패널의 폭. null 이면 화면에 맞춘 기본 폭(아래 클래스의 clamp)을 쓴다.
+  // 이 세션 동안만 기억한다 — 저장할 만큼 무거운 취향이 아니고, 저장소를 하나 더 만들면
+  // 계정 전환·초기화 때 치울 것도 하나 더 늘어난다
+  const [dockW, setDockW] = useState<number | null>(null)
 
   // 지금 어느 껍데기를 그리고 있는가. 아래 두 효과가 이 값을 보고 다시 돈다
   const shell = docked ? (folded ? 'folded' : 'docked') : open && win ? 'window' : 'none'
@@ -144,6 +169,10 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
   latest.current = { strokes, docked, onSaved }
   const dragFrom = useRef<{ dx: number; dy: number } | null>(null)
   const sizeFrom = useRef<{ x0: number; w0: number } | null>(null)
+  // 붙박이 패널을 끌어 넓히는 중에 붙드는 값. 패널은 오른쪽에 붙어 있으므로
+  // 손잡이를 왼쪽으로 끌면 그만큼 넓어진다
+  const dockSizeFrom = useRef<{ x0: number; w0: number } | null>(null)
+  const asideRef = useRef<HTMLElement>(null)
 
   /**
    * 지금 화면에 선 껍데기.
@@ -371,6 +400,31 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
     e.currentTarget.releasePointerCapture?.(e.pointerId)
   }
 
+  function dockSizeDown(e: React.PointerEvent<HTMLDivElement>) {
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+    // 기본 폭(clamp)으로 있다가 끌기 시작하면, 지금 화면에 보이는 폭에서 이어 간다
+    const w0 = dockW ?? asideRef.current?.getBoundingClientRect().width ?? MIN_DOCK
+    dockSizeFrom.current = { x0: e.clientX, w0 }
+  }
+  function dockSizeMove(e: React.PointerEvent<HTMLDivElement>) {
+    const from = dockSizeFrom.current
+    if (!from) return
+    e.preventDefault()
+    setDockW(clampDock(from.w0 + (from.x0 - e.clientX)))
+  }
+  function dockSizeUp(e: React.PointerEvent<HTMLDivElement>) {
+    dockSizeFrom.current = null
+    e.currentTarget.releasePointerCapture?.(e.pointerId)
+  }
+
+  // 창이 좁아지면 넓혀 둔 패널이 화면 밖으로 밀려난다. 그때만 도로 줄인다
+  useEffect(() => {
+    if (dockW === null) return
+    const onResize = () => setDockW((w) => (w === null ? w : clampDock(w)))
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [dockW])
+
   function sizeDown(e: React.PointerEvent<HTMLDivElement>) {
     if (!win) return
     e.stopPropagation()
@@ -486,7 +540,27 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
       )
     }
     return (
-      <aside className="fixed right-4 top-24 z-40 flex w-[clamp(220px,calc((100vw-42rem)/2-2rem),340px)] flex-col gap-2 rounded-2xl border border-border bg-card p-3 shadow-lg">
+      <aside
+        ref={asideRef}
+        style={dockW === null ? undefined : { width: dockW }}
+        className={`fixed right-4 top-24 z-40 flex flex-col gap-2 rounded-2xl border border-border bg-card p-3 shadow-lg ${
+          dockW === null ? 'w-[clamp(220px,calc((100vw-42rem)/2-2rem),340px)]' : ''
+        }`}
+      >
+        {/* 왼쪽 모서리를 끌어 넓힌다. 기본 폭은 오른쪽 여백에만 맞춰져 있어,
+            넓히지 않으면 왼쪽 여백이 통째로 논다 */}
+        <div
+          onPointerDown={dockSizeDown}
+          onPointerMove={dockSizeMove}
+          onPointerUp={dockSizeUp}
+          onPointerCancel={dockSizeUp}
+          onDoubleClick={() => setDockW(null)}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="그림판 폭 조절 (두 번 누르면 기본 폭)"
+          title="끌어서 폭 조절 · 두 번 누르면 기본 폭"
+          className="absolute inset-y-3 -left-1 w-3 cursor-ew-resize touch-none rounded-full before:absolute before:inset-y-0 before:left-1 before:w-1 before:rounded-full before:bg-border hover:before:bg-primary/50"
+        />
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-semibold">🎨 {questionNo}번 그림판</h2>
           <button
