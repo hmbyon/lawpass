@@ -19,6 +19,23 @@ export interface ProgressRow {
   unit: string
   total: number
   solved: number
+  /**
+   * 회독 수 — 이 묶음의 모든 문제가 '최소 몇 번씩' 풀렸는가.
+   *
+   * 합이나 평균이 아니라 최솟값이다. 한 문제라도 덜 풀었으면 그 문제의 횟수가 곧 이 묶음의
+   * 회독 수다("다 못 돌린 회차는 돈 것이 아니다"). 안 푼 문제가 하나라도 있으면 0이다
+   */
+  rounds: number
+}
+
+/** 하위 묶음들의 회독 수 중 최솟값. 빈 묶음은 0 (셀 것이 없으면 돈 것도 없다) */
+function minRounds(rows: ProgressRow[]): number {
+  return rows.length === 0 ? 0 : Math.min(...rows.map((r) => r.rounds))
+}
+
+/** 회독 수를 화면에 붙이는 꼬리표. 0회독(아직 다 못 돌린 상태)은 붙이지 않는다 */
+function roundsLabel(rounds: number): string {
+  return rounds > 0 ? ` · ${rounds}회독` : ''
 }
 
 /**
@@ -40,19 +57,27 @@ export function computeProgress(questions: Question[], wrongNotes: WrongNote[]):
   const solvedIds = new Set(
     wrongNotes.filter((n) => (n.totalCount ?? 0) > 0).map((n) => n.questionId)
   )
+  // 문제마다 몇 번 풀었는가. 맞았든 틀렸든 풀 때마다 totalCount 가 오른다
+  const countById = new Map(wrongNotes.map((n) => [n.questionId, n.totalCount ?? 0]))
 
   const rowMap = new Map<string, ProgressRow & { subject: Subject }>()
   for (const q of questions) {
     const unit = q.unit?.trim() || '(단원 미지정)'
     const key = `${q.subject}|${q.examType}|${q.year}|${unit}`
-    const row = rowMap.get(key) ?? { subject: q.subject, examType: q.examType, year: q.year, unit, total: 0, solved: 0 }
+    // rounds 는 Infinity 에서 시작해 문제마다 낮은 쪽으로 깎인다. 안 푼 문제는 0 이라
+    // 그것 하나로 이 묶음 전체가 0회독이 된다
+    const row = rowMap.get(key) ?? { subject: q.subject, examType: q.examType, year: q.year, unit, total: 0, solved: 0, rounds: Number.POSITIVE_INFINITY }
     row.total += 1
     if (solvedIds.has(q.id)) row.solved += 1
+    row.rounds = Math.min(row.rounds, countById.get(q.id) ?? 0)
     rowMap.set(key, row)
   }
 
   const bySubject: Record<string, ProgressRow[]> = {}
   for (const { subject, ...row } of rowMap.values()) {
+    // 문제가 하나라도 있어야 행이 생기므로 여기까지 Infinity 가 남을 일은 없지만,
+    // 화면으로 내보내는 값에 Infinity 를 흘리지 않는다
+    if (!Number.isFinite(row.rounds)) row.rounds = 0
     if (!bySubject[subject]) bySubject[subject] = []
     bySubject[subject].push(row)
   }
@@ -81,6 +106,7 @@ function groupRowsByYear(rows: ProgressRow[]) {
       rows: yearRows.slice().sort((a, b) => a.examType.localeCompare(b.examType) || a.unit.localeCompare(b.unit)),
       total: yearRows.reduce((sum, r) => sum + r.total, 0),
       solved: yearRows.reduce((sum, r) => sum + r.solved, 0),
+      rounds: minRounds(yearRows),
     }))
     .sort((a, b) => b.year - a.year)
 }
@@ -97,6 +123,7 @@ function groupRowsByUnit(rows: ProgressRow[]) {
       unit,
       total: unitRows.reduce((sum, r) => sum + r.total, 0),
       solved: unitRows.reduce((sum, r) => sum + r.solved, 0),
+      rounds: minRounds(unitRows),
     }))
     .sort((a, b) => a.unit.localeCompare(b.unit))
 }
@@ -167,6 +194,7 @@ export function ProgressTable({ progress }: { progress: Record<string, ProgressR
             const rows = progress[s]
             const total = rows.reduce((sum, r) => sum + r.total, 0)
             const solved = rows.reduce((sum, r) => sum + r.solved, 0)
+            const rounds = minRounds(rows)
             const expanded = expandedSubjects.has(s)
             return (
               <div key={s} className="bg-muted rounded-lg overflow-hidden">
@@ -179,7 +207,7 @@ export function ProgressTable({ progress }: { progress: Record<string, ProgressR
                     <span className="text-sm font-medium text-foreground">{s}</span>
                   </div>
                   <span className="text-xs text-muted-foreground shrink-0">
-                    {solved}/{total}문제
+                    {solved}/{total}문제{roundsLabel(rounds)}
                   </span>
                 </button>
                 {expanded && (
@@ -199,7 +227,7 @@ export function ProgressTable({ progress }: { progress: Record<string, ProgressR
                                 <span className="text-xs font-medium text-foreground">{yg.year}년</span>
                               </div>
                               <span className="text-xs text-muted-foreground shrink-0">
-                                {yg.solved}/{yg.total}문제
+                                {yg.solved}/{yg.total}문제{roundsLabel(yg.rounds)}
                               </span>
                             </button>
                             {yearExpanded && (
@@ -217,7 +245,7 @@ export function ProgressTable({ progress }: { progress: Record<string, ProgressR
                                         </p>
                                       </div>
                                       <span className="text-xs shrink-0">
-                                        {icon} {label} ({r.solved}/{r.total})
+                                        {icon} {label} ({r.solved}/{r.total}){roundsLabel(r.rounds)}
                                       </span>
                                     </div>
                                   )
@@ -238,7 +266,7 @@ export function ProgressTable({ progress }: { progress: Record<string, ProgressR
                           >
                             <span className="text-xs font-medium text-foreground">{yg.year}년</span>
                             <span className="text-xs shrink-0">
-                              {icon} {label} ({yg.solved}/{yg.total})
+                              {icon} {label} ({yg.solved}/{yg.total}){roundsLabel(yg.rounds)}
                             </span>
                           </div>
                         )
@@ -254,7 +282,7 @@ export function ProgressTable({ progress }: { progress: Record<string, ProgressR
                           >
                             <span className="text-xs font-medium text-foreground truncate">{ug.unit}</span>
                             <span className="text-xs shrink-0">
-                              {icon} {label} ({ug.solved}/{ug.total})
+                              {icon} {label} ({ug.solved}/{ug.total}){roundsLabel(ug.rounds)}
                             </span>
                           </div>
                         )
