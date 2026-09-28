@@ -163,6 +163,25 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
   const lastPx = useRef<[number, number] | null>(null)
   // 획 지우개로 문지르는 중인지. 이때는 새 획을 만들지 않는다
   const wiping = useRef(false)
+  /**
+   * 지금 획을 그리고 있는 포인터의 id.
+   *
+   * 아이패드에서 펜슬로 쓰는 동안 손바닥이나 다른 손가락이 같은 캔버스에 pointerdown 을
+   * 또 보낸다. 그러면 그리던 획(live)이 새 획으로 갈아 끼워져, 그리고 있던 획은 배열에
+   * 들어가지 못한 채 사라지고 이어지는 pointermove 는 손바닥 자리에서 시작한 엉뚱한 획에
+   * 붙는다 — 방금 그은 획이 끊기거나 없어지고, 그 자리에서 선이 끌려간다.
+   * 그래서 획 하나는 그것을 시작한 포인터만 이어 간다
+   */
+  const activePointer = useRef<number | null>(null)
+
+  /** 그리던 획을 배열에 넣고 손을 뗀 상태로 돌린다 */
+  const commitLive = useCallback(() => {
+    const s = live.current
+    live.current = null
+    lastPx.current = null
+    activePointer.current = null
+    if (s) setStrokes((prev) => [...prev, s])
+  }, [])
 
   useEffect(() => {
     const el = boxRef.current
@@ -218,6 +237,19 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       // 마우스·터치·펜을 한 갈래로 받는다. 장치마다 다른 API 를 쓰지 않는 이유다
       e.preventDefault()
+      const active = activePointer.current
+      if (active !== null && active !== e.pointerId) {
+        const held =
+          typeof e.currentTarget.hasPointerCapture === 'function'
+            ? e.currentTarget.hasPointerCapture(active)
+            : false
+        // 앞 포인터가 아직 캔버스를 붙들고 있다 = 펜으로 그리는 중이다.
+        // 손바닥·두 번째 손가락이 그 획을 가로채지 못하게 여기서 끊는다
+        if (held) return
+        // 붙들고 있지 않다 = 그 포인터의 pointerup 을 못 받았다(아이패드에서 실제로 생긴다).
+        // 그리던 획을 잃지 않게 여기서 마감하고 새 획을 시작한다
+        commitLive()
+      }
       e.currentTarget.setPointerCapture?.(e.pointerId)
       const { ratio, px } = at(e)
       if (tool === 'strokeEraser') {
@@ -232,10 +264,11 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
       }
       live.current = stroke
       lastPx.current = px
+      activePointer.current = e.pointerId
       const ctx = canvasRef.current?.getContext('2d')
       if (ctx && width > 0) paintStroke(ctx, stroke, width)
     },
-    [tool, width, wipeAt]
+    [tool, width, wipeAt, commitLive]
   )
 
   const move = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -246,6 +279,8 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
     }
     const s = live.current
     if (!s) return
+    // 이 획을 시작한 포인터가 아니면 무시한다 (손바닥이 획을 끌고 가지 않게)
+    if (activePointer.current !== e.pointerId) return
     e.preventDefault()
     const { ratio, px } = at(e)
     const prev = lastPx.current
@@ -264,13 +299,12 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
       e.currentTarget.releasePointerCapture?.(e.pointerId)
       return
     }
-    const s = live.current
-    if (!s) return
-    live.current = null
-    lastPx.current = null
+    if (!live.current) return
+    // 그리던 포인터가 아니면(무시한 손바닥의 pointerup) 획을 끝내지 않는다
+    if (activePointer.current !== e.pointerId) return
     e.currentTarget.releasePointerCapture?.(e.pointerId)
-    setStrokes((prev) => [...prev, s])
-  }, [])
+    commitLive()
+  }, [commitLive])
 
   /**
    * 문제를 넘기기 직전에 자동으로 저장한다.
@@ -372,11 +406,11 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
   // 캔버스와 도구는 두 표시 방식이 그대로 나눠 쓴다. 바뀌는 것은 껍데기뿐이다
   const canvas = (
     /* 4:3 고정. 폭만 화면에 맞추고 높이는 따라오게 두면 어느 기기에서도 같은 그림이다 */
-    <div ref={boxRef} className="relative w-full overflow-hidden rounded-xl border border-border bg-white">
+    <div ref={boxRef} className="relative w-full select-none overflow-hidden rounded-xl border border-border bg-white">
       <div style={{ paddingTop: `${ASPECT * 100}%` }} />
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 h-full w-full cursor-crosshair touch-none"
+        className="absolute inset-0 h-full w-full cursor-crosshair touch-none select-none [-webkit-touch-callout:none]"
         onPointerDown={down}
         onPointerMove={move}
         onPointerUp={up}
