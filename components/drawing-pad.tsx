@@ -161,21 +161,24 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
   const live = useRef<DrawingStroke | null>(null)
   // 솎아내기 기준이 되는, 마지막으로 받아들인 점 (화면 픽셀)
   const lastPx = useRef<[number, number] | null>(null)
-  // 획 지우개로 문지르는 중인지. 이때는 새 획을 만들지 않는다
+  // 획 지우개로 문지르는 중인지. 이때는 새 획을 만들지 않는다.
+  // 어느 포인터가 문지르고 있는지는 아래 activePointer 가 함께 쥔다 — 그리기와 같은 규칙이다
   const wiping = useRef(false)
   /**
-   * 지금 획을 그리고 있는 포인터의 id.
+   * 지금 이 손놀림(획 그리기 또는 획 지우개로 문지르기)을 쥔 포인터의 id.
    *
    * 아이패드에서 펜슬로 쓰는 동안 손바닥이나 다른 손가락이 같은 캔버스에 pointerdown 을
    * 또 보낸다. 그러면 그리던 획(live)이 새 획으로 갈아 끼워져, 그리고 있던 획은 배열에
    * 들어가지 못한 채 사라지고 이어지는 pointermove 는 손바닥 자리에서 시작한 엉뚱한 획에
    * 붙는다 — 방금 그은 획이 끊기거나 없어지고, 그 자리에서 선이 끌려간다.
-   * 그래서 획 하나는 그것을 시작한 포인터만 이어 간다
+   * 획 지우개도 같다: 문지르는 도중 손바닥이 닿으면 그 자리의 획까지 함께 지워진다.
+   * 그래서 손놀림 하나는 그것을 시작한 포인터만 이어 간다
    */
   const activePointer = useRef<number | null>(null)
 
-  /** 그리던 획을 배열에 넣고 손을 뗀 상태로 돌린다 */
+  /** 그리던 획을 배열에 넣고 손을 뗀 상태로 돌린다 (문지르던 중이었으면 그냥 정리된다) */
   const commitLive = useCallback(() => {
+    wiping.current = false
     const s = live.current
     live.current = null
     lastPx.current = null
@@ -243,17 +246,18 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
           typeof e.currentTarget.hasPointerCapture === 'function'
             ? e.currentTarget.hasPointerCapture(active)
             : false
-        // 앞 포인터가 아직 캔버스를 붙들고 있다 = 펜으로 그리는 중이다.
-        // 손바닥·두 번째 손가락이 그 획을 가로채지 못하게 여기서 끊는다
+        // 앞 포인터가 아직 캔버스를 붙들고 있다 = 그리거나 문지르는 중이다.
+        // 손바닥·두 번째 손가락이 그것을 가로채지 못하게 여기서 끊는다
         if (held) return
         // 붙들고 있지 않다 = 그 포인터의 pointerup 을 못 받았다(아이패드에서 실제로 생긴다).
-        // 그리던 획을 잃지 않게 여기서 마감하고 새 획을 시작한다
+        // 그리던 획을 잃지 않게 여기서 마감하고(문지르던 것은 정리하고) 새로 시작한다
         commitLive()
       }
       e.currentTarget.setPointerCapture?.(e.pointerId)
       const { ratio, px } = at(e)
       if (tool === 'strokeEraser') {
         wiping.current = true
+        activePointer.current = e.pointerId
         wipeAt(ratio)
         return
       }
@@ -273,6 +277,8 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
 
   const move = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (wiping.current) {
+      // 문지르기를 시작한 포인터만 따라간다. 손바닥이 닿은 자리의 획을 지우지 않게
+      if (activePointer.current !== e.pointerId) return
       e.preventDefault()
       wipeAt(at(e).ratio)
       return
@@ -295,7 +301,10 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
 
   const up = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (wiping.current) {
+      // 무시한 손바닥의 pointerup 으로는 문지르기를 끝내지 않는다
+      if (activePointer.current !== e.pointerId) return
       wiping.current = false
+      activePointer.current = null
       e.currentTarget.releasePointerCapture?.(e.pointerId)
       return
     }
