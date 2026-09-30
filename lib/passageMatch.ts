@@ -57,13 +57,22 @@ export function isSamePassage(a: string, b: string, minLength = 0): boolean {
  *
  * 과목은 모델이 문제마다 새로 판정하는 값이라 갈릴 수 있다. 그래서 동일성 판정의 기준으로
  * 삼지 않지만(그러면 같은 문제가 두 벌 저장된다), 과목까지 다른 짝을 합칠 때는 지문이
- * 충분히 남아 있는지 확인한다
+ * 충분히 남아 있는지 확인한다.
+ *
+ * 연도는 다르다. 둘 다 연도가 확정돼 있는데 서로 다르면, 지문이 같아도 다른 문제로 본다 —
+ * 사실관계 없이 "OO에 관한 설명 중 옳지 않은 것은?" 만 있는 지문은 해마다 그대로 되풀이돼
+ * 우연히 완전 일치하는데, 그것들은 실제로 다른 시험의 다른 문제다.
+ *
+ * 한쪽이라도 연도가 0(미상)이면 예전처럼 지문만으로 판정한다. 한 문제를 파싱 청크 둘이
+ * 서로 다른 연도로 읽은 경우가 여기로 들어오는데, 그때는 합쳐야 맞다
  */
 export function isSameQuestionText(
-  a: { subject: string; passage: string },
-  b: { subject: string; passage: string }
+  a: { subject: string; passage: string; year: number },
+  b: { subject: string; passage: string; year: number }
 ): boolean {
-  return isSamePassage(a.passage, b.passage, a.subject === b.subject ? 0 : MIN_PASSAGE_FOR_PREFIX)
+  if (!isSamePassage(a.passage, b.passage, a.subject === b.subject ? 0 : MIN_PASSAGE_FOR_PREFIX)) return false
+  // 0(연도 미상)은 '다르다'의 근거가 되지 못한다. 둘 다 확정된 연도일 때만 갈라놓는다
+  return !(a.year && b.year && a.year !== b.year)
 }
 
 /**

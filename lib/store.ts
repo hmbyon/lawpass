@@ -492,7 +492,8 @@ function questionBucketKey(q: Question): string {
 }
 
 // 2차 확인: 정말 같은 문제인가. 규칙은 passageMatch.ts 한곳에 있다
-// (청크 겹침으로 한쪽이 페이지 경계에서 잘린 경우도 같은 문제로 인정한다)
+// (청크 겹침으로 한쪽이 페이지 경계에서 잘린 경우도 같은 문제로 인정한다).
+// q 를 통째로 넘기므로 연도까지 함께 본다 — 확정된 연도가 서로 다르면 합치지 않는다
 function isSameQuestion(a: Question, b: Question): boolean {
   return isSameQuestionText(a, b)
 }
