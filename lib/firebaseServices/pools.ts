@@ -221,17 +221,19 @@ function poolMode(data: { mode?: AppMode }): AppMode {
 }
 
 /**
- * 나에게 공유된 pool 목록 중 지금 모드의 것.
+ * 공유된 pool 목록 중 지금 모드의 것.
  *
- * 규칙이 "명단에 든 사람만 읽는다"이므로, 쿼리도 명단으로 스스로를 좁혀야 한다 —
- * 조건 없이 pools 전체를 훑으면 규칙이 쿼리째 거부한다 (§2 목록 쿼리 안전성).
- * memberUids 는 단일 필드라 색인이 자동으로 만들어진다.
+ * 규칙이 "로그인한 사람이면 누구나 읽는다"로 바뀌었으므로, 쿼리도 스스로를 명단으로 좁히지
+ * 않는다 — 예전에는 memberUids 로 좁히지 않으면 규칙이 쿼리째 거부했다.
  *
- * 모드는 쿼리가 아니라 받아온 뒤에 거른다. where 를 하나 더 걸면 복합 색인이 필요해지고,
- * 한 사람이 받는 문제집 수는 색인을 세울 만큼 많지 않다
+ * uid 는 더 이상 쓰지 않는다. 호출부를 건드리지 않으려고 인자는 그대로 둔다.
+ *
+ * 모드는 쿼리가 아니라 받아온 뒤에 거른다. where 를 걸면 복합 색인이 필요해지고,
+ * 발행되는 문제집 수는 색인을 세울 만큼 많지 않다
  */
 export async function listSharedPools(uid: string, mode: AppMode): Promise<PoolMeta[]> {
-  const snap = await getDocs(query(collection(db, POOLS), where('memberUids', 'array-contains', uid)))
+  void uid
+  const snap = await getDocs(query(collection(db, POOLS)))
   return snap.docs
     .map((d) => {
       const data = d.data() as Omit<PoolMeta, 'id'>

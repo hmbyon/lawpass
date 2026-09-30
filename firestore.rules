@@ -27,19 +27,17 @@ service cloud.firestore {
     }
 
     match /pools/{poolId} {
-      // 소유자와 명단에 든 사람만 읽는다
-      allow read: if isPoolOwner()
-                  || (request.auth != null
-                      && request.auth.uid in resource.data.memberUids);
-      // 발행·명단 수정은 소유자만
+      // 발행된 문제집은 로그인한 사람이면 누구나 읽는다.
+      // 예전에는 memberUids 명단에 든 사람만 읽을 수 있어, 관리자가 이메일로 한 명씩
+      // 권한을 줘야 했다. 이제 발행 자체가 곧 공개다
+      allow read: if request.auth != null;
+      // 발행·발행취소·명단 수정은 소유자만
       allow write: if isPoolOwner();
 
       match /shards/{shardId} {
-        allow read: if isPoolOwner()
-                    || (request.auth != null
-                        && request.auth.uid in
-                           get(/databases/$(database)/documents/pools/$(poolId)).data.memberUids);
-        // 멤버에게 쓰기를 주면 원본이 오염되고 전 멤버에게 전파된다
+        // 루트와 같은 기준이다. 조각만 더 좁게 잠그면 목록은 보이는데 문항은 못 읽는다
+        allow read: if request.auth != null;
+        // 읽는 사람에게 쓰기를 주면 원본이 오염되고 받는 사람 전부에게 전파된다
         allow write: if isPoolOwner();
       }
     }
