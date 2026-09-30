@@ -921,7 +921,7 @@ function StudyBulkPreview({
 
         {/* 표로 안 되는 도면. 해설을 펼쳐도 같은 카드 안이라 끝까지 남는다.
             그림은 이 문제가 그려질 때 그 문제 것만 읽는다 */}
-        <QuestionImages questionId={q.id} imageIds={q.images} readOnly />
+        <QuestionImages questionId={q.id} imageIds={q.images} poolId={q.poolId} readOnly />
 
         {/* ㄱㄴㄷㄹ 보기 항목 */}
         {subChoices && (

@@ -40,6 +40,13 @@ service cloud.firestore {
         // 읽는 사람에게 쓰기를 주면 원본이 오염되고 받는 사람 전부에게 전파된다
         allow write: if isPoolOwner();
       }
+
+      // 문항에 딸린 도면 이미지. 조각과 같은 기준이다 —
+      // 더 좁게 잠그면 문항은 보이는데 그림만 빈칸이 된다
+      match /images/{imageId} {
+        allow read: if request.auth != null;
+        allow write: if isPoolOwner();
+      }
     }
 
     // 이메일→uid 대응표. 관리자가 이메일로 권한을 줄 때 uid를 찾는 수단이다.

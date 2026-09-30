@@ -1320,6 +1320,7 @@ function QuestionDetail({
       <QuestionImages
         questionId={q.id}
         imageIds={q.images}
+        poolId={q.poolId}
         isAdmin={editBody?.isAdmin ?? false}
         onChanged={() => editBody?.imagesChanged()}
       />

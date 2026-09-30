@@ -328,7 +328,7 @@ export function QuizEngine({
           </div>
         )}
         {/* 지금 보는 문제 것만 그려지므로 그 문제의 그림만 그때 읽는다 — 세션 전체를 미리 받지 않는다 */}
-        <QuestionImages questionId={q.id} imageIds={q.images} readOnly />
+        <QuestionImages questionId={q.id} imageIds={q.images} poolId={q.poolId} readOnly />
         <div className="space-y-2">
           {q.choices.map((c) => (
             <label
@@ -474,7 +474,7 @@ function ResultsView({
               {/* 해설을 펼친 문제만 그림을 읽는다. 분석이 없어도 그림은 볼 수 있게 펼친다 */}
               {expandedId === note.id && (note.analysis || (note.question.images?.length ?? 0) > 0) && (
                 <div className="border-t border-border px-4 py-3 space-y-3 text-sm">
-                  <QuestionImages questionId={note.question.id} imageIds={note.question.images} readOnly />
+                  <QuestionImages questionId={note.question.id} imageIds={note.question.images} poolId={note.question.poolId} readOnly />
                   {note.analysis && (
                     <>
                       <InfoRow label="핵심개념" value={note.analysis.핵심개념} />

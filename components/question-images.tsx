@@ -9,6 +9,7 @@ import {
   newQuestionImageId,
   saveQuestionImage,
 } from '@/lib/firebaseServices/questionImages'
+import { fetchPoolQuestionImages } from '@/lib/firebaseServices/pools'
 import { attachQuestionImages, detachQuestionImage } from '@/lib/store'
 
 /**
@@ -35,6 +36,14 @@ interface Props {
    * 여기서는 '이미지 첨부' 머리말도 빼고 그림만, 풀면서 읽을 수 있는 크기로 보여준다
    */
   readOnly?: boolean
+  /**
+   * 공유받은 문제집의 문항이면 그 pool 의 id (Question.poolId).
+   *
+   * 그림을 내 트리가 아니라 pools/{poolId}/images 에서 읽는다 — 남이 발행한 그림은 내
+   * 저장소에 없다. 이때는 관리자여도 읽기 전용이다. 받은 문제는 원본이 아니라서, 여기서
+   * 고쳐 봐야 내 사본만 어긋나고 발행본은 그대로다
+   */
+  poolId?: string
 }
 
 const button =
@@ -42,9 +51,9 @@ const button =
 
 const kb = (bytes: number) => `${Math.round(bytes / 1024)}KB`
 
-export function QuestionImages({ questionId, imageIds, isAdmin: isAdminProp = false, onChanged, readOnly = false }: Props) {
+export function QuestionImages({ questionId, imageIds, isAdmin: isAdminProp = false, onChanged, readOnly = false, poolId }: Props) {
   const ids = imageIds ?? []
-  const isAdmin = isAdminProp && !readOnly
+  const isAdmin = isAdminProp && !readOnly && !poolId
   const [images, setImages] = useState<QuestionImage[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -58,7 +67,7 @@ export function QuestionImages({ questionId, imageIds, isAdmin: isAdminProp = fa
       return
     }
     setImages(null)
-    fetchQuestionImages(ids)
+    ;(poolId ? fetchPoolQuestionImages(poolId, ids) : fetchQuestionImages(ids))
       .then((list) => {
         if (alive) setImages(list)
       })
@@ -72,7 +81,7 @@ export function QuestionImages({ questionId, imageIds, isAdmin: isAdminProp = fa
     }
     // ID 목록이 바뀔 때만 다시 읽는다 (문자열로 견준다 — 배열은 매 렌더 새 객체다)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [questionId, ids.join(',')])
+  }, [questionId, ids.join(','), poolId])
 
   async function handleFiles(files: FileList | null) {
     // 숨김만으로는 부족하다 — 버튼을 거치지 않고 불릴 수 있어 여기서도 막는다

@@ -4,7 +4,8 @@ import {
   query, where, arrayUnion, arrayRemove,
 } from 'firebase/firestore'
 import { shardList } from '@/lib/firebaseServices/sync'
-import type { Question } from '@/lib/types'
+import { fetchQuestionImages } from '@/lib/firebaseServices/questionImages'
+import type { Question, QuestionImage } from '@/lib/types'
 import type { AppMode } from '@/lib/appMode'
 
 /**
@@ -116,6 +117,29 @@ function shardsRef(poolId: string) {
 }
 
 /**
+ * 발행본에 딸린 도면 이미지.
+ *
+ * 내 트리(users/{uid}/{mode}/questionImages/items)에 있는 것을 받는 사람이 읽을 수는 없다.
+ * 그래서 발행할 때 pool 아래로 사본을 뜬다. 이미지 하나가 곧 문서 하나라 조각으로 나누지
+ * 않는다 — 장당 수백 KB 로 줄여 올리므로 1MiB 한도 안이다 (lib/imageCompress.ts)
+ */
+function imagesRef(poolId: string) {
+  return collection(db, POOLS, poolId, 'images')
+}
+
+/**
+ * 발행본의 이미지를 읽는다. questionImages.ts 의 fetchQuestionImages 와 같은 방식이다 —
+ * 필요한 문서만 읽고, 없는 id 는 조용히 건너뛴다 (그 한 장 때문에 나머지까지 못 보면 안 된다)
+ */
+export async function fetchPoolQuestionImages(poolId: string, ids: string[]): Promise<QuestionImage[]> {
+  if (ids.length === 0) return []
+  const snaps = await Promise.all(ids.map((id) => getDoc(doc(imagesRef(poolId), id)).catch(() => null)))
+  return snaps
+    .filter((s): s is NonNullable<typeof s> => !!s && s.exists())
+    .map((s) => s.data() as QuestionImage)
+}
+
+/**
  * 문제집을 발행한다. poolId 를 주면 그 pool 을 새 판본으로 갈아끼운다(재발행).
  *
  * 쓰는 순서는 sync.ts 의 writeList 와 같다 — 조각을 전부 쓴 뒤에 루트를 갱신하고,
@@ -133,8 +157,10 @@ export async function publishPool(opts: {
   const poolId = opts.poolId ?? doc(collection(db, POOLS)).id
   const version = Date.now().toString(36)
 
-  // 사본에만 poolId 를 심는다. 원본 배열의 객체는 손대지 않는다 (얕은 복사)
-  const copies: Question[] = opts.questions.map((q) => ({ ...q, poolId }))
+  // 사본에만 poolId 를 심는다. 원본 배열의 객체는 손대지 않는다 (얕은 복사).
+  // 필기(drawing)는 사본에서 뺀다 — 내가 그 문제를 풀며 그린 것이지 문제집의 일부가 아니다.
+  // 표(passageTable)와 이미지 ID 목록(images)은 문제의 일부라 그대로 간다
+  const copies: Question[] = opts.questions.map(({ drawing: _drawing, ...rest }) => ({ ...rest, poolId }))
   const shards = shardList(copies)
 
   // 재발행이면 직전 판본을 알아야 정리 범위를 좁힐 수 있다
@@ -143,6 +169,14 @@ export async function publishPool(opts: {
 
   for (let i = 0; i < shards.length; i++) {
     await setDoc(doc(shardsRef(poolId), `${version}_${i}`), { list: shards[i] })
+  }
+
+  // 이미지는 ID 목록만으로는 못 읽는다. 내 트리에 있는 원본을 pool 아래로 복사해 둔다.
+  // 루트를 갱신하기 전에 해 둬야, 새 판본이 가리키는 그림이 이미 자리에 있다
+  const imageIds = Array.from(new Set(copies.flatMap((q) => q.images ?? [])))
+  if (imageIds.length > 0) {
+    const images = await fetchQuestionImages(imageIds)
+    await Promise.all(images.map((image) => setDoc(doc(imagesRef(poolId), image.id), image)))
   }
 
   const meta = {
@@ -194,6 +228,10 @@ export async function publishPool(opts: {
 export async function unpublishPool(poolId: string): Promise<void> {
   const shards = await getDocs(shardsRef(poolId))
   await Promise.all(shards.docs.map((d) => deleteDoc(d.ref)))
+  // 이미지도 함께 지운다. 남겨두면 발행을 취소해도 poolId 와 이미지 id 를 아는 사람은
+  // 계속 읽을 수 있다 — 루트가 사라져도 서브컬렉션 문서는 저절로 지워지지 않는다
+  const images = await getDocs(imagesRef(poolId))
+  await Promise.all(images.docs.map((d) => deleteDoc(d.ref)))
   await deleteDoc(rootRef(poolId))
 }
 
