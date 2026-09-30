@@ -64,15 +64,21 @@ export function isSamePassage(a: string, b: string, minLength = 0): boolean {
  * 우연히 완전 일치하는데, 그것들은 실제로 다른 시험의 다른 문제다.
  *
  * 한쪽이라도 연도가 0(미상)이면 예전처럼 지문만으로 판정한다. 한 문제를 파싱 청크 둘이
- * 서로 다른 연도로 읽은 경우가 여기로 들어오는데, 그때는 합쳐야 맞다
+ * 서로 다른 연도로 읽은 경우가 여기로 들어오는데, 그때는 합쳐야 맞다.
+ *
+ * 출처 파일(sourceFile)도 연도와 같은 원칙으로 본다. 연도까지 우연히 같은 짝이 실제로 있다 —
+ * 상법 다섯 챕터(총칙·상행위·회사·어수·보험)를 합치면 298개가 296개로 줄었다. 과목은 다섯
+ * 파일 모두 '상법'이라 과목 길이 하한도 걸리지 않는다. 챕터를 가르는 값은 파일명뿐이다
  */
 export function isSameQuestionText(
-  a: { subject: string; passage: string; year: number },
-  b: { subject: string; passage: string; year: number }
+  a: { subject: string; passage: string; year: number; sourceFile?: string },
+  b: { subject: string; passage: string; year: number; sourceFile?: string }
 ): boolean {
   if (!isSamePassage(a.passage, b.passage, a.subject === b.subject ? 0 : MIN_PASSAGE_FOR_PREFIX)) return false
   // 0(연도 미상)은 '다르다'의 근거가 되지 못한다. 둘 다 확정된 연도일 때만 갈라놓는다
-  return !(a.year && b.year && a.year !== b.year)
+  if (a.year && b.year && a.year !== b.year) return false
+  // 파일명도 마찬가지다. 한쪽이라도 비어 있으면(옛 데이터·출처 없는 문제) 근거가 되지 못한다
+  return !(a.sourceFile && b.sourceFile && a.sourceFile !== b.sourceFile)
 }
 
 /**
