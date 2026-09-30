@@ -168,8 +168,7 @@ export interface ParseReview {
 // 같은 문제인지 보는 규칙은 passageMatch.ts 한곳에 있다.
 // 예전에는 store.ts와 여기에 같은 판정이 따로 적혀 있어 한쪽만 고치면 갈라졌다.
 // 과목이 다른 짝에는 길이 하한이 걸린다 (지문이 거의 안 남은 문제끼리 뭉치지 않도록).
-// q 를 통째로 넘기므로 연도와 출처 파일까지 함께 본다 —
-// 둘 다 값이 있는데 서로 다르면 중복으로 세지 않는다
+// 지문이 짧으면 선지까지 견준다 — 발문만 남은 문제끼리 중복으로 뭉치지 않도록
 function sameText(a: Question, b: Question): boolean {
   return isSameQuestionText(a, b)
 }

@@ -493,15 +493,9 @@ function questionBucketKey(q: Question): string {
 
 // 2차 확인: 정말 같은 문제인가. 규칙은 passageMatch.ts 한곳에 있다
 // (청크 겹침으로 한쪽이 페이지 경계에서 잘린 경우도 같은 문제로 인정한다).
-// q 를 통째로 넘기므로 연도와 출처 파일까지 함께 본다 —
-// 둘 다 값이 있는데 서로 다르면 합치지 않는다.
-//
-// 들어오는 문제의 출처 파일명은 '저장할 때' 붙는다(아래 result.push 의 sourceFile).
-// 파싱 결과 자체에는 없다. 그래서 판정할 때는 붙게 될 이름을 미리 얹어 견준다 —
-// 그러지 않으면 새로 들어온 쪽은 늘 파일명이 비어 있어, 다른 파일의 문제인데도
-// 지문·연도가 우연히 같다는 이유로 합쳐진다 (상법 다섯 챕터 298 → 296)
-function isSameQuestion(a: Question, b: Question, incomingSourceFile?: string): boolean {
-  return isSameQuestionText(a, { ...b, sourceFile: b.sourceFile || incomingSourceFile })
+// q 를 통째로 넘기므로 지문이 짧을 때는 선지까지 함께 본다
+function isSameQuestion(a: Question, b: Question): boolean {
+  return isSameQuestionText(a, b)
 }
 
 // 더 온전한 판본을 고르기 위한 점수 (채워진 선지 수 우선, 그다음 지문 길이)
@@ -550,7 +544,7 @@ export function addQuestions(
   for (const q of incoming) {
     const key = questionBucketKey(q)
     const candidates = buckets.get(key) ?? []
-    const matchIndex = candidates.find((i) => isSameQuestion(result[i], q, sourceFile))
+    const matchIndex = candidates.find((i) => isSameQuestion(result[i], q))
 
     if (matchIndex === undefined) {
       result.push({

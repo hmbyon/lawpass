@@ -45,11 +45,67 @@ export const MIN_PASSAGE_FOR_PREFIX = 40
  * 그렇게 합치면 전혀 다른 문제가 한 벌로 뭉친다 — 그 자리에서만 하한을 건다
  */
 export function isSamePassage(a: string, b: string, minLength = 0): boolean {
+  return matchedPassageLength(a, b, minLength) !== null
+}
+
+/**
+ * 같다고 본 지문의 길이(정규화 뒤 글자 수). 같지 않으면 null.
+ *
+ * isSamePassage 와 같은 판정이되, "얼마나 긴 지문으로 그렇게 판정했는지"를 함께 돌려준다 —
+ * 짧은 지문으로 내린 판정은 그것만으로 믿기 어려워 한 번 더 가려야 하기 때문이다
+ */
+function matchedPassageLength(a: string, b: string, minLength: number): number | null {
   const pa = normalizePassage(a)
   const pb = normalizePassage(b)
-  if (pa === pb) return pa.length >= minLength
+  if (pa === pb) return pa.length >= minLength ? pa.length : null
   const [shorter, longer] = pa.length <= pb.length ? [pa, pb] : [pb, pa]
-  return shorter.length >= Math.max(MIN_PASSAGE_FOR_PREFIX, minLength) && longer.startsWith(shorter)
+  if (shorter.length >= Math.max(MIN_PASSAGE_FOR_PREFIX, minLength) && longer.startsWith(shorter)) {
+    return shorter.length
+  }
+  return null
+}
+
+/** 선지 하나. 이 파일은 앱의 타입을 모르게 두고 필요한 모양만 받는다 */
+interface ChoiceLike {
+  label: string
+  text?: string
+}
+
+// 선지 글이 조금 달라도 같은 선지로 본다. 같은 문장을 다시 읽어도 OCR 은 글자 몇 개를
+// 다르게 내놓는다 — 거기서 갈라 버리면 재파싱마다 같은 문제가 한 벌씩 더 쌓인다
+const CHOICE_DIFF_RATIO = 0.1
+const MAX_CHOICE_DIFF = 8
+
+function sameChoiceText(a: string, b: string): boolean {
+  if (a === b) return true
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a]
+  // 한쪽이 청크 경계에서 잘린 경우. 지문에 쓰는 접두어 규칙과 같은 이유다
+  if (longer.startsWith(shorter)) return true
+  const cap = Math.min(MAX_CHOICE_DIFF, Math.max(1, Math.round(shorter.length * CHOICE_DIFF_RATIO)))
+  return editDistance(a, b, cap) <= cap
+}
+
+/**
+ * 같은 라벨의 선지가 서로 다른 말을 하고 있는가.
+ *
+ * 견줄 수 있는 라벨이 하나도 없으면(한쪽 선지가 통째로 비었거나 라벨이 안 맞으면) false —
+ * 모른다는 이유로 갈라놓지 않는다. 그렇게 하면 선지를 아직 못 읽은 판본이 영영 안 합쳐진다.
+ * 개수가 달라도 그 자체를 근거로 삼지 않는다(①②③만 읽힌 판본이 흔하다). 겹치는 라벨의
+ * 내용이 실제로 다를 때만 다른 문제로 본다
+ */
+function choicesConflict(a: ChoiceLike[] | undefined, b: ChoiceLike[] | undefined): boolean {
+  const byLabel = new Map<string, string>()
+  for (const c of a ?? []) {
+    const text = normalizePassage(c.text ?? '')
+    if (text) byLabel.set(c.label, text)
+  }
+  for (const c of b ?? []) {
+    const text = normalizePassage(c.text ?? '')
+    if (!text) continue
+    const mine = byLabel.get(c.label)
+    if (mine !== undefined && !sameChoiceText(mine, text)) return true
+  }
+  return false
 }
 
 /**
@@ -59,26 +115,24 @@ export function isSamePassage(a: string, b: string, minLength = 0): boolean {
  * 삼지 않지만(그러면 같은 문제가 두 벌 저장된다), 과목까지 다른 짝을 합칠 때는 지문이
  * 충분히 남아 있는지 확인한다.
  *
- * 연도는 다르다. 둘 다 연도가 확정돼 있는데 서로 다르면, 지문이 같아도 다른 문제로 본다 —
- * 사실관계 없이 "OO에 관한 설명 중 옳지 않은 것은?" 만 있는 지문은 해마다 그대로 되풀이돼
- * 우연히 완전 일치하는데, 그것들은 실제로 다른 시험의 다른 문제다.
+ * 짧은 지문은 지문만으로 가릴 수 없다. 사실관계 없이 "OO에 관한 설명 중 옳지 않은 것은?"
+ * 만 있는 지문은 해마다 그대로 되풀이돼 서로 다른 문제끼리 완전 일치한다(상법 다섯 챕터를
+ * 합치면 298개가 296개로 줄었다). 그래서 40자 미만으로 맞은 짝은 선지까지 견준다.
  *
- * 한쪽이라도 연도가 0(미상)이면 예전처럼 지문만으로 판정한다. 한 문제를 파싱 청크 둘이
- * 서로 다른 연도로 읽은 경우가 여기로 들어오는데, 그때는 합쳐야 맞다.
- *
- * 출처 파일(sourceFile)도 연도와 같은 원칙으로 본다. 연도까지 우연히 같은 짝이 실제로 있다 —
- * 상법 다섯 챕터(총칙·상행위·회사·어수·보험)를 합치면 298개가 296개로 줄었다. 과목은 다섯
- * 파일 모두 '상법'이라 과목 길이 하한도 걸리지 않는다. 챕터를 가르는 값은 파일명뿐이다
+ * 연도나 파일명으로 가르지 않는다. 한 번 그렇게 해 봤는데, 그 값들은 같은 문제를 다시
+ * 파싱해도 얼마든지 달라진다 — 연도는 OCR 이 다르게 읽고(yearConflict 필드가 그래서 있다)
+ * 파일명은 다시 올릴 때 바뀐다. 그 결과 어수 35문제를 재파싱하자 전부 새 문제로 쌓였다.
+ * 문제의 정체를 말해주는 것은 문제의 내용(지문과 선지)뿐이다
  */
 export function isSameQuestionText(
-  a: { subject: string; passage: string; year: number; sourceFile?: string },
-  b: { subject: string; passage: string; year: number; sourceFile?: string }
+  a: { subject: string; passage: string; choices?: ChoiceLike[] },
+  b: { subject: string; passage: string; choices?: ChoiceLike[] }
 ): boolean {
-  if (!isSamePassage(a.passage, b.passage, a.subject === b.subject ? 0 : MIN_PASSAGE_FOR_PREFIX)) return false
-  // 0(연도 미상)은 '다르다'의 근거가 되지 못한다. 둘 다 확정된 연도일 때만 갈라놓는다
-  if (a.year && b.year && a.year !== b.year) return false
-  // 파일명도 마찬가지다. 한쪽이라도 비어 있으면(옛 데이터·출처 없는 문제) 근거가 되지 못한다
-  return !(a.sourceFile && b.sourceFile && a.sourceFile !== b.sourceFile)
+  const matched = matchedPassageLength(a.passage, b.passage, a.subject === b.subject ? 0 : MIN_PASSAGE_FOR_PREFIX)
+  if (matched === null) return false
+  // 충분히 긴 지문이 맞았으면 그것으로 끝이다 (청크 경계에서 잘린 판본도 여기서 이어붙는다)
+  if (matched >= MIN_PASSAGE_FOR_PREFIX) return true
+  return !choicesConflict(a.choices, b.choices)
 }
 
 /**
