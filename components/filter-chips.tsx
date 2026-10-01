@@ -11,7 +11,8 @@ interface FilterChipsProps<T extends string> {
   centered?: boolean
   // 아무 항목도 명시적으로 고르지 않아 "전체 포함"으로 동작하는 상태.
   // 칩은 전부 선택된 것처럼 보이되 selected 는 비어 있는 그대로다 — 여기서 하나를 누르면
-  // 그것만 남는 실제 부분 선택으로 넘어간다 (필터 로직은 손대지 않는다)
+  // 보통 토글 버튼처럼 "그 하나를 끄기"로 받아들여, 누른 것만 빠지고 나머지는 선택된 채
+  // 남는 실제 선택으로 넘어간다 (필터 로직은 손대지 않는다)
   allImplied?: boolean
 }
 
@@ -30,10 +31,11 @@ export function FilterChips<T extends string>({
 
   function toggle(opt: T) {
     if (!selectable(opt)) return // 데이터 없는 항목은 선택되지 않는다
-    // 전체 포함 상태에서 하나를 누르면 "그것만"이다. 더하기로 치면 방금 전까지 전부
-    // 포함이던 것이 티 안 나게 하나만 남아, 누른 사람이 뺀 적 없는 것들이 빠진다
+    // 전체 포함 상태에서는 칩이 죄다 보라(=켜진 것처럼) 보인다. 그중 하나를 누르면
+    // 보통 토글 버튼처럼 "그 하나를 끈다"로 받아들이는 게 자연스럽다 — 누른 것만 빠지고
+    // (데이터 없어 애초에 안 켜져 보이던 항목은 빼고) 나머지는 그대로 선택된 채 남는다
     if (allImplied) {
-      onChange([opt])
+      onChange(options.filter((o) => o !== opt && selectable(o)))
       return
     }
     if (single) {

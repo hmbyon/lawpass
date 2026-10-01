@@ -368,7 +368,7 @@ export function CasesTab({ questions }: { questions: Question[] }) {
                 </p>
               ) : examTypes.length === 0 ? (
                 <p className="text-[11px] text-muted-foreground">
-                  전체를 보고 있습니다 · 하나를 누르면 그것만 봅니다
+                  전체를 보고 있습니다 · 하나를 누르면 그것만 빠집니다
                 </p>
               ) : null}
               <FilterChips
@@ -391,7 +391,7 @@ export function CasesTab({ questions }: { questions: Question[] }) {
                   <>
                     {examRounds.length === 0 && (
                       <p className="text-[11px] text-muted-foreground">
-                        전체를 보고 있습니다 · 하나를 누르면 그것만 봅니다
+                        전체를 보고 있습니다 · 하나를 누르면 그것만 빠집니다
                       </p>
                     )}
                     <FilterChips
@@ -410,7 +410,7 @@ export function CasesTab({ questions }: { questions: Question[] }) {
                 <label className="text-xs font-medium text-muted-foreground">모의고사 회차 (복수 선택)</label>
                 {examMonths.length === 0 && (
                   <p className="text-[11px] text-muted-foreground">
-                    전체를 보고 있습니다 · 하나를 누르면 그것만 봅니다
+                    전체를 보고 있습니다 · 하나를 누르면 그것만 빠집니다
                   </p>
                 )}
                 <FilterChips
@@ -433,7 +433,7 @@ export function CasesTab({ questions }: { questions: Question[] }) {
                 <div className="space-y-2.5">
                   {units.length === 0 && (
                     <p className="text-[11px] text-muted-foreground">
-                      고른 과목의 단원 전체를 보고 있습니다 · 하나를 누르면 그 단원만 봅니다
+                      고른 과목의 단원 전체를 보고 있습니다 · 하나를 누르면 그 단원만 빠집니다
                     </p>
                   )}
                   {/* 과목마다 한 줄로 끊는다. 이어 붙이면 어느 단원이 어느 과목 것인지
