@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { onAuthChange, loginWithGoogle } from '@/lib/firebaseServices/auth'
+import { onAuthChange, loginWithGoogle, handleRedirectResult } from '@/lib/firebaseServices/auth'
 import { getAppMode, setAppMode, type AppMode } from '@/lib/appMode'
 import { EXAMPASS_ENTRY_ENABLED } from '@/lib/featureFlags'
 import type { User } from 'firebase/auth'
@@ -32,6 +32,15 @@ export function AuthGate({ children }: Props) {
       setLoading(false)
     })
     return () => unsub()
+  }, [])
+
+  // 팝업이 막혀 리디렉션으로 넘어간 경우, 구글에서 돌아온 뒤 그 결과를 받는다.
+  // 성공하면 위 onAuthChange가 알아서 user를 채우므로 여기서는 실패만 알려주면 된다
+  useEffect(() => {
+    handleRedirectResult().catch((e) => {
+      console.error(e)
+      setError('로그인에 실패했습니다. 팝업이 차단됐을 수 있어요.')
+    })
   }, [])
 
   useEffect(() => {
