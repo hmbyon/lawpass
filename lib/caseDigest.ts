@@ -1,6 +1,6 @@
 import type { CaseRef, ExamType, ExplanationBlock, Question, Subject } from './types'
 import { SUBJECT_UNITS } from './units'
-import { examMonthOf, examMonthLabel, type ExamMonthLabel } from './questionSource'
+import { examMonthOf, examMonthLabel, type ExamMonthLabel, barExamRound, barExamRoundLabel } from './questionSource'
 
 /**
  * 해설에 인용된 판례를 판례 단위로 모은다.
@@ -199,10 +199,19 @@ export function filterCases(
     units?: string[]
     examTypes?: ExamType[]
     examMonths?: ExamMonthLabel[]
+    examRounds?: string[]
     now?: Date
   }
 ): CaseGroup[] {
-  const { years = null, subjects = [], units = [], examTypes = [], examMonths = [], now = new Date() } = opts
+  const {
+    years = null,
+    subjects = [],
+    units = [],
+    examTypes = [],
+    examMonths = [],
+    examRounds = [],
+    now = new Date(),
+  } = opts
   // 과목별로 한 번만 추려 둔다. 문제마다 다시 계산하면 목록 전체를 훑는 일이 반복된다
   const chosen = new Map<string, string[]>()
   const unitsFor = (subject: Subject): string[] => {
@@ -222,11 +231,26 @@ export function filterCases(
       const only = unitsFor(q.subject)
       if (!(only.length === 0 || only.includes(q.unit?.trim() ?? ''))) return false
       if (examTypes.length > 0 && !examTypes.includes(q.examType)) return false
-      // 회차(6/8/10모)는 '모의고사'를 골랐을 때만 의미가 있다. 월을 못 읽은 문제는
-      // (다른 필터들의 '미상' 처리와 같은 원칙으로) 거르지 않는다
-      if (examTypes.includes('모의고사') && examMonths.length > 0 && q.examType === '모의고사') {
+      // 회차(6/8/10모)는 '모의고사'가 범위 안에 있을 때만 의미가 있다 — 명시로 골랐을 때뿐
+      // 아니라 시험유형을 아무것도 안 골라 전체가 암묵적으로 포함된 때(examTypes가 빈
+      // 배열)도 '모의고사'가 범위 안이므로 같이 적용한다. 월을 못 읽은 문제는 (다른
+      // 필터들의 '미상' 처리와 같은 원칙으로) 거르지 않는다
+      if (
+        (examTypes.length === 0 || examTypes.includes('모의고사')) &&
+        examMonths.length > 0 &&
+        q.examType === '모의고사'
+      ) {
         const month = examMonthOf(q.sourceFile)
         if (month && !examMonths.includes(examMonthLabel(month))) return false
+      }
+      // 변호사시험 회차(1~N회)도 같은 원칙. 연도를 못 읽은 문제는 거르지 않는다
+      if (
+        (examTypes.length === 0 || examTypes.includes('변호사시험')) &&
+        examRounds.length > 0 &&
+        q.examType === '변호사시험'
+      ) {
+        const round = barExamRound(q.year)
+        if (round && !examRounds.includes(barExamRoundLabel(round))) return false
       }
       return true
     })

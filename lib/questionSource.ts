@@ -54,6 +54,11 @@ export function barExamRound(year: number): number | null {
   return year - FIRST_BAR_EXAM_YEAR
 }
 
+/** 변호사시험 회차 라벨. 모의고사 회차(examMonthLabel)와 같은 자리에서 쓰려고 문자열로 둔다 */
+export function barExamRoundLabel(round: number): string {
+  return `${round}회`
+}
+
 /**
  * 같은 시험을 가리키는 열쇠. 이 열쇠가 같은데 파일이 여럿이면 그때만 파일명을 덧붙인다
  */
