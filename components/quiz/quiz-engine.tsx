@@ -471,11 +471,51 @@ function ResultsView({
                 <span className="text-muted-foreground text-sm shrink-0">{expandedId === note.id ? '▲' : '▼'}</span>
               </button>
 
-              {/* 해설을 펼친 문제만 그림을 읽는다. 분석이 없어도 그림은 볼 수 있게 펼친다 */}
-              {expandedId === note.id && (note.analysis || (note.question.images?.length ?? 0) > 0) && (
+              {/* 토글을 누르면 늘 문제 전문(지문·선지·해설)을 먼저 보여준다. AI 분석은
+                  성공했을 때만 그 아래 덧붙인다. 전에는 note.analysis가 없으면(AI 분석
+                  실패) 토글을 눌러도 이 블록 자체가 안 그려져 — 그림도 없는 문제는 —
+                  아무 반응이 없는 것처럼 보였다 */}
+              {expandedId === note.id && (
                 <div className="border-t border-border px-4 py-3 space-y-3 text-sm">
                   <QuestionImages questionId={note.question.id} imageIds={note.question.images} poolId={note.question.poolId} readOnly />
-                  {note.analysis && (
+
+                  <div className="bg-muted/40 border border-border/60 rounded-lg p-3">
+                    <p className="text-xs text-muted-foreground mb-1">문제 지문</p>
+                    <p className="text-foreground leading-relaxed text-xs whitespace-pre-wrap">{note.question.passage}</p>
+                  </div>
+
+                  <div className="space-y-1">
+                    {note.question.choices.map((c) => (
+                      <div
+                        key={c.label}
+                        className={`flex gap-2 p-2 rounded-lg text-xs border ${
+                          c.label === note.question.answer
+                            ? 'border-emerald-500 bg-emerald-100 text-emerald-900 dark:border-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300'
+                            : c.label === note.userAnswer
+                              ? 'border-red-500 bg-red-100 text-red-900 dark:border-red-600 dark:bg-red-900/20 dark:text-red-300'
+                              : 'border-border text-muted-foreground'
+                        }`}
+                      >
+                        <span className="font-semibold shrink-0">{c.label}</span>
+                        <span className="flex-1">{c.text}</span>
+                        {c.label === note.question.answer && <span className="ml-auto shrink-0">✓ 정답</span>}
+                        {c.label === note.userAnswer && c.label !== note.question.answer && (
+                          <span className="ml-auto shrink-0">✗ 내 답</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {note.question.explanation && (
+                    <div className="bg-muted/40 border border-border/60 rounded-lg p-3">
+                      <p className="text-xs text-muted-foreground mb-1 font-medium">해설</p>
+                      <p className="text-foreground text-xs leading-relaxed whitespace-pre-wrap break-words">
+                        {note.question.explanation}
+                      </p>
+                    </div>
+                  )}
+
+                  {note.analysis ? (
                     <>
                       <InfoRow label="핵심개념" value={note.analysis.핵심개념} />
                       <InfoRow label="관련조문" value={note.analysis.관련조문} />
@@ -484,6 +524,8 @@ function ResultsView({
                       <InfoRow label="혼동주의" value={note.analysis.혼동주의} />
                       <InfoRow label="체크포인트" value={note.analysis.체크포인트} />
                     </>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">AI 분석에 실패했습니다.</p>
                   )}
                 </div>
               )}
