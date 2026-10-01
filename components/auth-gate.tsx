@@ -65,7 +65,7 @@ export function AuthGate({ children }: Props) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-6 px-4 relative">
         <div className="text-center space-y-1">
-          <h1 className="text-2xl font-bold text-primary">ExamPass AI</h1>
+          <h1 className="text-2xl font-bold text-primary">LawPass AI</h1>
           <p className="text-muted-foreground text-sm">객관식 시험 대비 AI 오답노트 &amp; 학습 코치</p>
         </div>
 

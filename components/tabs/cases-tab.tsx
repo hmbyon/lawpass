@@ -353,7 +353,8 @@ export function CasesTab({ questions }: { questions: Question[] }) {
             </div>
 
             {/* 회차는 '모의고사'를 고른 동안에만 보인다 */}
-            {examTypes.includes('모의고사') && (
+            {/* 시험유형을 아무것도 안 골랐을 때도(allImplied) 모의고사가 보이는 중이므로 같이 켠다 */}
+            {(examTypes.length === 0 || examTypes.includes('모의고사')) && (
               <div className="space-y-2">
                 <label className="text-xs font-medium text-muted-foreground">모의고사 회차 (복수 선택)</label>
                 {examMonths.length === 0 && (

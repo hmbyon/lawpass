@@ -1,6 +1,6 @@
 {
-  "name": "ExamPass AI",
-  "short_name": "ExamPass",
+  "name": "LawPass AI",
+  "short_name": "LawPass",
   "description": "수험생을 위한 AI 기반 객관식 문제 분석, CBT 실전 모드, 오답노트 플랫폼",
   "start_url": "/",
   "display": "standalone",

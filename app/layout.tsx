@@ -15,13 +15,13 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: 'ExamPass AI — 객관식 AI 학습 플랫폼',
+  title: 'LawPass AI — 변호사시험 AI 학습 플랫폼',
   description: '수험생을 위한 AI 기반 객관식 문제 분석, CBT 실전 모드, 오답노트, D-1 암기장 플랫폼',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'ExamPass AI',
+    title: 'LawPass AI',
   },
   icons: {
     icon: [
@@ -31,15 +31,15 @@ export const metadata: Metadata = {
     apple: '/icon-192.png?v=2',
   },
   openGraph: {
-    title: 'ExamPass AI — 객관식 AI 학습 플랫폼',
+    title: 'LawPass AI — 변호사시험 AI 학습 플랫폼',
     description: '수험생을 위한 AI 기반 문제 분석, CBT 실전 모드, 오답노트, D-1 암기장 플랫폼',
-    siteName: 'ExamPass AI',
+    siteName: 'LawPass AI',
     images: [
       {
         url: '/icon-512.png?v=2',
         width: 512,
         height: 512,
-        alt: 'ExamPass AI Logo',
+        alt: 'LawPass AI Logo',
       },
     ],
     locale: 'ko_KR',
