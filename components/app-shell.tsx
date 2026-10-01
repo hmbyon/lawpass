@@ -506,7 +506,7 @@ export function AppShell({ user }: Props) {
         {tab === 'wrong' && <WrongTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
         {tab === 'memo' && <MemoTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
         {/* 판례는 내 문제의 해설에서 뽑은 것만 센다. 공유받은 문제집은 이번 범위가 아니다 */}
-        {tab === 'cases' && <CasesTab key={syncedAt} questions={questions} />}
+        {tab === 'cases' && <CasesTab key={syncedAt} questions={[...questions, ...poolQuestions, ...adminQuestions]} />}
       </main>
 
       {showOnboarding && (
