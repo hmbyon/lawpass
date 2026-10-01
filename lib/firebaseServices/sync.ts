@@ -20,6 +20,16 @@ import type { Question, WrongNote } from '@/lib/types'
 // 그래서 export만 열고 분할 로직은 여기 한 곳에 둔다 (동작은 그대로)
 export const SHARD_BUDGET_BYTES = 700_000
 
+/**
+ * 관리자 계정의 uid.
+ *
+ * firestore.rules 의 `match /users/1Mt7tpI4n2gCn71O6qE1EP2Fns03/{mode}/questions/{document=**}`
+ * 와 **반드시 같은 값**이어야 한다. 규칙이 읽기를 허용하는 경로가 그 한 줄뿐이라,
+ * 여기만 바꾸면 읽기가 통째로 거부된다 (lib/admin.ts 의 ADMIN_EMAIL 은 화면 게이팅
+ * 전용이고 보안 판정에는 쓰지 않는다 — pools 규칙 주석과 같은 이유다)
+ */
+export const ADMIN_UID = '1Mt7tpI4n2gCn71O6qE1EP2Fns03'
+
 // 동기화 단계 추적용 임시 로그. 원인 규명이 끝나면 이 함수와 호출부만 지우면 된다
 function syncLog(...args: unknown[]) {
   console.log('[sync]', ...args)
@@ -125,6 +135,24 @@ async function readList<T>(userId: string, mode: string, name: ListName): Promis
     out.push(...((shardSnap.data().list as T[]) ?? []))
   }
   return out
+}
+
+/**
+ * 관리자 계정의 문제 목록을 읽어온다 — 로그인한 사용자 누구나.
+ *
+ * 공유 문제집(pools.ts)과는 별개의 길이다. 그쪽은 관리자가 '발행'한 사본을 users 트리
+ * 밖에 두는 방식이고, 이쪽은 관리자 본인의 questions 경로를 읽기 전용으로 열어 둔 것이다
+ * (firestore.rules 의 ADMIN_UID 블록).
+ *
+ * 읽는 방법은 readList 와 같다 — 루트 문서를 보고, 조각으로 나뉘어 있으면 조각을 순회해
+ * 합친다. 문서가 없으면(관리자가 아직 아무것도 올리지 않았으면) 빈 배열이다.
+ *
+ * 내 데이터를 건드리지 않는다. 읽어서 돌려주기만 하고 로컬 저장소에는 쓰지 않는다 —
+ * 그래야 남의 문제가 내 목록에 섞여 내 트리로 올라가는 일이 없다
+ */
+export async function fetchAdminQuestions(mode: string): Promise<Question[]> {
+  const list = await readList<Question>(ADMIN_UID, mode, 'questions')
+  return list ?? []
 }
 
 // 원격 값으로 로컬을 대체하되, 아직 올리지 못한 로컬 변경이 있으면 절대 지우지 않는다.

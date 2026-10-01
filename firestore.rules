@@ -5,6 +5,17 @@ service cloud.firestore {
     match /users/{userId}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+
+    // 관리자 계정의 문제 목록은 로그인한 누구나 읽는다. 발행·권한부여 없이 바로 풀 수
+    // 있게 하려는 것이다 (공유 문제집 pools 와는 별개의 길이다).
+    // uid 는 아래 isPoolOwner() 가 쓰는 값과 같아야 한다.
+    //
+    // questions 경로만 연다 — 루트 문서와 그 아래 shards 까지다. 같은 트리의
+    // wrongNotes·studySessions·quizSession·questionImages 는 이 블록에 걸리지 않으므로
+    // 위의 본인 규칙 그대로 관리자만 볼 수 있다. write 도 주지 않는다(본인만 쓴다)
+    match /users/1Mt7tpI4n2gCn71O6qE1EP2Fns03/{mode}/questions/{document=**} {
+      allow read: if request.auth != null;
+    }
     
    match /feedback/{docId} {
           allow create: if request.auth != null;

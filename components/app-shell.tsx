@@ -5,7 +5,7 @@ import type { User } from 'firebase/auth'
 import type { Question, WrongNote } from '@/lib/types'
 import { getQuestions, getPoolQuestions, getWrongNotes, clearAll , isInMemoList, hasPendingSync } from '@/lib/store'
 import { logout } from '@/lib/firebaseServices/auth'
-import { pullFromFirebase, pushToFirebase } from '@/lib/firebaseServices/sync'
+import { pullFromFirebase, pushToFirebase, fetchAdminQuestions, ADMIN_UID } from '@/lib/firebaseServices/sync'
 import { recordUserDirectory } from '@/lib/firebaseServices/userDirectory'
 import { isAccountSwitch, rememberUid, unsyncedModes, clearAccountData } from '@/lib/accountSwitch'
 import { getAppMode, setAppMode, type AppMode } from '@/lib/appMode'
@@ -61,6 +61,12 @@ export function AppShell({ user }: Props) {
   // 공유받은 문제는 내 문제와 한 배열에 담지 않는다. 화면에 넘길 때만 합치고,
   // 저장·동기화 경로에는 끝까지 따로 둔다 (docs/shared-pool-design.md §3)
   const [poolQuestions, setPoolQuestions] = useState<Question[]>([])
+  // 관리자 계정이 올려 둔 문제. 로그인한 사람이면 발행·권한부여 없이 바로 풀 수 있다.
+  // 공유받은 문제(poolQuestions)와 같은 원칙으로 내 문제와 한 배열에 담지 않는다 —
+  // 화면에 넘길 때만 합치고 저장·동기화 경로에는 들어가지 않는다
+  const [adminQuestions, setAdminQuestions] = useState<Question[]>([])
+  // 관리자 본인은 받아올 필요가 없다 (자기 문제는 이미 questions 에 있다)
+  const isAdminAccount = isAdminEmail(user.email) || user.uid === ADMIN_UID
   // 계정이 바뀌어 이전 데이터를 치우고 새로 받아오는 중. 그동안은 화면을 열지 않는다 —
   // 반쯤 지워진 상태를 보여주면 그 위에서 조작이 일어나 다시 오염된다
   const [switching, setSwitching] = useState(false)
@@ -189,6 +195,19 @@ export function AppShell({ user }: Props) {
     // 지운 뒤에 기록한다. 중간에 멈춰도 다음 로그인에서 다시 '계정이 바뀌었다'로 걸린다
     rememberUid(user.uid)
 
+    // 관리자 문제는 내 데이터와 따로 받아온다. 실패해도 내 데이터 불러오기를 막지 않는다 —
+    // 남의 문제를 못 읽은 것 때문에 내 문제집이 안 열리면 그게 더 큰 사고다
+    if (isAdminAccount) {
+      setAdminQuestions([])
+    } else {
+      fetchAdminQuestions(getAppMode())
+        .then(setAdminQuestions)
+        .catch((e) => {
+          console.error('공유 문제(관리자 계정)를 불러오지 못했습니다', e)
+          setAdminQuestions([])
+        })
+    }
+
     setSyncing(true)
     try {
       await pullFromFirebase(user.uid)
@@ -207,7 +226,7 @@ export function AppShell({ user }: Props) {
       setSwitching(false)
       setSyncedAt(Date.now())
     }
-  }, [user.uid, refresh])
+  }, [user.uid, refresh, isAdminAccount])
 
   useEffect(() => {
     loadFromFirebase()
@@ -476,14 +495,14 @@ export function AppShell({ user }: Props) {
           (isAdmin ? (
             <PdfTab syncedAt={syncedAt} onQuestionsAdded={refreshAndSync} isAdmin={isAdmin} />
           ) : (
-            <DashboardTab key={syncedAt} questions={[...questions, ...poolQuestions]} wrongNotes={wrongNotes} />
+            <DashboardTab key={syncedAt} questions={[...questions, ...poolQuestions, ...adminQuestions]} wrongNotes={wrongNotes} />
           ))}
         {/* 공유받은 문제를 합쳐 넘긴다. 합치는 것은 화면에 보여줄 배열뿐이고,
             문항에 붙은 poolId 가 그대로 따라가 오답노트·학습 세션 사본에도 출처가 남는다.
             선학습은 세션을 시작할 때 이 배열에서 고른 문항을 통째로 스냅샷으로 잡으므로,
             진행 중에 공유 문제집이 재발행돼도 그 세션의 문제 구성은 그대로다 */}
-        {tab === 'cbt' && <CbtTab key={syncedAt} questions={[...questions, ...poolQuestions]} onDone={refreshAndSync} />}
-        {tab === 'study' && <StudyTab key={syncedAt} questions={[...questions, ...poolQuestions]} onDone={refreshAndSync} onSync={refreshAndSync} />}
+        {tab === 'cbt' && <CbtTab key={syncedAt} questions={[...questions, ...poolQuestions, ...adminQuestions]} onDone={refreshAndSync} />}
+        {tab === 'study' && <StudyTab key={syncedAt} questions={[...questions, ...poolQuestions, ...adminQuestions]} onDone={refreshAndSync} onSync={refreshAndSync} />}
         {tab === 'wrong' && <WrongTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
         {tab === 'memo' && <MemoTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
         {/* 판례는 내 문제의 해설에서 뽑은 것만 센다. 공유받은 문제집은 이번 범위가 아니다 */}
