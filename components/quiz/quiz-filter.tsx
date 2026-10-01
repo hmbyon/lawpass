@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { FilterChips } from '@/components/filter-chips'
 import { getAppMode } from '@/lib/appMode'
+import { getSourceLabel } from '@/lib/sourceLabels'
 import type { Question, Subject, ExamType } from '@/lib/types'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
@@ -59,7 +60,7 @@ export function QuizFilter({ questions: incomingQuestions, mode, onStart }: Quiz
       if (!q.poolId) continue
       const found = byPool.get(q.poolId)
       if (found) found.count++
-      else byPool.set(q.poolId, { label: q.sourceFile ?? '공유받은 문제집', count: 1 })
+      else byPool.set(q.poolId, { label: getSourceLabel(appMode, q.sourceFile ?? '', q.sourceFile ?? '공유받은 문제집'), count: 1 })
     }
     return Array.from(byPool.entries()).map(([id, v]) => ({ id, ...v }))
   }, [incomingQuestions])

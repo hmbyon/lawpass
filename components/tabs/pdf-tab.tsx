@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { PDFDocument } from 'pdf-lib'
 import { getApiKey, setApiKey, addQuestions, getSourceFiles, deleteQuestionsBySource, mergeSourceFiles, getQuestions, getWrongNotes } from '@/lib/store'
+import { getSourceLabel, setSourceLabel } from '@/lib/sourceLabels'
 import { ParseReview, type ReparseRequest } from '@/components/parse-review'
 import { ProgressTable, computeProgress, progressQuestions, type ProgressRow } from '@/components/progress-table'
 import { formatMissing, gapPageRange } from '@/lib/parseReview'
@@ -1053,6 +1054,16 @@ export function PdfTab({
     onQuestionsAdded()
   }
 
+  // 표시 이름만 바꾼다 — 실제 sourceFile 데이터는 그대로다. 이 계정(브라우저)에만 적용되고,
+  // 처음 상태(관리자가 올릴 때 지은 이름)는 다른 계정에서는 그대로 보인다
+  function handleRenameSource(name: string) {
+    const current = getSourceLabel(appMode, name, name)
+    const next = window.prompt('문제집 표시 이름을 입력하세요 (내 화면에만 적용되고, 실제 데이터는 바뀌지 않습니다)', current)
+    if (next === null) return
+    setSourceLabel(appMode, name, next)
+    refreshSourceFiles()
+  }
+
   function toggleMergeMode() {
     setMergeMode((v) => !v)
     setMergeSelected(new Set())
@@ -1198,11 +1209,17 @@ export function PdfTab({
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-foreground truncate">{name}</p>
+                  <p className="text-xs font-medium text-foreground truncate">{getSourceLabel(appMode, name, name)}</p>
                   <p className="text-xs text-muted-foreground">{count}문제</p>
                 </div>
                 {!mergeMode && (
                   <>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleRenameSource(name) }}
+                      className="text-xs text-muted-foreground hover:text-foreground shrink-0 transition-colors"
+                    >
+                      이름
+                    </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); showReview([name], true, true) }}
                       className="text-xs text-primary hover:text-primary/80 shrink-0 transition-colors"

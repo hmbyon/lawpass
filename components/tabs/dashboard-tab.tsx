@@ -1,8 +1,10 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { Question, WrongNote } from '@/lib/types'
 import { makeSourceLabeler } from '@/lib/questionSource'
+import { getAppMode } from '@/lib/appMode'
+import { getSourceLabel, setSourceLabel } from '@/lib/sourceLabels'
 import { ProgressTable, computeProgress } from '@/components/progress-table'
 
 /**
@@ -23,6 +25,10 @@ interface Props {
 }
 
 export function DashboardTab({ questions, wrongNotes }: Props) {
+  const [appMode] = useState(() => getAppMode())
+  // 이름 수정은 localStorage에만 쓰므로 리렌더를 강제로 일으켜야 바로 반영된다
+  const [labelVersion, setLabelVersion] = useState(0)
+
   // 진도표와 같은 기준으로 '푼 문제'를 센다 (한 번이라도 채점된 문제)
   const solvedIds = useMemo(
     () => new Set(wrongNotes.filter((n) => (n.totalCount ?? 0) > 0).map((n) => n.questionId)),
@@ -52,10 +58,10 @@ export function DashboardTab({ questions, wrongNotes }: Props) {
   // 문제집(출처)별. 이름은 기출판례 탭과 같은 규칙으로 붙인다 (같은 회차에 판본이 여럿일 때만 파일명)
   const sources = useMemo(() => {
     const label = makeSourceLabeler(questions)
-    const map = new Map<string, { count: number; solved: number; shared: boolean; year: number }>()
+    const map = new Map<string, { count: number; solved: number; shared: boolean; year: number; sourceFile: string }>()
     for (const q of questions) {
       const key = label(q)
-      const row = map.get(key) ?? { count: 0, solved: 0, shared: false, year: 0 }
+      const row = map.get(key) ?? { count: 0, solved: 0, shared: false, year: 0, sourceFile: q.sourceFile ?? '' }
       row.count += 1
       if (solvedIds.has(q.id)) row.solved += 1
       if (q.poolId) row.shared = true
@@ -65,6 +71,16 @@ export function DashboardTab({ questions, wrongNotes }: Props) {
     // 최근 회차가 위로
     return Array.from(map.entries()).sort((a, b) => b[1].year - a[1].year || a[0].localeCompare(b[0]))
   }, [questions, solvedIds])
+
+  // 표시 이름만 바꾼다 — 실제 sourceFile 데이터는 그대로다. 이 계정(브라우저)에만 적용되고,
+  // 관리자가 처음 지은 이름(기본값)은 다른 계정에서는 그대로 보인다
+  function handleRenameSource(sourceFile: string, current: string) {
+    if (!sourceFile) return
+    const next = window.prompt('문제집 표시 이름을 입력하세요 (내 화면에만 적용됩니다)', current)
+    if (next === null) return
+    setSourceLabel(appMode, sourceFile, next)
+    setLabelVersion((v) => v + 1)
+  }
 
   if (questions.length === 0) {
     return (
@@ -122,19 +138,34 @@ export function DashboardTab({ questions, wrongNotes }: Props) {
 
         <div className="space-y-1.5">
           <p className="text-xs text-muted-foreground">문제집별</p>
-          {sources.map(([name, row]) => (
-            <div key={name} className="flex items-center justify-between gap-2 bg-muted rounded-lg px-3 py-2">
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span className="text-xs font-medium text-foreground truncate">{name}</span>
-                {row.shared && (
-                  <span className="shrink-0 text-[10px] text-primary border border-primary/30 rounded px-1">공유</span>
-                )}
+          {sources.map(([name, row]) => {
+            const displayName = getSourceLabel(appMode, row.sourceFile, name)
+            return (
+              <div key={name} className="flex items-center justify-between gap-2 bg-muted rounded-lg px-3 py-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-xs font-medium text-foreground truncate">{displayName}</span>
+                  {row.shared && (
+                    <span className="shrink-0 text-[10px] text-primary border border-primary/30 rounded px-1">공유</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {row.solved}/{row.count}문제
+                  </span>
+                  {row.sourceFile && (
+                    <button
+                      onClick={() => handleRenameSource(row.sourceFile, displayName)}
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      aria-label="이름 수정"
+                      title="이름 수정"
+                    >
+                      ✎
+                    </button>
+                  )}
+                </div>
               </div>
-              <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
-                {row.solved}/{row.count}문제
-              </span>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
 
