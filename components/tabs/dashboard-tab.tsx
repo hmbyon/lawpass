@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react'
 import type { Question, WrongNote } from '@/lib/types'
-import { makeSourceLabeler } from '@/lib/questionSource'
 import { getAppMode } from '@/lib/appMode'
 import { getSourceLabel, setSourceLabel } from '@/lib/sourceLabels'
 import { ProgressTable, computeProgress } from '@/components/progress-table'
@@ -55,20 +54,21 @@ export function DashboardTab({ questions, wrongNotes }: Props) {
     return Array.from(map.entries()).sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]))
   }, [questions, solvedIds])
 
-  // 문제집(출처)별. 이름은 기출판례 탭과 같은 규칙으로 붙인다 (같은 회차에 판본이 여럿일 때만 파일명)
+  // 문제집(출처)별 — sourceFile 그대로 묶는다. 관리자가 pdf-tab에서 합치기/이름짓기 한 그 목록과
+  // 똑같이 보여야 한다 (연도별·단원별 세부 분류는 바로 아래 진도표가 이미 담당하므로, 여기서까지
+  // 회차 단위로 다시 쪼개면 같은 정보가 두 번 다른 모양으로 보이게 된다)
   const sources = useMemo(() => {
-    const label = makeSourceLabeler(questions)
     const map = new Map<string, { count: number; solved: number; shared: boolean; year: number; sourceFile: string }>()
     for (const q of questions) {
-      const key = label(q)
-      const row = map.get(key) ?? { count: 0, solved: 0, shared: false, year: 0, sourceFile: q.sourceFile ?? '' }
+      const key = q.sourceFile ?? '(출처 없음)'
+      const row = map.get(key) ?? { count: 0, solved: 0, shared: false, year: 0, sourceFile: key }
       row.count += 1
       if (solvedIds.has(q.id)) row.solved += 1
       if (q.poolId) row.shared = true
       row.year = Math.max(row.year, q.year || 0)
       map.set(key, row)
     }
-    // 최근 회차가 위로
+    // 최근 문제가 섞인 문제집이 위로
     return Array.from(map.entries()).sort((a, b) => b[1].year - a[1].year || a[0].localeCompare(b[0]))
   }, [questions, solvedIds])
 
