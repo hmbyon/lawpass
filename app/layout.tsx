@@ -25,10 +25,10 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: '/icon-192.png?v=2', sizes: '192x192', type: 'image/png' },
-      { url: '/icon-512.png?v=2', sizes: '512x512', type: 'image/png' },
+      { url: '/icon-192.png?v=3', sizes: '192x192', type: 'image/png' },
+      { url: '/icon-512.png?v=3', sizes: '512x512', type: 'image/png' },
     ],
-    apple: '/icon-192.png?v=2',
+    apple: '/icon-192.png?v=3',
   },
   openGraph: {
     title: 'LawPass AI — 변호사시험 AI 학습 플랫폼',
@@ -36,7 +36,7 @@ export const metadata: Metadata = {
     siteName: 'LawPass AI',
     images: [
       {
-        url: '/icon-512.png?v=2',
+        url: '/icon-512.png?v=3',
         width: 512,
         height: 512,
         alt: 'LawPass AI Logo',
