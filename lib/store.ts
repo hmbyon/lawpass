@@ -873,23 +873,37 @@ export function mergeSourceFiles(sourceFileNames: string[], newName: string) {
   const toMerge = questions.filter((q) => selected.has(q.sourceFile ?? '(출처 없음)'))
   const others = questions.filter((q) => !selected.has(q.sourceFile ?? '(출처 없음)'))
 
-  const byPassage = new Map<string, Question>()
+  // 같은 문제인지 보는 방법은 addQuestions 와 똑같다 — questionBucketKey 로 후보를 좁히고
+  // isSameQuestion 으로 확인한다.
+  //
+  // 예전에는 여기만 다른 기준(정규화하지 않은 지문 앞 100자)을 썼다. 그래서 파싱 때는
+  // 제대로 갈라 둔 문제들이 '합치기' 한 번에 도로 뭉쳤다 — 발문만 있는 짧은 지문은 서로 다른
+  // 문제끼리도 앞 100자가 같기 때문이다(상법 298문제를 합치면 296개가 됐다).
+  // 같은 문제의 기준이 함수마다 다르면 그런 일이 계속 생긴다. 기준은 한 벌이어야 한다
+  const merged: Question[] = []
+  const buckets = new Map<string, number[]>()
   for (const q of toMerge) {
-    const key = q.passage.slice(0, 100)
-    const found = byPassage.get(key)
-    if (found) {
-      const expl = new Set([
-        ...(found.explanations ?? (found.explanation ? [found.explanation] : [])),
-        ...(q.explanations ?? (q.explanation ? [q.explanation] : [])),
-      ])
-      found.explanations = Array.from(expl)
-      found.explanation = Array.from(expl)[0] ?? null
-    } else {
-      byPassage.set(key, { ...q, sourceFile: newName })
+    const key = questionBucketKey(q)
+    const candidates = buckets.get(key) ?? []
+    const matchIndex = candidates.find((i) => isSameQuestion(merged[i], q))
+
+    if (matchIndex === undefined) {
+      merged.push({ ...q, sourceFile: newName })
+      buckets.set(key, [...candidates, merged.length - 1])
+      continue
     }
+
+    // 같은 문제였으면 해설만 합친다 (남기는 쪽은 이미 newName 을 달고 있다)
+    const found = merged[matchIndex]
+    const expl = new Set([
+      ...(found.explanations ?? (found.explanation ? [found.explanation] : [])),
+      ...(q.explanations ?? (q.explanation ? [q.explanation] : [])),
+    ])
+    found.explanations = Array.from(expl)
+    found.explanation = Array.from(expl)[0] ?? null
   }
 
-  saveQuestions([...others, ...Array.from(byPassage.values())])
+  saveQuestions([...others, ...merged])
 }
 
 // 저장된 위험도를 현재 calcRisk 기준으로 맞춘다.
