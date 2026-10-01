@@ -336,25 +336,31 @@ export function CasesTab({ questions }: { questions: Question[] }) {
               />
             </div>
 
+            {/* 과목을 먼저 고르기 전에는 아무 칩도 '선택됨'으로 보이지 않는다.
+                과목을 고르는 순간 — 아직 시험유형/회차를 직접 고르지 않았다면 — 한꺼번에
+                전체 선택(allImplied) 상태로 자동 전환된다. 과목이 1차 게이트다 */}
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">시험 유형 (복수 선택)</label>
-              {examTypes.length === 0 && (
+              {subjects.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">
+                  과목을 먼저 고르면 전체 선택 상태로 시작합니다
+                </p>
+              ) : examTypes.length === 0 ? (
                 <p className="text-[11px] text-muted-foreground">
                   전체를 보고 있습니다 · 하나를 누르면 그것만 봅니다
                 </p>
-              )}
+              ) : null}
               <FilterChips
                 options={EXAM_TYPES}
                 selected={examTypes}
                 onChange={handleExamTypesChange}
                 available={availableExamTypes}
-                allImplied={examTypes.length === 0}
+                allImplied={subjects.length > 0 && examTypes.length === 0}
               />
             </div>
 
-            {/* 회차는 '모의고사'를 고른 동안에만 보인다 */}
-            {/* 시험유형을 아무것도 안 골랐을 때도(allImplied) 모의고사가 보이는 중이므로 같이 켠다 */}
-            {(examTypes.length === 0 || examTypes.includes('모의고사')) && (
+            {/* 회차는 과목을 고른 뒤, '모의고사'를 고른 동안(또는 시험유형이 전체 선택 상태일 때)에만 보인다 */}
+            {subjects.length > 0 && (examTypes.length === 0 || examTypes.includes('모의고사')) && (
               <div className="space-y-2">
                 <label className="text-xs font-medium text-muted-foreground">모의고사 회차 (복수 선택)</label>
                 {examMonths.length === 0 && (
