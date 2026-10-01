@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from 'react'
 import type { Question } from '@/lib/types'
-import type { Subject } from '@/lib/types'
+import type { ExamType, Subject } from '@/lib/types'
 import { SUBJECT_UNITS } from '@/lib/units'
 import { FilterChips } from '@/components/filter-chips'
-import { groupBySource } from '@/lib/questionSource'
+import { groupBySource, examMonthOf, examMonthValue, EXAM_MONTH_OPTIONS, type ExamMonthLabel } from '@/lib/questionSource'
 import {
   buildCaseDigest, filterCases, sortCases, periodLabel, PERIOD_OPTIONS,
   findCaseMentions, allExplanationText, previewMention, selectedUnitsOf, mergeUnitSelection,
@@ -181,6 +181,8 @@ function CaseCard({
   )
 }
 
+const EXAM_TYPES: ExamType[] = ['변호사시험', '모의고사']
+
 export function CasesTab({ questions }: { questions: Question[] }) {
   const digest = useMemo(() => buildCaseDigest(questions), [questions])
   const [openId, setOpenId] = useState<string | null>(null)
@@ -188,21 +190,23 @@ export function CasesTab({ questions }: { questions: Question[] }) {
   const [years, setYears] = useState<number | null>(5)
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [units, setUnits] = useState<string[]>([])
+  const [examTypes, setExamTypes] = useState<ExamType[]>([])
+  const [examMonths, setExamMonths] = useState<ExamMonthLabel[]>([])
   const [sort, setSort] = useState<CaseSort>('count')
   const [query, setQuery] = useState('')
   const now = useMemo(() => new Date(), [])
 
-  // 과목·단원만 적용한 목록. 기간으로 몇 건이 빠졌는지 세려면 그 앞 단계가 필요하다
+  // 과목·단원·시험유형만 적용한 목록. 기간으로 몇 건이 빠졌는지 세려면 그 앞 단계가 필요하다
   const scoped = useMemo(
-    () => filterCases(digest.groups, { subjects, units, now }),
-    [digest.groups, subjects, units, now]
+    () => filterCases(digest.groups, { subjects, units, examTypes, examMonths, now }),
+    [digest.groups, subjects, units, examTypes, examMonths, now]
   )
   // 검색은 필터 결과를 한 번 더 거른다. 단원 칩의 '있는 것'(availableUnits)은 scoped 로
   // 계산하므로, 타이핑하는 동안 칩이 사라지지는 않는다
   const searched = useMemo(() => searchCases(scoped, query), [scoped, query])
   const inRange = useMemo(
-    () => filterCases(searched, { years, subjects, units, now }),
-    [searched, years, subjects, units, now]
+    () => filterCases(searched, { years, subjects, units, examTypes, examMonths, now }),
+    [searched, years, subjects, units, examTypes, examMonths, now]
   )
   // 선고일을 모르는 판례는 기간과 무관하게 늘 따로 보여준다 (숨기면 재파싱할지 정할 수 없다)
   const dated = useMemo(() => sortCases(inRange.filter((g) => g.year !== null), sort), [inRange, sort])
@@ -232,6 +236,27 @@ export function CasesTab({ questions }: { questions: Question[] }) {
     () => Array.from(new Set(digest.groups.flatMap((g) => g.subjects))),
     [digest.groups]
   )
+  const availableExamTypes = useMemo(
+    () => Array.from(new Set(scoped.flatMap((g) => g.questions.map((q) => q.examType)))),
+    [scoped]
+  )
+  // 회차(6/8/10모)는 '모의고사' 문제들에서만 뽑는다. 파일명에서 월을 못 읽은 문제는 후보에서 빠진다
+  const availableExamMonths = useMemo(() => {
+    const found = new Set<6 | 8 | 10>()
+    for (const g of scoped) {
+      for (const q of g.questions) {
+        if (q.examType !== '모의고사') continue
+        const month = examMonthOf(q.sourceFile)
+        if (month) found.add(month)
+      }
+    }
+    return EXAM_MONTH_OPTIONS.filter((label) => found.has(examMonthValue(label)))
+  }, [scoped])
+
+  function handleExamTypesChange(next: ExamType[]) {
+    setExamTypes(next)
+    if (!next.includes('모의고사')) setExamMonths([])
+  }
 
   function changeSubjects(next: Subject[]) {
     setSubjects(next)
@@ -310,6 +335,41 @@ export function CasesTab({ questions }: { questions: Question[] }) {
                 available={availableSubjects}
               />
             </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground">시험 유형 (복수 선택)</label>
+              {examTypes.length === 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  전체를 보고 있습니다 · 하나를 누르면 그것만 봅니다
+                </p>
+              )}
+              <FilterChips
+                options={EXAM_TYPES}
+                selected={examTypes}
+                onChange={handleExamTypesChange}
+                available={availableExamTypes}
+                allImplied={examTypes.length === 0}
+              />
+            </div>
+
+            {/* 회차는 '모의고사'를 고른 동안에만 보인다 */}
+            {examTypes.includes('모의고사') && (
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-muted-foreground">모의고사 회차 (복수 선택)</label>
+                {examMonths.length === 0 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    전체를 보고 있습니다 · 하나를 누르면 그것만 봅니다
+                  </p>
+                )}
+                <FilterChips
+                  options={[...EXAM_MONTH_OPTIONS]}
+                  selected={examMonths}
+                  onChange={setExamMonths}
+                  available={availableExamMonths}
+                  allImplied={examMonths.length === 0}
+                />
+              </div>
+            )}
 
             {/* 단원은 고른 과목의 것만 보여준다. 과목을 안 고르면 일곱 과목의 단원이 한꺼번에
                 쏟아져 고를 수가 없다 (지금 36개) */}

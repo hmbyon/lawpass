@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { FilterChips } from '@/components/filter-chips'
 import { getAppMode } from '@/lib/appMode'
 import { getSourceLabel } from '@/lib/sourceLabels'
+import { examMonthOf, examMonthLabel, examMonthValue, EXAM_MONTH_OPTIONS, type ExamMonthLabel } from '@/lib/questionSource'
 import type { Question, Subject, ExamType } from '@/lib/types'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
@@ -78,6 +79,7 @@ export function QuizFilter({ questions: incomingQuestions, mode, onStart }: Quiz
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [generalSubjects, setGeneralSubjects] = useState<string[]>([])
   const [examTypes, setExamTypes] = useState<ExamType[]>([])
+  const [examMonths, setExamMonths] = useState<ExamMonthLabel[]>([])
   const [years, setYears] = useState<string[]>([])
   const [units, setUnits] = useState<string[]>([])
   const [count, setCount] = useState<number>(20)
@@ -132,6 +134,21 @@ export function QuizFilter({ questions: incomingQuestions, mode, onStart }: Quiz
     [scopedQuestions]
   )
 
+  // 모의고사 회차(6/8/10모). 파일명에서 못 읽은 문제는 후보에서는 빠지지만, 필터링 때는
+  // (다른 '미상' 값들과 같은 원칙으로) 걸러내지 않는다
+  const selectableExamMonths = useMemo(() => {
+    const found = new Set<6 | 8 | 10>()
+    for (const q of scopedQuestions) {
+      if (q.examType !== '모의고사') continue
+      const month = examMonthOf(q.sourceFile)
+      if (month) found.add(month)
+    }
+    return EXAM_MONTH_OPTIONS.filter((label) => found.has(examMonthValue(label)))
+  }, [scopedQuestions])
+
+  const allExamMonthsSelected =
+    selectableExamMonths.length > 0 && selectableExamMonths.every((m) => examMonths.includes(m))
+
   const selectableYears = useMemo(
     () => Array.from(new Set(scopedQuestions.map((q) => String(q.year)))),
     [scopedQuestions]
@@ -169,11 +186,17 @@ export function QuizFilter({ questions: incomingQuestions, mode, onStart }: Quiz
     return questions.filter((q) => {
       if (activeSubjects.length && !activeSubjects.includes(q.subject)) return false
       if (examTypes.length && !examTypes.includes(q.examType)) return false
+      // 회차 필터는 '모의고사'를 골랐을 때만 걸고, 파일명에서 월을 못 읽은 문제는
+      // (연도·단원의 '미상' 처리와 같은 원칙으로) 거르지 않는다
+      if (examTypes.includes('모의고사') && examMonths.length > 0 && q.examType === '모의고사') {
+        const month = examMonthOf(q.sourceFile)
+        if (month && !examMonths.includes(examMonthLabel(month))) return false
+      }
       if (years.length > 0 && !years.includes(String(q.year))) return false
       if (units.length && q.unit && !units.includes(q.unit)) return false
       return true
     })
-  }, [questions, activeSubjects, examTypes, years, units])
+  }, [questions, activeSubjects, examTypes, examMonths, years, units])
 
   // 범위(단원)는 과목 선택 시 자동으로 채우지 않음: UNITS는 사람이 고른 후보 목록일 뿐이라
   // 실제 PDF에서 추출된 q.unit 값과 문자열이 정확히 일치하지 않는 경우가 있고, 자동으로
@@ -191,6 +214,16 @@ export function QuizFilter({ questions: incomingQuestions, mode, onStart }: Quiz
     return Array.from(
       new Set(questions.filter((q) => subjs.includes(q.subject)).map((q) => q.examType))
     )
+  }
+
+  function examMonthsForSubjects(subjs: string[]) {
+    const found = new Set<6 | 8 | 10>()
+    for (const q of questions) {
+      if (!subjs.includes(q.subject) || q.examType !== '모의고사') continue
+      const month = examMonthOf(q.sourceFile)
+      if (month) found.add(month)
+    }
+    return EXAM_MONTH_OPTIONS.filter((label) => found.has(examMonthValue(label)))
   }
 
   // 해당 과목들에 실제로 존재하는 단원. 정적 UNITS 라벨과 데이터 값을 모두 반환한다
@@ -214,6 +247,7 @@ export function QuizFilter({ questions: incomingQuestions, mode, onStart }: Quiz
   function mergeSelectionsFor(added: string[]) {
     if (added.length === 0) return
     setExamTypes((prev) => Array.from(new Set([...prev, ...examTypesForSubjects(added)])))
+    setExamMonths((prev) => Array.from(new Set([...prev, ...examMonthsForSubjects(added)])))
     setYears((prev) => Array.from(new Set([...prev, ...yearsForSubjects(added)])))
     setUnits((prev) => Array.from(new Set([...prev, ...unitsForSubjects(added)])))
   }
@@ -227,6 +261,7 @@ export function QuizFilter({ questions: incomingQuestions, mode, onStart }: Quiz
       setUnits((prev) => prev.filter((u) => !removedUnits.includes(u)))
       if (newSubjects.length === 0) {
         setExamTypes([])
+        setExamMonths([])
         setYears([])
       }
     } else {
@@ -246,8 +281,17 @@ export function QuizFilter({ questions: incomingQuestions, mode, onStart }: Quiz
     mergeSelectionsFor(added)
     if (newSubjects.length === 0) {
       setExamTypes([])
+      setExamMonths([])
       setYears([])
     }
+  }
+
+  function handleExamTypesChange(next: ExamType[]) {
+    const turnedOnMock = next.includes('모의고사') && !examTypes.includes('모의고사')
+    const turnedOffMock = !next.includes('모의고사') && examTypes.includes('모의고사')
+    setExamTypes(next)
+    if (turnedOnMock) setExamMonths(selectableExamMonths)
+    else if (turnedOffMock) setExamMonths([])
   }
 
   // 최근 N개년 중에서도 실제로 데이터가 있는 연도만 선택한다
@@ -344,7 +388,27 @@ export function QuizFilter({ questions: incomingQuestions, mode, onStart }: Quiz
       {!isGeneral && (
         <div className="bg-card border border-border rounded-xl p-4 space-y-2">
           <label className="text-xs font-medium text-muted-foreground">시험 유형 (복수 선택)</label>
-          <FilterChips options={EXAM_TYPES} selected={examTypes} onChange={setExamTypes} available={selectableExamTypes} />
+          <FilterChips options={EXAM_TYPES} selected={examTypes} onChange={handleExamTypesChange} available={selectableExamTypes} />
+        </div>
+      )}
+
+      {/* 모의고사 회차 — '모의고사'를 고른 동안에만 보인다 */}
+      {!isGeneral && examTypes.includes('모의고사') && (
+        <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium text-muted-foreground">모의고사 회차 (복수 선택)</label>
+            <button
+              onClick={() => setExamMonths(allExamMonthsSelected ? [] : selectableExamMonths)}
+              className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                allExamMonthsSelected
+                  ? 'border-primary text-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground hover:border-primary/40'
+              }`}
+            >
+              전체
+            </button>
+          </div>
+          <FilterChips options={[...EXAM_MONTH_OPTIONS]} selected={examMonths} onChange={setExamMonths} available={selectableExamMonths} />
         </div>
       )}
 

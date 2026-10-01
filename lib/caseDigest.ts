@@ -1,5 +1,6 @@
-import type { CaseRef, ExplanationBlock, Question, Subject } from './types'
+import type { CaseRef, ExamType, ExplanationBlock, Question, Subject } from './types'
 import { SUBJECT_UNITS } from './units'
+import { examMonthOf, examMonthLabel, type ExamMonthLabel } from './questionSource'
 
 /**
  * 해설에 인용된 판례를 판례 단위로 모은다.
@@ -192,9 +193,16 @@ export function mergeUnitSelection(subject: Subject, current: string[], next: st
  */
 export function filterCases(
   groups: CaseGroup[],
-  opts: { years?: number | null; subjects?: string[]; units?: string[]; now?: Date }
+  opts: {
+    years?: number | null
+    subjects?: string[]
+    units?: string[]
+    examTypes?: ExamType[]
+    examMonths?: ExamMonthLabel[]
+    now?: Date
+  }
 ): CaseGroup[] {
-  const { years = null, subjects = [], units = [], now = new Date() } = opts
+  const { years = null, subjects = [], units = [], examTypes = [], examMonths = [], now = new Date() } = opts
   // 과목별로 한 번만 추려 둔다. 문제마다 다시 계산하면 목록 전체를 훑는 일이 반복된다
   const chosen = new Map<string, string[]>()
   const unitsFor = (subject: Subject): string[] => {
@@ -208,11 +216,19 @@ export function filterCases(
 
   return groups.filter((g) => {
     if (!inPeriod(g.year, years, now)) return false
-    if (subjects.length === 0 && units.length === 0) return true
+    if (subjects.length === 0 && units.length === 0 && examTypes.length === 0) return true
     return g.questions.some((q) => {
       if (subjects.length > 0 && !subjects.includes(q.subject)) return false
       const only = unitsFor(q.subject)
-      return only.length === 0 || only.includes(q.unit?.trim() ?? '')
+      if (!(only.length === 0 || only.includes(q.unit?.trim() ?? ''))) return false
+      if (examTypes.length > 0 && !examTypes.includes(q.examType)) return false
+      // 회차(6/8/10모)는 '모의고사'를 골랐을 때만 의미가 있다. 월을 못 읽은 문제는
+      // (다른 필터들의 '미상' 처리와 같은 원칙으로) 거르지 않는다
+      if (examTypes.includes('모의고사') && examMonths.length > 0 && q.examType === '모의고사') {
+        const month = examMonthOf(q.sourceFile)
+        if (month && !examMonths.includes(examMonthLabel(month))) return false
+      }
+      return true
     })
   })
 }

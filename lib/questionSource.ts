@@ -31,6 +31,23 @@ export function examMonthOf(sourceFile: string | undefined): 6 | 8 | 10 | null {
   return null
 }
 
+/**
+ * 모의고사 회차 라벨 ↔ 숫자. 필터 칩(FilterChips)은 문자열만 다루므로, 화면에는 라벨로
+ * 오가고 실제 비교는 숫자로 한다 — 여기 한 곳에서만 변환해서 quiz-filter·cases-tab·
+ * caseDigest가 같은 표기를 쓰게 한다
+ */
+export const EXAM_MONTH_OPTIONS = ['6모', '8모', '10모'] as const
+export type ExamMonthLabel = (typeof EXAM_MONTH_OPTIONS)[number]
+const EXAM_MONTH_VALUE: Record<ExamMonthLabel, 6 | 8 | 10> = { '6모': 6, '8모': 8, '10모': 10 }
+
+export function examMonthLabel(month: 6 | 8 | 10): ExamMonthLabel {
+  return `${month}모` as ExamMonthLabel
+}
+
+export function examMonthValue(label: ExamMonthLabel): 6 | 8 | 10 {
+  return EXAM_MONTH_VALUE[label]
+}
+
 /** 변호사시험 회차. 연도를 모르면 null */
 export function barExamRound(year: number): number | null {
   if (!year || year <= FIRST_BAR_EXAM_YEAR) return null
