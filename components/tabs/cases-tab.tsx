@@ -270,6 +270,11 @@ export function CasesTab({ questions }: { questions: Question[] }) {
       .map(examYearLabel)
   }, [scoped, examTypes])
 
+  // 출제연도 '최근 N개년': 후보 연도(최신순) 앞에서 N개를 고른다. 비어 있으면 전체이므로 '전체'는 선택을 비운다
+  const RECENT_EXAM_YEARS = [1, 3, 5]
+  const recentExamYears = (n: number) => availableExamYears.slice(0, n)
+  const sameYears = (a: string[], b: string[]) => a.length === b.length && a.every((y) => b.includes(y))
+
   function handleExamTypesChange(next: ExamType[]) {
     setExamTypes(next)
     if (!next.includes('모의고사')) setExamMonths([])
@@ -399,7 +404,43 @@ export function CasesTab({ questions }: { questions: Question[] }) {
             {/* 출제연도: 변호사시험도 회차(1~N회) 대신 연도로 고른다. 문제 풀기 화면과 같은 방식 */}
             {subjects.length > 0 && (
               <div className="space-y-2">
-                <label className="text-xs font-medium text-muted-foreground">출제연도 (복수 선택)</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-muted-foreground">출제연도 (복수 선택)</label>
+                  {availableExamYears.length > 0 && (
+                    <div className="flex gap-1.5">
+                      {RECENT_EXAM_YEARS.map((n) => {
+                        // 후보가 N개보다 적으면 '최근 N개년'은 전체와 같다 — 그때는 눌러도 전체로 취급한다
+                        const picked = recentExamYears(n)
+                        const active = examYears.length > 0 && sameYears(examYears, picked)
+                        return (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => setExamYears(picked.length >= availableExamYears.length ? [] : picked)}
+                            className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                              active
+                                ? 'border-primary text-primary'
+                                : 'border-border text-muted-foreground hover:text-foreground hover:border-primary/40'
+                            }`}
+                          >
+                            최근 {n}개년
+                          </button>
+                        )
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => setExamYears([])}
+                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                          examYears.length === 0
+                            ? 'border-primary text-primary'
+                            : 'border-border text-muted-foreground hover:text-foreground hover:border-primary/40'
+                        }`}
+                      >
+                        전체
+                      </button>
+                    </div>
+                  )}
+                </div>
                 {availableExamYears.length === 0 ? (
                   <p className="text-[11px] text-muted-foreground">연도를 읽은 문제가 없습니다</p>
                 ) : (
