@@ -191,6 +191,11 @@ export function mergeUnitSelection(subject: Subject, current: string[], next: st
  * 단, 단원 조건은 그 문제의 과목에서 고른 것만 본다 — 과목마다 독립이다.
  * 기간은 선고일을 아는 판례에만 걸린다 (모르는 것은 화면이 따로 모아 보여준다)
  */
+/** 모의고사 출제연도 라벨. 칩에 그대로 쓰는 문자열이라 필터와 화면이 같은 함수를 쓴다 */
+export function mockYearLabel(year: number): string {
+  return `${year}년`
+}
+
 export function filterCases(
   groups: CaseGroup[],
   opts: {
@@ -200,6 +205,8 @@ export function filterCases(
     examTypes?: ExamType[]
     examMonths?: ExamMonthLabel[]
     examRounds?: string[]
+    /** 모의고사 출제연도 라벨("2025년"). 6/8/10모와 함께 걸어 "2025년 6모"처럼 좁힌다 */
+    mockYears?: string[]
     now?: Date
   }
 ): CaseGroup[] {
@@ -210,6 +217,7 @@ export function filterCases(
     examTypes = [],
     examMonths = [],
     examRounds = [],
+    mockYears = [],
     now = new Date(),
   } = opts
   // 과목별로 한 번만 추려 둔다. 문제마다 다시 계산하면 목록 전체를 훑는 일이 반복된다
@@ -242,6 +250,17 @@ export function filterCases(
       ) {
         const month = examMonthOf(q.sourceFile)
         if (month && !examMonths.includes(examMonthLabel(month))) return false
+      }
+      // 모의고사 출제연도도 같은 원칙. 6/8/10모는 월만 가려서, 어느 해의 6모인지는 연도로 가른다.
+      // 연도를 못 읽은 문제(0)는 거르지 않는다
+      if (
+        (examTypes.length === 0 || examTypes.includes('모의고사')) &&
+        mockYears.length > 0 &&
+        q.examType === '모의고사' &&
+        q.year &&
+        !mockYears.includes(mockYearLabel(q.year))
+      ) {
+        return false
       }
       // 변호사시험 회차(1~N회)도 같은 원칙. 연도를 못 읽은 문제는 거르지 않는다
       if (
