@@ -192,3 +192,13 @@ html.mode-general {
   .print-only { display: block !important; }
   body { background: white; color: black; }
 }
+
+/* 펜슬로 쓰는 동안(drawing-pad 가 html 에 붙인다)에는 페이지 어디서도 글자 선택이 걸리지 않게 한다.
+   손바닥이 그림판 밖에 얹혀 있으면 사파리가 길게 누르기로 보고 그 자리의 글자에 선택·복사 메뉴를 띄우고,
+   그 사이 펜슬 입력이 끊긴다 */
+html.pen-writing,
+html.pen-writing * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}

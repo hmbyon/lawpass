@@ -29,6 +29,8 @@ const PEN_COLOR = '#ef4444'
 // 좌표는 소수점 3자리까지만 남긴다. 400px 캔버스에서 0.4px 눈금이라 눈으로는 차이가 없고,
 // 자리는 절반 넘게 줄어든다
 const PRECISION = 1000
+// 펜슬이 마지막으로 보인 뒤 페이지 전체 글자 선택 금지를 풀기까지의 여유(ms)
+const PEN_GRACE_MS = 2000
 // 이만큼도 안 움직인 점은 버린다. 손이 멈춘 사이에도 포인터 이벤트는 계속 들어온다.
 // 너무 크면 작은 글씨의 짧은 꺾임이 통째로 버려져 획이 뚝뚝 끊겨 보인다(붙박이 패널은 폭이
 // 700px 안팎이라 한글을 작게 쓰면 한 획이 몇 px 이다) — 흔들림만 거를 만큼으로 둔다
@@ -247,11 +249,40 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return
       if (inside(sel.anchorNode) || inside(sel.focusNode)) sel.removeAllRanges()
     }
+    // 펜슬이 화면에 닿거나 떠 있는 동안은 페이지 전체를 '선택 금지'로 둔다(globals.css 의 .pen-writing).
+    // 손바닥은 그림판 밖에 얹히는 일이 많아 위의 패널 안 차단만으로는 모자란다.
+    // 펜슬이 멈춘 뒤에도 잠깐(획과 획 사이) 유지해서, 손바닥을 얹은 채 다음 획을 준비하는 동안을 덮는다
+    const root = document.documentElement
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const penActive = (e: PointerEvent) => {
+      if (e.pointerType !== 'pen') return
+      root.classList.add('pen-writing')
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => root.classList.remove('pen-writing'), PEN_GRACE_MS)
+    }
+    const blockWhilePen = (e: Event) => {
+      if (root.classList.contains('pen-writing')) e.preventDefault()
+    }
+    const clearWhilePen = () => {
+      if (!root.classList.contains('pen-writing')) return
+      const sel = window.getSelection()
+      if (sel && sel.rangeCount > 0 && !sel.isCollapsed) sel.removeAllRanges()
+    }
+    document.addEventListener('pointerdown', penActive, true)
+    document.addEventListener('pointermove', penActive, true)
     document.addEventListener('selectstart', block)
+    document.addEventListener('selectstart', blockWhilePen)
     document.addEventListener('selectionchange', clear)
+    document.addEventListener('selectionchange', clearWhilePen)
     return () => {
+      document.removeEventListener('pointerdown', penActive, true)
+      document.removeEventListener('pointermove', penActive, true)
       document.removeEventListener('selectstart', block)
+      document.removeEventListener('selectstart', blockWhilePen)
       document.removeEventListener('selectionchange', clear)
+      document.removeEventListener('selectionchange', clearWhilePen)
+      if (timer) clearTimeout(timer)
+      root.classList.remove('pen-writing')
     }
   }, [])
 
