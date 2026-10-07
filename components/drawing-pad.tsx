@@ -74,6 +74,9 @@ const MIN_WINDOW = 200
  */
 const MIN_DOCK = 220
 const DOCK_MARGIN = 24
+// 붙박이 패널이 화면 오른쪽 끝에서 띄운 자리(right-4 = 16px) + 문제 카드와의 사이 여유(8px).
+// 패널 폭에 이만큼을 더한 것이 "오른쪽에서 문제 카드가 비켜 줘야 하는 폭"이다
+const DOCK_RESERVE_EXTRA = 24
 
 function maxDockWidth(): number {
   if (typeof window === 'undefined') return MIN_DOCK
@@ -140,9 +143,21 @@ interface Props {
   onClose: () => void
   /** 저장한 뒤 알린다 (동기화 트리거) */
   onSaved: () => void
+  /**
+   * 붙박이 패널의 폭. null 이면 화면에 맞춘 기본 폭.
+   * 부모가 쥔다 — 이 컴포넌트는 문제마다 key 로 새로 마운트되므로, 안에 두면
+   * 문제를 넘길 때마다 넓혀 둔 폭이 기본 폭으로 되돌아간다
+   */
+  dockW: number | null
+  onDockWChange: (w: number | null) => void
+  /**
+   * 오른쪽에서 문제 카드가 비켜 줘야 하는 폭(px). 붙박이 패널이 기본 폭보다 넓어졌을 때만
+   * 0 보다 크다. 부모가 이 값으로 문제 카드를 왼쪽 여백 쪽으로 밀어 지문을 가리지 않게 한다
+   */
+  onReserveChange: (px: number) => void
 }
 
-export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: Props) {
+export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, dockW, onDockWChange, onReserveChange }: Props) {
   // 저장된 그림을 그대로 불러와 이어 그린다
   const [strokes, setStrokes] = useState<DrawingStroke[]>(() => getQuestionDrawing(questionId)?.strokes ?? [])
   const [tool, setTool] = useState<Tool>('pen')
@@ -154,10 +169,10 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
   const [saved, setSaved] = useState(false)
   // 띄운 창의 자리와 폭. 높이는 4:3 이라 폭이 정한다 — 폭 하나만 붙들면 된다
   const [win, setWin] = useState<{ x: number; y: number; w: number } | null>(null)
-  // 붙박이 패널의 폭. null 이면 화면에 맞춘 기본 폭(아래 클래스의 clamp)을 쓴다.
+  // 붙박이 패널의 폭은 부모가 쥔다(props). null 이면 화면에 맞춘 기본 폭(아래 클래스의 clamp)을 쓴다.
   // 이 세션 동안만 기억한다 — 저장할 만큼 무거운 취향이 아니고, 저장소를 하나 더 만들면
   // 계정 전환·초기화 때 치울 것도 하나 더 늘어난다
-  const [dockW, setDockW] = useState<number | null>(null)
+  const setDockW = onDockWChange
 
   // 지금 어느 껍데기를 그리고 있는가. 아래 두 효과가 이 값을 보고 다시 돈다
   const shell = docked ? (folded ? 'folded' : 'docked') : open && win ? 'window' : 'none'
@@ -420,10 +435,18 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved }: P
   // 창이 좁아지면 넓혀 둔 패널이 화면 밖으로 밀려난다. 그때만 도로 줄인다
   useEffect(() => {
     if (dockW === null) return
-    const onResize = () => setDockW((w) => (w === null ? w : clampDock(w)))
+    const onResize = () => setDockW(clampDock(dockW))
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
-  }, [dockW])
+  }, [dockW, setDockW])
+
+  // 넓혀 둔 붙박이 패널이 차지한 폭을 부모에 알린다. 기본 폭일 때는 오른쪽 여백 안에 들어가므로
+  // 0 — 문제 카드는 가운데에 그대로 있다. 접거나 창 모드로 바뀌면 다시 0
+  useEffect(() => {
+    onReserveChange(shell === 'docked' && dockW !== null ? dockW + DOCK_RESERVE_EXTRA : 0)
+  }, [shell, dockW, onReserveChange])
+  // 이 컴포넌트가 사라질 때(문제를 넘길 때 포함) 자리를 비운다. 새로 마운트되면서 곧바로 다시 알린다
+  useEffect(() => () => onReserveChange(0), [onReserveChange])
 
   function sizeDown(e: React.PointerEvent<HTMLDivElement>) {
     if (!win) return

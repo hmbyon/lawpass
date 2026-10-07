@@ -616,6 +616,28 @@ function StudyBulkPreview({
   const [padSavedAt, setPadSavedAt] = useState(0)
   // 넓은 화면에서는 지문 옆에 늘 떠 있다. 그러면 여는 버튼이 할 일이 없다
   const padDocked = useDockedPad()
+  // 붙박이 그림판의 폭과, 그 폭 때문에 문제 카드가 오른쪽에서 비켜 줘야 하는 폭.
+  // 폭은 문제를 넘겨도 이어지도록 여기서 쥐고(그림판은 문제마다 새로 마운트된다) 그림판에 내려 준다
+  const [padDockW, setPadDockW] = useState<number | null>(null)
+  const [padReserve, setPadReserve] = useState(0)
+  /**
+   * 그림판을 넓히면 오른쪽 여백을 넘어 문제 카드를 가린다. 그때 카드를 왼쪽 여백 쪽으로 민다.
+   *
+   * 카드 왼쪽 끝이 갈 자리(px) = max(8, min(가운데 정렬 자리, 화면폭 - 그림판 자리 - 카드폭)).
+   * 그림판이 기본 폭이면 가운데 자리가 그대로 나와 아무것도 안 바뀐다.
+   * 왼쪽 여백(8px 남기고)까지 밀어도 모자라면 그때는 카드 폭을 줄여서 비킨다(최소 15rem).
+   * 이 카드는 main(가운데 정렬) 안에 있어서, margin-left 는 main 안쪽 왼쪽 끝 기준이다 —
+   * 그 끝이 (100vw - 100%) / 2 이므로 빼 준다
+   */
+  const padShiftStyle: React.CSSProperties | undefined =
+    padDocked && padReserve > 0
+      ? ({
+          '--card-w': `max(15rem, min(42rem, 100vw - ${padReserve}px - 8px))`,
+          maxWidth: 'var(--card-w)',
+          marginLeft:
+            `calc(max(8px, min((100vw - var(--card-w)) / 2, 100vw - ${padReserve}px - var(--card-w))) - (100vw - 100%) / 2)`,
+        } as React.CSSProperties)
+      : undefined
   const hasDrawing = useMemo(
     () => (getQuestionDrawing(q.id)?.strokes.length ?? 0) > 0,
     [q.id, padSavedAt]
@@ -850,7 +872,7 @@ function StudyBulkPreview({
   }
 
   return (
-    <div className="space-y-4 max-w-2xl mx-auto">
+    <div className="space-y-4 max-w-2xl mx-auto" style={padShiftStyle}>
       <div className="flex items-center justify-between bg-card border border-border rounded-xl px-4 py-2.5 text-sm">
         <span className="text-muted-foreground">학습 {current + 1} / {questions.length}</span>
         <span className="text-xs text-muted-foreground">{q.subject} · {q.year}년</span>
@@ -1213,6 +1235,9 @@ function StudyBulkPreview({
         open={padOpen}
         onClose={() => setPadOpen(false)}
         onSaved={() => { setPadSavedAt(Date.now()); onDone() }}
+        dockW={padDockW}
+        onDockWChange={setPadDockW}
+        onReserveChange={setPadReserve}
       />
 
       {/* 형광펜 스타일·색상 팝업 */}
