@@ -29,8 +29,10 @@ const PEN_COLOR = '#ef4444'
 // 좌표는 소수점 3자리까지만 남긴다. 400px 캔버스에서 0.4px 눈금이라 눈으로는 차이가 없고,
 // 자리는 절반 넘게 줄어든다
 const PRECISION = 1000
-// 이만큼도 안 움직인 점은 버린다. 손이 멈춘 사이에도 포인터 이벤트는 계속 들어온다
-const MIN_MOVE_PX = 2
+// 이만큼도 안 움직인 점은 버린다. 손이 멈춘 사이에도 포인터 이벤트는 계속 들어온다.
+// 너무 크면 작은 글씨의 짧은 꺾임이 통째로 버려져 획이 뚝뚝 끊겨 보인다(붙박이 패널은 폭이
+// 700px 안팎이라 한글을 작게 쓰면 한 획이 몇 px 이다) — 흔들림만 거를 만큼으로 둔다
+const MIN_MOVE_PX = 0.75
 // 획 지우개가 무는 거리. 좌표가 비율이라 이것도 폭 대비로 둔다 (400px 캔버스에서 12px)
 const STROKE_HIT = 0.03
 
@@ -287,6 +289,9 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, width, height)
     for (const s of strokes) paintStroke(ctx, s, width)
+    // 긋는 중에 다시 그려지면(창 폭이 바뀌거나 저장된 획이 갱신될 때) 아직 배열에 안 들어간
+    // 획이 통째로 사라져 보인다 — 긋던 획도 함께 그린다
+    if (live.current) paintStroke(ctx, live.current, width)
   }, [shell, width, strokes])
 
   /**
@@ -386,15 +391,29 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
     // 이 획을 시작한 포인터가 아니면 무시한다 (손바닥이 획을 끌고 가지 않게)
     if (activePointer.current !== e.pointerId) return
     e.preventDefault()
-    const { ratio, px } = at(e)
-    const prev = lastPx.current
-    // 2px 도 안 움직였으면 버린다. 그림은 그대로인데 점만 늘어나는 구간이다
-    if (prev && Math.hypot(px[0] - prev[0], px[1] - prev[1]) < MIN_MOVE_PX) return
-    const from: [number, number] = [s.points[s.points.length - 2], s.points[s.points.length - 1]]
-    s.points.push(ratio[0], ratio[1])
-    lastPx.current = px
+    // 펜슬은 화면 갱신 주기(60~120Hz)보다 훨씬 촘촘하게 움직이는데 pointermove 는 그 주기로만 온다.
+    // 빠르게 쓰면 이벤트 하나에 사이의 점들이 묶여 오므로(coalesced), 꺼내 써야 획이 끊기거나
+    // 각져 보이지 않는다. 지원하지 않으면 이벤트 하나만 쓴다
+    const native = e.nativeEvent
+    const samples: PointerEvent[] =
+      typeof native.getCoalescedEvents === 'function' && native.getCoalescedEvents().length > 0
+        ? native.getCoalescedEvents()
+        : [native]
+    const r = e.currentTarget.getBoundingClientRect()
+    const rw = r.width || 1
     const ctx = canvasRef.current?.getContext('2d')
-    if (ctx && width > 0) paintSegment(ctx, s, from, ratio, width)
+    for (const ev of samples) {
+      const x = ev.clientX - r.left
+      const y = ev.clientY - r.top
+      const prev = lastPx.current
+      // 거의 안 움직였으면 버린다. 그림은 그대로인데 점만 늘어나는 구간이다
+      if (prev && Math.hypot(x - prev[0], y - prev[1]) < MIN_MOVE_PX) continue
+      const ratio: [number, number] = [round(x / rw), round(y / rw)]
+      const from: [number, number] = [s.points[s.points.length - 2], s.points[s.points.length - 1]]
+      s.points.push(ratio[0], ratio[1])
+      lastPx.current = [x, y]
+      if (ctx && width > 0) paintSegment(ctx, s, from, ratio, width)
+    }
   }, [width, wipeAt])
 
   const up = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
