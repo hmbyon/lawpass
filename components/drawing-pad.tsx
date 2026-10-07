@@ -220,6 +220,17 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
    */
   const activePointer = useRef<number | null>(null)
 
+  // 획을 긋는 동안에는 문서 어디서도 글자 선택이 시작되지 않게 한다.
+  // 캔버스의 select-none 은 캔버스 자체만 막는다 — 아이패드에서 이어 긋는 손이 옆의 글자
+  // (그림판 제목줄의 '접기' 같은 것)에 선택을 걸어 끌고 가는 것은 이 리스너가 막는다
+  useEffect(() => {
+    const block = (e: Event) => {
+      if (activePointer.current !== null) e.preventDefault()
+    }
+    document.addEventListener('selectstart', block)
+    return () => document.removeEventListener('selectstart', block)
+  }, [])
+
   /** 그리던 획을 배열에 넣고 손을 뗀 상태로 돌린다 (문지르던 중이었으면 그냥 정리된다) */
   const commitLive = useCallback(() => {
     wiping.current = false
@@ -284,6 +295,8 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       // 마우스·터치·펜을 한 갈래로 받는다. 장치마다 다른 API 를 쓰지 않는 이유다
       e.preventDefault()
+      // 앞서 잡힌 글자 선택이 남아 있으면 이어 긋는 손이 그 선택을 끌고 간다. 획을 시작할 때 걷어 낸다
+      window.getSelection()?.removeAllRanges()
       const active = activePointer.current
       if (active !== null && active !== e.pointerId) {
         const held =
@@ -501,6 +514,8 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
         onPointerMove={move}
         onPointerUp={up}
         onPointerCancel={up}
+        onDragStart={(e) => e.preventDefault()}
+        onContextMenu={(e) => e.preventDefault()}
       />
     </div>
   )
@@ -566,7 +581,7 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
       <aside
         ref={asideRef}
         style={dockW === null ? undefined : { width: dockW }}
-        className={`fixed right-4 top-24 z-40 flex flex-col gap-2 rounded-2xl border border-border bg-card p-3 shadow-lg ${
+        className={`fixed right-4 top-24 z-40 flex select-none flex-col gap-2 rounded-2xl border border-border bg-card p-3 shadow-lg [-webkit-touch-callout:none] ${
           dockW === null ? 'w-[clamp(220px,calc((100vw-42rem)/2-2rem),340px)]' : ''
         }`}
       >
@@ -587,9 +602,11 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-semibold">🎨 {questionNo}번 그림판</h2>
           <button
+            type="button"
+            draggable={false}
             onClick={() => setFolded(true)}
             title="접어 두기"
-            className="text-xs text-muted-foreground hover:text-foreground"
+            className="select-none text-xs text-muted-foreground hover:text-foreground"
           >
             접기
           </button>
