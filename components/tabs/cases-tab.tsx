@@ -7,10 +7,9 @@ import { SUBJECT_UNITS } from '@/lib/units'
 import { FilterChips } from '@/components/filter-chips'
 import {
   groupBySource, examMonthOf, examMonthValue, EXAM_MONTH_OPTIONS, type ExamMonthLabel,
-  barExamRound, barExamRoundLabel,
 } from '@/lib/questionSource'
 import {
-  buildCaseDigest, filterCases, sortCases, periodLabel, PERIOD_OPTIONS, mockYearLabel,
+  buildCaseDigest, filterCases, sortCases, periodLabel, PERIOD_OPTIONS, examYearLabel,
   findCaseMentions, allExplanationText, previewMention, selectedUnitsOf, mergeUnitSelection,
   searchCases,
   type CaseGroup, type CaseSort,
@@ -195,23 +194,22 @@ export function CasesTab({ questions }: { questions: Question[] }) {
   const [units, setUnits] = useState<string[]>([])
   const [examTypes, setExamTypes] = useState<ExamType[]>([])
   const [examMonths, setExamMonths] = useState<ExamMonthLabel[]>([])
-  const [examRounds, setExamRounds] = useState<string[]>([])
-  const [mockYears, setMockYears] = useState<string[]>([])
+  const [examYears, setExamYears] = useState<string[]>([])
   const [sort, setSort] = useState<CaseSort>('count')
   const [query, setQuery] = useState('')
   const now = useMemo(() => new Date(), [])
 
   // 과목·단원·시험유형만 적용한 목록. 기간으로 몇 건이 빠졌는지 세려면 그 앞 단계가 필요하다
   const scoped = useMemo(
-    () => filterCases(digest.groups, { subjects, units, examTypes, examMonths, examRounds, mockYears, now }),
-    [digest.groups, subjects, units, examTypes, examMonths, examRounds, mockYears, now]
+    () => filterCases(digest.groups, { subjects, units, examTypes, examMonths, examYears, now }),
+    [digest.groups, subjects, units, examTypes, examMonths, examYears, now]
   )
   // 검색은 필터 결과를 한 번 더 거른다. 단원 칩의 '있는 것'(availableUnits)은 scoped 로
   // 계산하므로, 타이핑하는 동안 칩이 사라지지는 않는다
   const searched = useMemo(() => searchCases(scoped, query), [scoped, query])
   const inRange = useMemo(
-    () => filterCases(searched, { years, subjects, units, examTypes, examMonths, examRounds, mockYears, now }),
-    [searched, years, subjects, units, examTypes, examMonths, examRounds, mockYears, now]
+    () => filterCases(searched, { years, subjects, units, examTypes, examMonths, examYears, now }),
+    [searched, years, subjects, units, examTypes, examMonths, examYears, now]
   )
   // 선고일을 모르는 판례는 기간과 무관하게 늘 따로 보여준다 (숨기면 재파싱할지 정할 수 없다)
   const dated = useMemo(() => sortCases(inRange.filter((g) => g.year !== null), sort), [inRange, sort])
@@ -257,42 +255,24 @@ export function CasesTab({ questions }: { questions: Question[] }) {
     }
     return EXAM_MONTH_OPTIONS.filter((label) => found.has(examMonthValue(label)))
   }, [scoped])
-  // 모의고사 출제연도는 실제 있는 연도에서 뽑아 최신순으로 둔다 (공부할 때 최근 연도부터 찾는다)
-  const availableMockYears = useMemo(() => {
+  // 출제연도는 변호사시험·모의고사 문제들의 실제 연도에서 뽑아 최신순으로 둔다.
+  // 시험유형을 골랐으면 그 유형에 있는 연도만 후보가 된다. 연도를 못 읽은 문제는 후보에서 빠진다
+  const availableExamYears = useMemo(() => {
     const found = new Set<number>()
     for (const g of scoped) {
       for (const q of g.questions) {
-        if (q.examType === '모의고사' && q.year) found.add(q.year)
+        if (examTypes.length > 0 && !examTypes.includes(q.examType)) continue
+        if (q.year) found.add(q.year)
       }
     }
     return Array.from(found)
       .sort((a, b) => b - a)
-      .map(mockYearLabel)
-  }, [scoped])
-  // 회차(1~N회)는 '변호사시험' 문제들에서만 뽑는다. 연도를 못 읽은 문제는 후보에서 빠진다.
-  // 고정 목록(EXAM_MONTH_OPTIONS)과 달리 회차는 매년 늘어나므로, 실제 있는 연도에서
-  // 바로 뽑아 오름차순으로 둔다
-  const availableBarExamRounds = useMemo(() => {
-    const found = new Set<number>()
-    for (const g of scoped) {
-      for (const q of g.questions) {
-        if (q.examType !== '변호사시험') continue
-        const round = barExamRound(q.year)
-        if (round) found.add(round)
-      }
-    }
-    return Array.from(found)
-      .sort((a, b) => a - b)
-      .map(barExamRoundLabel)
-  }, [scoped])
+      .map(examYearLabel)
+  }, [scoped, examTypes])
 
   function handleExamTypesChange(next: ExamType[]) {
     setExamTypes(next)
-    if (!next.includes('모의고사')) {
-      setExamMonths([])
-      setMockYears([])
-    }
-    if (!next.includes('변호사시험')) setExamRounds([])
+    if (!next.includes('모의고사')) setExamMonths([])
   }
 
   function changeSubjects(next: Subject[]) {
@@ -396,31 +376,8 @@ export function CasesTab({ questions }: { questions: Question[] }) {
               />
             </div>
 
-            {/* 회차는 과목을 고른 뒤, 해당 시험유형이 범위 안에 있을 때(직접 골랐거나,
+            {/* 모의고사 회차(6/8/10모)는 과목을 고른 뒤, 모의고사가 범위 안에 있을 때(직접 골랐거나
                 시험유형을 아무것도 안 골라 전체가 암묵적으로 포함된 때)만 보인다 */}
-            {subjects.length > 0 && (examTypes.length === 0 || examTypes.includes('변호사시험')) && (
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-muted-foreground">변호사시험 회차 (복수 선택)</label>
-                {availableBarExamRounds.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground">연도를 읽은 변호사시험 문제가 없습니다</p>
-                ) : (
-                  <>
-                    {examRounds.length === 0 && (
-                      <p className="text-[11px] text-muted-foreground">
-                        전체를 보고 있습니다 · 하나를 누르면 그것만 빠집니다
-                      </p>
-                    )}
-                    <FilterChips
-                      options={availableBarExamRounds}
-                      selected={examRounds}
-                      onChange={setExamRounds}
-                      allImplied={examRounds.length === 0}
-                    />
-                  </>
-                )}
-              </div>
-            )}
-
             {subjects.length > 0 && (examTypes.length === 0 || examTypes.includes('모의고사')) && (
               <div className="space-y-2">
                 <label className="text-xs font-medium text-muted-foreground">모의고사 회차 (복수 선택)</label>
@@ -439,23 +396,24 @@ export function CasesTab({ questions }: { questions: Question[] }) {
               </div>
             )}
 
-            {subjects.length > 0 && (examTypes.length === 0 || examTypes.includes('모의고사')) && (
+            {/* 출제연도: 변호사시험도 회차(1~N회) 대신 연도로 고른다. 문제 풀기 화면과 같은 방식 */}
+            {subjects.length > 0 && (
               <div className="space-y-2">
-                <label className="text-xs font-medium text-muted-foreground">모의고사 출제연도 (복수 선택)</label>
-                {availableMockYears.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground">연도를 읽은 모의고사 문제가 없습니다</p>
+                <label className="text-xs font-medium text-muted-foreground">출제연도 (복수 선택)</label>
+                {availableExamYears.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground">연도를 읽은 문제가 없습니다</p>
                 ) : (
                   <>
-                    {mockYears.length === 0 && (
+                    {examYears.length === 0 && (
                       <p className="text-[11px] text-muted-foreground">
                         전체를 보고 있습니다 · 하나를 누르면 그것만 빠집니다
                       </p>
                     )}
                     <FilterChips
-                      options={availableMockYears}
-                      selected={mockYears}
-                      onChange={setMockYears}
-                      allImplied={mockYears.length === 0}
+                      options={availableExamYears}
+                      selected={examYears}
+                      onChange={setExamYears}
+                      allImplied={examYears.length === 0}
                     />
                   </>
                 )}
