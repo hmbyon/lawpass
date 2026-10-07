@@ -219,16 +219,38 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
    * 그래서 손놀림 하나는 그것을 시작한 포인터만 이어 간다
    */
   const activePointer = useRef<number | null>(null)
+  /** 지금 손놀림을 쥔 포인터의 종류('pen'|'touch'|'mouse'). 손바닥(touch)이 펜 획을 가로챘는지 가리는 데 쓴다 */
+  const activeType = useRef<string>('')
+  /**
+   * 이 화면에서 펜슬(pen)이 한 번이라도 닿았는지. 닿았다면 이후 손가락·손바닥(touch)은 그리지 않는다.
+   * 아이패드에서 이어 긋을 때 손바닥이 펜슬보다 먼저 캔버스에 닿으면, 손바닥이 획을 쥐어 버려
+   * 펜슬은 '붙들린 포인터가 있다'며 무시되고(두 번째 획이 안 그어진다), 손바닥을 오래 얹어 둔 채로는
+   * 사파리가 길게 누르기로 보고 근처 글자('접기')에 선택을 건다
+   */
+  const penSeen = useRef(false)
 
   // 획을 긋는 동안에는 문서 어디서도 글자 선택이 시작되지 않게 한다.
   // 캔버스의 select-none 은 캔버스 자체만 막는다 — 아이패드에서 이어 긋는 손이 옆의 글자
   // (그림판 제목줄의 '접기' 같은 것)에 선택을 걸어 끌고 가는 것은 이 리스너가 막는다
   useEffect(() => {
+    const inside = (n: Node | null) => !!n && !!asideRef.current?.contains(n)
     const block = (e: Event) => {
-      if (activePointer.current !== null) e.preventDefault()
+      // 그림판 패널 안(제목줄·버튼·도구)에서는 글자 선택이 필요 없다. 획을 긋는 중이 아니어도 막는다 —
+      // 손바닥을 얹어 둔 채 길게 누르기로 걸리는 선택은 그리는 중이 아닌 때에도 생긴다
+      if (activePointer.current !== null || inside(e.target as Node | null)) e.preventDefault()
+    }
+    // selectstart 를 거치지 않고 걸리는 선택(사파리 길게 누르기)은 걸린 뒤에 걷어 낸다
+    const clear = () => {
+      const sel = window.getSelection()
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return
+      if (inside(sel.anchorNode) || inside(sel.focusNode)) sel.removeAllRanges()
     }
     document.addEventListener('selectstart', block)
-    return () => document.removeEventListener('selectstart', block)
+    document.addEventListener('selectionchange', clear)
+    return () => {
+      document.removeEventListener('selectstart', block)
+      document.removeEventListener('selectionchange', clear)
+    }
   }, [])
 
   /** 그리던 획을 배열에 넣고 손을 뗀 상태로 돌린다 (문지르던 중이었으면 그냥 정리된다) */
@@ -297,8 +319,25 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
       e.preventDefault()
       // 앞서 잡힌 글자 선택이 남아 있으면 이어 긋는 손이 그 선택을 끌고 간다. 획을 시작할 때 걷어 낸다
       window.getSelection()?.removeAllRanges()
+      if (e.pointerType === 'pen') penSeen.current = true
+      // 펜슬을 쓰는 중이면 손가락·손바닥은 그리지 않는다. 손바닥이 획을 쥐면 펜슬이 무시된다
+      if (e.pointerType === 'touch' && penSeen.current) return
       const active = activePointer.current
-      if (active !== null && active !== e.pointerId) {
+      // 손바닥(touch)이 먼저 획을 쥐고 있는데 펜슬이 닿았다: 손바닥 획을 버리고 펜슬이 넘겨받는다
+      if (
+        active !== null &&
+        active !== e.pointerId &&
+        e.pointerType === 'pen' &&
+        activeType.current === 'touch'
+      ) {
+        e.currentTarget.releasePointerCapture?.(active)
+        wiping.current = false
+        live.current = null
+        lastPx.current = null
+        activePointer.current = null
+        // 손바닥이 찍은 점이 화면에 남지 않게 저장된 획만으로 다시 그린다
+        setStrokes((prev) => [...prev])
+      } else if (active !== null && active !== e.pointerId) {
         const held =
           typeof e.currentTarget.hasPointerCapture === 'function'
             ? e.currentTarget.hasPointerCapture(active)
@@ -315,6 +354,7 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
       if (tool === 'strokeEraser') {
         wiping.current = true
         activePointer.current = e.pointerId
+        activeType.current = e.pointerType
         wipeAt(ratio)
         return
       }
@@ -326,6 +366,7 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
       live.current = stroke
       lastPx.current = px
       activePointer.current = e.pointerId
+      activeType.current = e.pointerType
       const ctx = canvasRef.current?.getContext('2d')
       if (ctx && width > 0) paintStroke(ctx, stroke, width)
     },
