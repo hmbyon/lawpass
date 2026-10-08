@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { bboxOf, describeStroke, isCross, recognizeStroke, unionBBox, type BBox, type P, type Recognized } from '@/lib/penGesture'
+import { bboxOf, describeStroke, isCross, recognizeStroke, unionBBox, type BBox, type BracketChar, type P, type Recognized } from '@/lib/penGesture'
 import type { HighlightStyle } from '@/lib/highlights'
 
 /**
  * 펜슬로 본문 위에 직접 긋는 밑줄·동그라미·X 를 알아보고, 글자 위의 표시(형광펜 하이라이트)로 남긴다.
+ * 한 획으로 그은 괄호 [ ] < > 는 글자가 아니라 글자 사이의 자리로 바꿔 넘긴다(onBracket).
  *
  * 글자를 먼저 선택하지 않으므로 iPad 의 "복사/붙여넣기" 메뉴가 뜨지 않는다. 그린 선 자체는
  * 저장하지 않는다 — 모양을 알아본 뒤에는 글자 범위(field, start, end)로 바꿔 넘기고, 선은 잠깐 보였다 사라진다.
@@ -22,10 +23,18 @@ export interface PenGesture {
   style: HighlightStyle
 }
 
+/** 글자 사이에 끼울 괄호. at 은 그 필드 텍스트 오프셋으로, at 번째 글자 바로 앞이다 */
+export interface BracketGesture {
+  field: string
+  at: number
+  bracket: BracketChar
+}
+
 interface Props {
   enabled: boolean
   getFieldEls: () => Record<string, HTMLElement | null>
   onGesture: (g: PenGesture) => void
+  onBracket?: (g: BracketGesture) => void
   /** 알아봤지만 표시로 남기지 못했거나, 아예 못 알아본 이유. 왜 안 됐는지 화면에서 보이게 한다 */
   onInfo?: (message: string) => void
   /** 임시 선의 색(CSS 색). 지금 정해 둔 펜 색을 그대로 보여 준다. 바뀌어도 그리는 중인 획에 바로 반영된다 */
@@ -134,16 +143,18 @@ function insideBox(c: CharBox, bb: BBox): boolean {
   return x >= bb.x0 && x <= bb.x1 && y >= bb.y0 && y <= bb.y1
 }
 
-export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture, onInfo, color = '#6b7280' }: Props) {
+export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture, onBracket, onInfo, color = '#6b7280' }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const getFieldElsRef = useRef(getFieldEls)
   const onGestureRef = useRef(onGesture)
+  const onBracketRef = useRef(onBracket)
   const onInfoRef = useRef(onInfo)
   const colorRef = useRef(color)
   colorRef.current = color
   getFieldElsRef.current = getFieldEls
   onInfoRef.current = onInfo
   onGestureRef.current = onGesture
+  onBracketRef.current = onBracket
 
   useEffect(() => {
     if (!enabled) return
@@ -234,6 +245,45 @@ export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture, onIn
       return best
     }
 
+    // 괄호가 놓일 자리: 글자 사이 경계 중 획의 가운데에 가장 가까운 곳. 한 줄 안에서만 고른다
+    function locateBracket(bb: BBox): { field: string; at: number } | null {
+      const cx = (bb.x0 + bb.x1) / 2
+      const cy = (bb.y0 + bb.y1) / 2
+      let best: { field: string; at: number; score: number } | null = null
+      for (const [field, el] of Object.entries(getFieldElsRef.current())) {
+        if (!el) continue
+        const r = el.getBoundingClientRect()
+        if (r.right < bb.x0 - 24 || r.left > bb.x1 + 24 || r.bottom < bb.y0 - 24 || r.top > bb.y1 + 24) continue
+        const boxes = charBoxes(el, { x0: bb.x0 - 24, y0: bb.y0, x1: bb.x1 + 24, y1: bb.y1 })
+        if (boxes.length === 0) continue
+        // 줄로 묶는다
+        const lines: CharBox[][] = []
+        for (const c of boxes) {
+          const line = lines[lines.length - 1]
+          const lb = line ? line[line.length - 1].b : 0
+          if (line && Math.abs(c.b - lb) <= 0.5 * (c.b - c.t)) line.push(c)
+          else lines.push([c])
+        }
+        for (const line of lines) {
+          const lt = Math.min(...line.map((c) => c.t))
+          const lb = Math.max(...line.map((c) => c.b))
+          const lh = lb - lt
+          // 괄호는 글자 높이쯤으로 긋는다. 획의 가운데가 이 줄 근처여야 이 줄의 괄호다
+          if (cy < lt - 0.5 * lh || cy > lb + 0.5 * lh) continue
+          const dy = Math.abs(cy - (lt + lb) / 2)
+          const avgW = line.reduce((s, c) => s + (c.r - c.l), 0) / line.length
+          const cands = [...line.map((c) => ({ x: c.l, at: c.idx })), { x: line[line.length - 1].r, at: line[line.length - 1].idx + 1 }]
+          for (const cand of cands) {
+            const dx = Math.abs(cand.x - cx)
+            if (dx > 0.8 * avgW + 6) continue
+            const score = dx + 2 * dy
+            if (!best || score < best.score) best = { field, at: cand.at, score }
+          }
+        }
+      }
+      return best ? { field: best.field, at: best.at } : null
+    }
+
     // ── 획 알아보기 ───────────────────────────────────
     let pending: { rec: Recognized; at: number } | null = null
     function commit(kind: 'underline' | 'circle' | 'cross', bb: BBox, my: number) {
@@ -250,7 +300,12 @@ export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture, onIn
         return
       }
       const now = performance.now()
-      if (rec.kind === 'underline') {
+      if (rec.kind === 'bracket' && rec.bracket) {
+        pending = null
+        const spot = locateBracket(rec.bbox)
+        if (spot) onBracketRef.current?.({ ...spot, bracket: rec.bracket })
+        else onInfoRef.current?.(`괄호 ${rec.bracket} 로 읽었지만 글자 사이를 못 찾았어요 — 글자 사이에 가깝게 그어 주세요`)
+      } else if (rec.kind === 'underline') {
         pending = null
         const my = rec.pts.reduce((s, p) => s + p.y, 0) / rec.pts.length
         commit('underline', rec.bbox, my)

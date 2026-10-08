@@ -19,6 +19,7 @@ import {
   HIGHLIGHT_COLOR_HEX,
   loadHighlights,
   saveHighlights,
+  addBracket,
   applyHighlightStyles,
   renderHighlighted,
   removeHighlightRun,
@@ -27,7 +28,7 @@ import { PassageTable } from '@/components/passage-table'
 import { QuestionImages } from '@/components/question-images'
 import { resolveSubChoices, SUB_LABEL_CHARS, SUB_LABEL_MAP, OX_CHAR_CLASS } from '@/lib/subChoices'
 import { DrawLayer, useDrawBoard } from '@/components/quiz/draw-layer'
-import PenAnnotateLayer, { type PenGesture } from '@/components/pen-annotate-layer'
+import PenAnnotateLayer, { type BracketGesture, type PenGesture } from '@/components/pen-annotate-layer'
 import { PenColorPicker, STYLE_LABELS, StyleSwatch } from '@/components/highlight-editor'
 import { DrawingPad, useDockedPad } from '@/components/drawing-pad'
 import { isAnswerLabel } from '@/lib/answers'
@@ -740,6 +741,21 @@ function StudyBulkPreview({
     setPenToast({ label: STYLE_LABELS[g.style], prev })
   }
 
+  function applyPenBracket(g: BracketGesture) {
+    const prev = highlightsRef.current
+    const next = addBracket(prev, {
+      id: `h_${Date.now()}`,
+      field: g.field,
+      at: g.at,
+      bracket: g.bracket,
+      color: lastColorRef.current,
+    })
+    if (next === prev) return
+    setHighlights(next)
+    saveHighlights(q.id, next)
+    setPenToast({ label: `괄호 ${g.bracket}`, prev })
+  }
+
   function undoPenGesture() {
     if (!penToast?.prev) return
     setHighlights(penToast.prev)
@@ -820,7 +836,7 @@ function StudyBulkPreview({
             type="button"
             onClick={togglePenGesture}
             aria-pressed={penGesture}
-            title="펜슬(또는 마우스를 누른 채)로 본문에 밑줄(—)·원(○)·X 를 그으면 알아보고 표시로 남깁니다. 켜 두면 마우스로 끌어서 글자를 고르는 건 안 돼요"
+            title="펜슬(또는 마우스를 누른 채)로 본문에 밑줄(—)·원(○)·X 를 그으면 알아보고 표시로 남깁니다. 글자 사이에 괄호 [ ] < > 를 한 획씩 그으면 그 자리에 끼워 넣어요. 켜 두면 마우스로 끌어서 글자를 고르는 건 안 돼요"
             className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all ${
               penGesture
                 ? 'bg-primary/15 text-primary border-primary/40'
@@ -1165,6 +1181,7 @@ function StudyBulkPreview({
           color={HIGHLIGHT_COLOR_HEX[penColor]}
           getFieldEls={() => fieldRefs.current}
           onGesture={applyPenGesture}
+          onBracket={applyPenBracket}
           onInfo={(message) => setPenToast({ label: message, prev: null })}
         />
       </DrawLayer>

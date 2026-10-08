@@ -207,3 +207,16 @@ html.pen-writing * {
 mark[data-erasing] {
   background-color: rgb(239 68 68 / 0.3);
 }
+
+/* 펜 자동표시로 글자 사이에 끼운 괄호([ ] < >). 글자가 아니라 ::before 내용이라 글자 오프셋을 어긋내지 않는다
+   (lib/highlights.tsx withBrackets) */
+.hl-bracket {
+  font-weight: 700;
+  padding: 0 0.06em;
+}
+.hl-bracket::before {
+  content: attr(data-bracket);
+}
+.hl-bracket[data-erasable]:hover {
+  background-color: rgb(239 68 68 / 0.3);
+}

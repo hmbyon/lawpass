@@ -20,7 +20,10 @@ export interface BBox {
   y1: number
 }
 
-export type StrokeKind = 'underline' | 'circle' | 'diag-up' | 'diag-down'
+export type StrokeKind = 'underline' | 'circle' | 'diag-up' | 'diag-down' | 'bracket'
+
+/** 글자 사이에 끼우는 괄호 네 가지 */
+export type BracketChar = '[' | ']' | '<' | '>'
 
 export interface Recognized {
   kind: StrokeKind
@@ -28,6 +31,8 @@ export interface Recognized {
   pts: P[]
   /** 대각선의 양 끝(주축에 점을 내린 가장 먼 두 곳). 점 순서와 무관하다 */
   seg?: [P, P]
+  /** kind 가 bracket 일 때 어떤 괄호인지 */
+  bracket?: BracketChar
 }
 
 export function bboxOf(pts: P[]): BBox {
@@ -157,6 +162,16 @@ export function recognizeStroke(pts: P[]): Recognized | null {
   const h = bbox.y1 - bbox.y0
   const ax = principalAxis(pts)
   const extent = ax.t1 - ax.t0
+  // 한 획으로 꺾어 그은 괄호 [ ] < >. 글자 사이에 끼우는 것이라 작게 긋고, 세로로 길어 '선'으로도 보이므로
+  // 아래 판정보다 먼저 본다. 시작과 끝이 만나는 닫힌 획(동그라미)은 괄호가 아니다
+  {
+    const first = pts[0]
+    const last = pts[pts.length - 1]
+    const len = pathLength(decimate(pts, 3))
+    const open = len > 0 && Math.hypot(last.x - first.x, last.y - first.y) / len >= 0.35
+    const bracket = open ? recognizeBracket(pts, bbox) : null
+    if (bracket) return { kind: 'bracket', bracket, bbox, pts }
+  }
   // 톡 찍거나 짧게 긋는 것은 표시가 아니다
   if (extent < 20 && Math.max(w, h) < 24) return null
   const linear = ax.major > 0 && ax.minor / ax.major <= LINEAR_RATIO
@@ -197,6 +212,163 @@ export function recognizeStroke(pts: P[]): Recognized | null {
     }
   }
   return null
+}
+
+/** 점들을 허용 오차 안에서 꺾이는 점만 남겨 줄인다(Douglas-Peucker) */
+export function simplify(pts: P[], eps: number): P[] {
+  if (pts.length <= 2) return pts
+  const distToSeg = (p: P, a: P, b: P) => {
+    const dx = b.x - a.x
+    const dy = b.y - a.y
+    const len2 = dx * dx + dy * dy
+    if (len2 === 0) return Math.hypot(p.x - a.x, p.y - a.y)
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2))
+    return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
+  }
+  const keep = new Array<boolean>(pts.length).fill(false)
+  keep[0] = true
+  keep[pts.length - 1] = true
+  const stack: [number, number][] = [[0, pts.length - 1]]
+  while (stack.length) {
+    const [lo, hi] = stack.pop()!
+    let far = -1
+    let farD = eps
+    for (let i = lo + 1; i < hi; i++) {
+      const d = distToSeg(pts[i], pts[lo], pts[hi])
+      if (d > farD) {
+        farD = d
+        far = i
+      }
+    }
+    if (far >= 0) {
+      keep[far] = true
+      stack.push([lo, far], [far, hi])
+    }
+  }
+  return pts.filter((_, i) => keep[i])
+}
+
+/** 꼭짓점 b 에서 a·c 쪽 두 변이 이루는 안쪽 각(도). 반듯이 펴진 선이 180 */
+function interiorAngle(a: P, b: P, c: P): number {
+  const ax = a.x - b.x
+  const ay = a.y - b.y
+  const cx = c.x - b.x
+  const cy = c.y - b.y
+  const la = Math.hypot(ax, ay)
+  const lc = Math.hypot(cx, cy)
+  if (la === 0 || lc === 0) return 180
+  const cos = Math.max(-1, Math.min(1, (ax * cx + ay * cy) / (la * lc)))
+  return (Math.acos(cos) * 180) / Math.PI
+}
+
+/**
+ * 한 획으로 그은 괄호. 꺾이는 점만 남겨 보면
+ *  - < > : 변 둘, 꼭짓점 하나. 열린 쪽이 옆(가로)이다
+ *  - [ ] : 변 셋, 꼭짓점 둘. 가운데 변이 세로로 길고 양끝 변이 같은 쪽으로 짧게 나온다
+ * 애매하면 null — 괄호가 아닌 것을 괄호로 읽는 것이 못 읽는 것보다 나쁘다
+ */
+export function recognizeBracket(pts: P[], bbox: BBox): BracketChar | null {
+  const size = Math.max(bbox.x1 - bbox.x0, bbox.y1 - bbox.y0)
+  if (size < 14) return null
+  // [ ] 는 곧은 가운데 변과 가로 변의 관계로, < > 는 꺾이는 한 점으로 본다. [ ] 를 먼저 본다 —
+  // < > 의 모양은 가운데가 곧지 않아 여기서 걸러지지만, 반대로 [ ] 가 < > 로 읽힐 수 있다
+  const square = squareBracket(pts, bbox)
+  if (square) return square
+  const base = decimate(pts, 3)
+  for (const f of [0.08, 0.13, 0.2]) {
+    const s = simplify(base, f * size)
+    // 허용 오차가 달라지면 꺾이는 점 수가 달라진다. 한 번 거절했다고 멈추지 않고 다음 오차로도 본다
+    if (s.length < 3) return null
+    if (s.length === 3) {
+      const found = angleBracket(s, size)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+function angleBracket(s: P[], size: number): BracketChar | null {
+  const [a, b, c] = s
+  const la = Math.hypot(a.x - b.x, a.y - b.y)
+  const lc = Math.hypot(c.x - b.x, c.y - b.y)
+  if (Math.min(la, lc) < 0.3 * size || Math.max(la, lc) / Math.min(la, lc) > 2.2) return null
+  const ang = interiorAngle(a, b, c)
+  if (ang < 30 || ang > 120) return null
+  // 열린 쪽: 꼭짓점에서 두 끝의 가운데로 향하는 방향이 옆쪽이어야 한다(위아래로 열린 V·^ 는 괄호가 아니다)
+  const vx = (a.x + c.x) / 2 - b.x
+  const vy = (a.y + c.y) / 2 - b.y
+  if (Math.abs(vx) < Math.abs(vy)) return null
+  return vx > 0 ? '<' : '>'
+}
+
+/** 호의 길이를 같은 간격으로 나눈 점 n 개(처음·끝 포함). 점의 간격이 들쭉날쭉해도 모양만 본다 */
+function resample(pts: P[], n: number): P[] {
+  const total = pathLength(pts)
+  if (total === 0 || pts.length < 2) return pts
+  const out: P[] = [pts[0]]
+  const step = total / (n - 1)
+  let acc = 0
+  let target = step
+  for (let i = 1; i < pts.length && out.length < n - 1; i++) {
+    const a = pts[i - 1]
+    const b = pts[i]
+    const seg = Math.hypot(b.x - a.x, b.y - a.y)
+    while (seg > 0 && acc + seg >= target && out.length < n - 1) {
+      const u = (target - acc) / seg
+      out.push({ x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u })
+      target += step
+    }
+    acc += seg
+  }
+  out.push(pts[pts.length - 1])
+  return out
+}
+
+/**
+ * [ ] — 꺾이는 점을 찾는 대신 세로 띠로 본다. 손이 떨려도 척추(가운데 곧은 변)와 양끝 가로 변의 관계는 남는다.
+ *  - 위·아래 끝 띠에서 가장 먼 점이 척추의 같은 쪽에 있고(그쪽이 열린 쪽의 반대), 시작·끝 변이 가로에 가깝다
+ *  - 가운데 띠의 x 는 거의 일정하다(< > 처럼 비스듬히 번지지 않고, ( ) 처럼 휘지도 않는다)
+ */
+function squareBracket(pts: P[], bbox: BBox): BracketChar | null {
+  const w = bbox.x1 - bbox.x0
+  const h = bbox.y1 - bbox.y0
+  if (h < 14 || h < 1.1 * w) return null
+  const r = resample(pts, 48)
+  if (r.length < 12) return null
+  // 처음에서 끝까지 위→아래(또는 아래→위)로 한 방향이어야 한다
+  const dirY = Math.sign(r[r.length - 1].y - r[0].y)
+  if (dirY === 0 || Math.abs(r[r.length - 1].y - r[0].y) < 0.6 * h) return null
+  let forward = 0
+  for (let i = 1; i < r.length; i++) if ((r[i].y - r[i - 1].y) * dirY >= -0.04 * h) forward++
+  if (forward < 0.85 * (r.length - 1)) return null
+
+  const band = (lo: number, hi: number) => r.filter((p) => p.y >= bbox.y0 + lo * h && p.y <= bbox.y0 + hi * h)
+  const mid = band(0.25, 0.75)
+  if (mid.length < 4) return null
+  const xs = mid.map((p) => p.x).sort((a, b) => a - b)
+  const spineX = xs[Math.floor(xs.length / 2)]
+  // 가운데 띠가 곧다
+  if (xs[xs.length - 1] - xs[0] > 0.08 * h + 3.2) return null
+
+  const farthest = (list: P[]) => list.reduce((best, p) => (Math.abs(p.x - spineX) > Math.abs(best.x - spineX) ? p : best), list[0])
+  const topBand = band(0, 0.14)
+  const botBand = band(0.86, 1)
+  if (topBand.length === 0 || botBand.length === 0) return null
+  const top = farthest(topBand)
+  const bot = farthest(botBand)
+  const need = Math.max(5, 0.1 * h)
+  const dTop = top.x - spineX
+  const dBot = bot.x - spineX
+  if (Math.abs(dTop) < need || Math.abs(dBot) < need) return null
+  // 두 변이 척추의 같은 쪽으로 나온다
+  if (Math.sign(dTop) !== Math.sign(dBot)) return null
+  // 양끝 변은 가로에 가깝다: 끝점에서 같은 호 길이만큼 들어온 점으로 방향을 본다
+  const k = Math.max(2, Math.round(r.length * 0.12))
+  const dir = (a: P, b: P) => ({ dx: Math.abs(b.x - a.x), dy: Math.abs(b.y - a.y) })
+  const s0 = dir(r[0], r[k])
+  const s1 = dir(r[r.length - 1], r[r.length - 1 - k])
+  if (s0.dx < 0.9 * s0.dy || s1.dx < 0.9 * s1.dy) return null
+  return dTop > 0 ? '[' : ']'
 }
 
 function segIntersect(a: P, b: P, c: P, d: P): boolean {

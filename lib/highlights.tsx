@@ -1,4 +1,5 @@
 import React from 'react'
+import type { BracketChar } from './penGesture'
 
 export type HighlightColor = 'yellow' | 'green' | 'pink' | 'blue' | 'purple' | 'orange' | 'red' | 'gray'
 
@@ -36,6 +37,9 @@ export interface Highlight {
   // 스타일마다 따로 고른 색. 밑줄은 빨강, 형광펜은 노랑처럼 같은 구간에 겹쳐 둘 때 각자의 색을
   // 지키려는 것이다. 여기 없는 스타일은 위의 color 를 쓴다(옛 데이터는 이 필드가 없다)
   colors?: Partial<Record<HighlightStyle, HighlightColor>>
+  // 글자 사이에 끼운 괄호([ ] < >). 구간이 아니라 자리라서 start === end 이고, 위의 스타일·색 규칙과 무관하다
+  // (색만 color 를 쓴다). 구간을 다루는 함수들은 start < end 인 것만 보므로 이 항목을 건드리지 않는다
+  bracket?: BracketChar
 }
 
 export const HIGHLIGHT_CLASSES: Record<HighlightColor, string> = {
@@ -362,6 +366,19 @@ export function mergeHighlightRecords(
   return { merged, fromRemote, toRemote }
 }
 
+/**
+ * 글자 사이(at)에 괄호를 끼운다. 같은 자리에 같은 괄호가 이미 있으면 그대로 둔다.
+ * at 은 텍스트 오프셋으로, at 번째 글자 바로 앞이다(0 이면 맨 앞, 글자 수와 같으면 맨 뒤)
+ */
+export function addBracket(
+  highlights: Highlight[],
+  target: { id: string; field: string; at: number; bracket: BracketChar; color: HighlightColor }
+): Highlight[] {
+  const { id, field, at, bracket, color } = target
+  if (highlights.some((h) => h.field === field && h.bracket === bracket && h.start === at && h.end === at)) return highlights
+  return [...highlights, { id, field, start: at, end: at, color, bracket }]
+}
+
 /** 같은 필드에서 [start,end) 와 겹치는 하이라이트를 뺀다. keepId 는 남긴다 */
 export function withoutOverlaps(
   highlights: Highlight[],
@@ -420,7 +437,8 @@ export function applyHighlightStyles(
     return out
   }
 
-  const others = highlights.filter((h) => h.field !== field)
+  // 괄호(start === end)는 구간이 아니라 그대로 남긴다
+  const others = highlights.filter((h) => h.field !== field || h.start >= h.end)
   const mine = highlights
     .filter((h) => h.field === field && h.start < h.end)
     .sort((a, b) => a.start - b.start)
@@ -632,6 +650,59 @@ function crossGradient(color: HighlightColor): string {
   )
 }
 
+/**
+ * 글자 사이에 끼운 괄호를 그린다. 괄호는 텍스트 노드가 아니라 ::before 의 내용이다(globals.css .hl-bracket) —
+ * 글자 위치를 재는 코드(펜 인식, 글자 선택)가 텍스트 노드 길이로 오프셋을 세므로, 글자를 끼우면 오프셋이 어긋난다.
+ * 이 조각이 맡는 자리는 [absStart, absEnd). 맨 뒤 조각만 글자 수와 같은 자리(includeEnd)도 맡는다
+ */
+function withBrackets(
+  slice: string,
+  absStart: number,
+  bolds: BoldRange[],
+  field: string,
+  brackets: Highlight[],
+  includeEnd: boolean,
+  onRemove?: (id: string) => void
+): React.ReactNode {
+  const absEnd = absStart + slice.length
+  const inside = brackets
+    .filter((b) => b.start >= absStart && (b.start < absEnd || (includeEnd && b.start >= absEnd)))
+    .sort((a, b) => a.start - b.start)
+  if (inside.length === 0) return applyBold(slice, absStart, bolds, field)
+
+  const nodes: React.ReactNode[] = []
+  let cursor = absStart
+  for (const b of inside) {
+    const at = Math.min(b.start, absEnd)
+    if (at > cursor) nodes.push(applyBold(slice.slice(cursor - absStart, at - absStart), cursor, bolds, field))
+    nodes.push(
+      <span
+        key={`${field}_br_${b.id}`}
+        className="hl-bracket"
+        data-bracket={b.bracket}
+        data-erasable={onRemove ? '' : undefined}
+        aria-hidden
+        style={{
+          color: HIGHLIGHT_COLOR_HEX[b.color],
+          cursor: onRemove ? `url("${ERASER_CURSOR_SVG}") 4 20, pointer` : 'default',
+        }}
+        title={onRemove ? '클릭하면 지워집니다 (지우개)' : undefined}
+        onClick={
+          onRemove
+            ? (e) => {
+                e.stopPropagation()
+                onRemove(b.id)
+              }
+            : undefined
+        }
+      />
+    )
+    cursor = Math.max(cursor, at)
+  }
+  if (cursor < absEnd) nodes.push(applyBold(slice.slice(cursor - absStart), cursor, bolds, field))
+  return nodes
+}
+
 export function renderHighlighted(
   text: string,
   field: string,
@@ -642,8 +713,9 @@ export function renderHighlighted(
   const fieldHighlights = highlights
     .filter((h) => h.field === field && h.start < h.end && h.end <= text.length)
     .sort((a, b) => a.start - b.start)
+  const brackets = highlights.filter((h) => h.field === field && h.bracket && h.start === h.end && h.start <= text.length)
 
-  if (fieldHighlights.length === 0) return applyBold(text, 0, bolds, field)
+  if (fieldHighlights.length === 0) return withBrackets(text, 0, bolds, field, brackets, true, onRemove)
   // 지우개가 지우는 덩어리(§ removeHighlightRun) 계산용. 렌더에 쓰는 것과 같은 목록이어야 한다
   const runList = fieldListOf(highlights, field)
 
@@ -693,10 +765,10 @@ export function renderHighlighted(
     // (highlightClassName 은 빈 목록을 형광펜으로 되돌리므로 따로 처리한다)
     const ownStyles = styles.filter((st) => !(joined && st === 'circle') && !(joinedCross && st === 'cross'))
     const underlineInside = !joined && styles.includes('underline') && styles.includes('circle')
-    const content = applyBold(text.slice(h.start, h.end), h.start, bolds, field)
+    const content = withBrackets(text.slice(h.start, h.end), h.start, bolds, field, brackets, false, onRemove)
     if (h.start > cursor) {
       flushGroup()
-      nodes.push(applyBold(text.slice(cursor, h.start), cursor, bolds, field))
+      nodes.push(withBrackets(text.slice(cursor, h.start), cursor, bolds, field, brackets, false, onRemove))
     }
     const mark = (
       <mark
@@ -747,6 +819,7 @@ export function renderHighlighted(
     cursor = Math.max(cursor, h.end)
   }
   flushGroup()
-  if (cursor < text.length) nodes.push(applyBold(text.slice(cursor), cursor, bolds, field))
+  // 맨 뒤 조각. 표시가 글 끝까지 닿아 있어도 글 끝에 끼운 괄호는 그려야 한다
+  nodes.push(withBrackets(text.slice(cursor), cursor, bolds, field, brackets, true, onRemove))
   return nodes
 }

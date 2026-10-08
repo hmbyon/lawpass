@@ -6,6 +6,7 @@ import {
   HIGHLIGHT_COLOR_LABELS,
   HIGHLIGHT_SWATCH_CLASSES,
   UNDERLINE_COLORS,
+  addBracket,
   applyHighlightStyles,
   colorsForStyles,
   loadHighlights,
@@ -15,7 +16,7 @@ import {
   type HighlightColor,
   type HighlightStyle,
 } from '@/lib/highlights'
-import PenAnnotateLayer, { type PenGesture } from '@/components/pen-annotate-layer'
+import PenAnnotateLayer, { type BracketGesture, type PenGesture } from '@/components/pen-annotate-layer'
 
 /**
  * 문제 지문·선지 위에 형광펜을 치는 틀. 글자를 골라 팝업에서 모양·색을 정하는 방식과,
@@ -288,6 +289,20 @@ export function HighlightEditor({ questionId, onChanged, className, children }: 
     setToast({ label: STYLE_LABELS[g.style], prev })
   }
 
+  function applyPenBracket(g: BracketGesture) {
+    const prev = highlightsRef.current
+    const next = addBracket(prev, {
+      id: `h_${Date.now()}`,
+      field: g.field,
+      at: g.at,
+      bracket: g.bracket,
+      color: lastColorRef.current,
+    })
+    if (next === prev) return
+    commit(next)
+    setToast({ label: `괄호 ${g.bracket}`, prev })
+  }
+
   function undoPen() {
     if (!toast?.prev) return
     commit(toast.prev)
@@ -311,7 +326,7 @@ export function HighlightEditor({ questionId, onChanged, className, children }: 
           type="button"
           onClick={togglePen}
           aria-pressed={penOn}
-          title="펜슬(또는 마우스를 누른 채)로 본문에 밑줄(—)·원(○)·X 를 그으면 알아보고 표시로 남깁니다. 켜 두면 마우스로 끌어서 글자를 고르는 건 안 돼요"
+          title="펜슬(또는 마우스를 누른 채)로 본문에 밑줄(—)·원(○)·X 를 그으면 알아보고 표시로 남깁니다. 글자 사이에 괄호 [ ] < > 를 한 획씩 그으면 그 자리에 끼워 넣어요. 켜 두면 마우스로 끌어서 글자를 고르는 건 안 돼요"
           className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all ${
             penOn
               ? 'bg-primary/15 text-primary border-primary/40'
@@ -329,6 +344,7 @@ export function HighlightEditor({ questionId, onChanged, className, children }: 
         color={HIGHLIGHT_COLOR_HEX[penColor]}
         getFieldEls={() => fieldRefs.current}
         onGesture={applyPen}
+        onBracket={applyPenBracket}
         onInfo={(message) => setToast({ label: message, prev: null })}
       />
 
