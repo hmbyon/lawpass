@@ -23,7 +23,7 @@ export interface BBox {
 export type StrokeKind = 'underline' | 'wave' | 'circle' | 'diag-up' | 'diag-down' | 'bracket'
 
 /** 글자 사이에 끼우는 괄호 네 가지 */
-export type BracketChar = '[' | ']' | '<' | '>'
+export type BracketChar = '[' | ']' | '<' | '>' | '(' | ')'
 
 export interface Recognized {
   kind: StrokeKind
@@ -163,7 +163,7 @@ export function recognizeStroke(pts: P[]): Recognized | null {
   const h = bbox.y1 - bbox.y0
   const ax = principalAxis(pts)
   const extent = ax.t1 - ax.t0
-  // 한 획으로 꺾어 그은 괄호 [ ] < >. 글자 사이에 끼우는 것이라 작게 긋고, 세로로 길어 '선'으로도 보이므로
+  // 한 획으로 그은 괄호 [ ] < > ( ). 글자 사이에 끼우는 것이라 작게 긋고, 세로로 길어 '선'으로도 보이므로
   // 아래 판정보다 먼저 본다. 시작과 끝이 만나는 닫힌 획(동그라미)은 괄호가 아니다
   {
     const first = pts[0]
@@ -347,6 +347,10 @@ export function recognizeBracket(pts: P[], bbox: BBox): BracketChar | null {
   if (size < 14) return null
   // [ ] 는 곧은 가운데 변과 가로 변의 관계로, < > 는 꺾이는 한 점으로 본다. [ ] 를 먼저 본다 —
   // < > 의 모양은 가운데가 곧지 않아 여기서 걸러지지만, 반대로 [ ] 가 < > 로 읽힐 수 있다
+  // ( ) 는 꺾임 없이 한쪽으로 휜 세로 호다. 꺾이는 곳이 하나라도 있으면(< > 의 꼭짓점, [ ] 의 모서리) 여기서 걸러지므로
+  // 가장 먼저 본다. 배가 큰 호를 [ ] 로 읽던 것을 막으려면 [ ] 보다 앞이어야 한다
+  const round = roundBracket(pts, bbox)
+  if (round) return round
   const square = squareBracket(pts, bbox)
   if (square) return square
   const base = decimate(pts, 3)
@@ -360,6 +364,76 @@ export function recognizeBracket(pts: P[], bbox: BBox): BracketChar | null {
     }
   }
   return null
+}
+
+/**
+ * ( ) — 한쪽으로 부드럽게 휜 세로 호. 손 떨림을 먼저 이동평균으로 눌러 놓고 본다.
+ *  - 처음에서 끝으로 이은 현에서 모든 점이 같은 쪽으로 벌어지고, 가장 벌어진 곳(배)이 가운데쯤이다
+ *  - 배가 왼쪽이면 '(' , 오른쪽이면 ')'
+ *  - 현에서 벌어진 정도가 너무 작으면 곧은 세로선이다(괄호 아님)
+ *  - 꺾임이 한곳에 몰려 있으면 호가 아니다: 어느 구간의 방향 변화도 전체 휨의 일정 비율을 넘지 못한다.
+ *    < > 의 꼭짓점, [ ] 의 모서리는 방향이 한 점에서 확 바뀌므로 여기서 걸러진다
+ */
+function roundBracket(pts: P[], bbox: BBox): BracketChar | null {
+  const w = bbox.x1 - bbox.x0
+  const h = bbox.y1 - bbox.y0
+  if (h < 16 || h < 1.3 * w) return null
+  const raw = resample(pts, 40)
+  if (raw.length < 12) return null
+  // 이동평균(폭 5). 양끝은 그대로 둬서 현이 줄지 않게 한다
+  const r = raw.map((p, i) => {
+    if (i < 2 || i > raw.length - 3) return p
+    let x = 0
+    let y = 0
+    for (let k = -2; k <= 2; k++) {
+      x += raw[i + k].x
+      y += raw[i + k].y
+    }
+    return { x: x / 5, y: y / 5 }
+  })
+  const a = r[0]
+  const b = r[r.length - 1]
+  // 위→아래(또는 아래→위) 한 방향으로 간다
+  const dirY = Math.sign(b.y - a.y)
+  if (dirY === 0 || Math.abs(b.y - a.y) < 0.7 * h) return null
+  let forward = 0
+  for (let i = 1; i < r.length; i++) if ((r[i].y - r[i - 1].y) * dirY >= -0.04 * h) forward++
+  if (forward < 0.9 * (r.length - 1)) return null
+
+  // 현에서 벗어난 부호 있는 거리
+  const cx = b.x - a.x
+  const cy = b.y - a.y
+  const clen = Math.hypot(cx, cy)
+  if (clen === 0) return null
+  const dev = r.map((p) => ((p.x - a.x) * cy - (p.y - a.y) * cx) / clen)
+  let peak = 0
+  for (let i = 1; i < dev.length - 1; i++) if (Math.abs(dev[i]) > Math.abs(dev[peak])) peak = i
+  const m = Math.abs(dev[peak])
+  if (m < 0.1 * h || m > 0.5 * h) return null
+  // 양끝 쪽 15% 는 손이 흔들리기 쉬우니 빼고, 나머지는 같은 쪽에 있어야 한다
+  const lo = Math.round(dev.length * 0.15)
+  const hi = dev.length - lo
+  const side = Math.sign(dev[peak])
+  let same = 0
+  for (let i = lo; i < hi; i++) if (dev[i] * side > 0) same++
+  if (same < 0.9 * (hi - lo)) return null
+  // 배는 가운데쯤
+  if (peak < 0.25 * dev.length || peak > 0.75 * dev.length) return null
+  // 꺾임이 없다: 이동평균을 거친 뒤에도 6칸(전체의 15%) 사이 방향이 크게 바뀌는 곳이 있으면 모서리다.
+  // 고르게 휜 호는 그 구간에서 전체 휨의 15% 안팎(배가 아주 큰 호도 20° 남짓)만 바뀌고,
+  // < > 의 꼭짓점과 [ ] 의 모서리는 한 자리에서 60° 넘게 꺾인다
+  const step = 3
+  const heading = (i: number) => Math.atan2(r[i + step].y - r[i].y, r[i + step].x - r[i].x)
+  for (let i = 0; i + 2 * step < r.length; i++) {
+    let d = heading(i + step) - heading(i)
+    while (d > Math.PI) d -= 2 * Math.PI
+    while (d < -Math.PI) d += 2 * Math.PI
+    if (Math.abs(d) * (180 / Math.PI) > 35) return null
+  }
+  // 배가 현의 왼쪽에 있으면 '(' — 현의 같은 높이 x 와 견준다
+  const t = (r[peak].y - a.y) / (b.y - a.y)
+  const chordX = a.x + (b.x - a.x) * t
+  return r[peak].x < chordX ? '(' : ')'
 }
 
 function angleBracket(s: P[], size: number): BracketChar | null {
