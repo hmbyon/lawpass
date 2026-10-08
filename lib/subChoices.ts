@@ -207,3 +207,19 @@ export function subItemDiffs(q: Question, userAnswer: string | null): Map<string
   for (const l of correct) if (!mine.includes(l)) out.set(l, 'missed')
   return out
 }
+
+// 발문의 부정어. "옳지 않은 것은?" 유형이면 정답 선지의 문장이 '틀린 서술'이다
+const NEGATIVE_STEM = /(옳지\s*않은|적절하지\s*않은|타당하지\s*않은|바르지\s*않은|올바르지\s*않은|틀린|잘못된|아닌\s*것)/
+const POSITIVE_STEM = /(옳은|적절한|타당한|바른|올바른)\s*것/
+
+// 선지 문장의 참/거짓은 추론할 필요가 없다 — 발문 유형과 정답 하나로 결정된다.
+// AI가 채운 값보다 이 계산이 신뢰도가 높고, 옛 데이터에도 재파싱 없이 적용된다
+export function deriveChoiceTruth(q: Question): Record<string, boolean> | undefined {
+  if (!q.answer || q.choices.length === 0) return undefined
+  const negative = NEGATIVE_STEM.test(q.passage)
+  const positive = POSITIVE_STEM.test(q.passage)
+  if (!negative && !positive) return undefined // 유형을 못 읽으면 추측하지 않는다
+  return Object.fromEntries(
+    q.choices.map((c) => [c.label, negative ? !isAnswerLabel(q.answer, c.label) : isAnswerLabel(q.answer, c.label)])
+  )
+}

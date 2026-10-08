@@ -6,7 +6,8 @@ import { FilterChips } from '@/components/filter-chips'
 import { WrongNoteDetailModal } from '@/components/wrong-note-detail'
 import { confusionPoints, type ConfusionPoint } from '@/lib/confusionPoints'
 import { dismissConfusion } from '@/lib/store'
-import { resolveSubChoices } from '@/lib/subChoices'
+import { parseSubExplanations, resolveSubChoices } from '@/lib/subChoices'
+import { choiceExplanationParts, parseBoldMarks, subItemExplanationParts } from '@/components/quiz/explanation-blocks'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const NO_UNIT = '단원 미지정'
@@ -20,6 +21,22 @@ function stemOf(note: WrongNote): string {
   const q = note.question
   const text = resolveSubChoices(q)?.stem ?? q.passage
   return text.replace(/\s+/g, ' ').trim()
+}
+
+// 틀린 서술(X)의 "옳은 문구": 해설 요약을 우선하고, 없으면 해설 첫 덩어리의 앞부분을 쓴다
+function correctionOf(note: WrongNote, p: ConfusionPoint): string {
+  const q = note.question
+  let raw = ''
+  if (p.kind === '보기') {
+    const sub = (q.subItems ?? []).find((it) => it.label === p.label)
+    const parts = sub ? subItemExplanationParts(sub) : null
+    raw = parts?.summary || parts?.blocks[0]?.content || parseSubExplanations(q.explanation)[p.label] || q.subChoiceExplanations?.[p.label] || ''
+  } else {
+    const parts = choiceExplanationParts(q, p.label)
+    raw = parts.summary || parts.blocks[0]?.content || ''
+  }
+  const text = parseBoldMarks(raw).text.replace(/\s+/g, ' ').trim()
+  return text.length > 160 ? `${text.slice(0, 160)}…` : text
 }
 
 /**
@@ -187,18 +204,35 @@ export function ConfusionReview({
                     {note.question.year > 0 ? `${note.question.year}년 ` : ''}
                     {stemOf(note)}
                   </p>
-                  {points.map((p) => (
-                    <div key={p.key} className="flex gap-2 items-start text-xs">
-                      <span className="font-semibold text-primary shrink-0">{p.label}{p.kind === '보기' ? '.' : ''}</span>
-                      <span className="flex-1 min-w-0 text-foreground leading-relaxed line-clamp-2">{p.text}</span>
-                      <span className="shrink-0 flex flex-col items-end gap-0.5 text-[11px]">
-                        {p.diff && <span className="font-medium text-red-600 dark:text-red-400">✗ 갈림</span>}
-                        {p.confused && (
-                          <span className="text-amber-600 dark:text-amber-400">{note.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'}</span>
+                  {points.map((p) => {
+                    // 틀린 서술(X)이면 옳은 문구를 붙여 한눈에 보이게. 옳은 서술(O)은 설명이 필요 없다
+                    const correction = p.truth === false ? correctionOf(note, p) : ''
+                    return (
+                      <div key={p.key} className="space-y-1">
+                        <div className="flex gap-2 items-start text-xs">
+                          {p.truth !== undefined && (
+                            <span className={`shrink-0 font-bold ${p.truth ? 'text-blue-500' : 'text-red-500'}`}>
+                              {p.truth ? 'O' : 'X'}
+                            </span>
+                          )}
+                          <span className="font-semibold text-primary shrink-0">{p.label}{p.kind === '보기' ? '.' : ''}</span>
+                          <span className="flex-1 min-w-0 text-foreground leading-relaxed">{p.text}</span>
+                          <span className="shrink-0 flex flex-col items-end gap-0.5 text-[11px]">
+                            {p.diff && <span className="font-medium text-red-600 dark:text-red-400">✗ 갈림</span>}
+                            {p.confused && (
+                              <span className="text-amber-600 dark:text-amber-400">{note.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'}</span>
+                            )}
+                          </span>
+                        </div>
+                        {correction && (
+                          <p className="ml-5 rounded-md border-l-2 border-emerald-500 bg-emerald-50 px-2 py-1 text-[11px] leading-relaxed text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-300">
+                            <span className="font-semibold">✓ 옳은 문구 </span>
+                            {correction}
+                          </p>
                         )}
-                      </span>
-                    </div>
-                  ))}
+                      </div>
+                    )
+                  })}
                 </button>
                 {/* 오른쪽 위 ✕: 이 문제만 목록에서 지운다(오답노트는 그대로) */}
                 {!selectMode && (
