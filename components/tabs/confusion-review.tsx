@@ -5,6 +5,7 @@ import type { Subject, WrongNote } from '@/lib/types'
 import { FilterChips } from '@/components/filter-chips'
 import { WrongNoteDetailModal } from '@/components/wrong-note-detail'
 import { confusionPoints, type ConfusionPoint } from '@/lib/confusionPoints'
+import { dismissConfusion } from '@/lib/store'
 import { resolveSubChoices } from '@/lib/subChoices'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
@@ -37,9 +38,15 @@ export function ConfusionReview({
 }) {
   const [filterSubjects, setFilterSubjects] = useState<string[]>([])
   const [openId, setOpenId] = useState<string | null>(null)
+  const [selectMode, setSelectMode] = useState(false)
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
 
   const entries = useMemo<Entry[]>(
-    () => notes.map((note) => ({ note, points: confusionPoints(note) })).filter((e) => e.points.length > 0),
+    () =>
+      notes
+        .filter((n) => !n.confusionDismissed)
+        .map((note) => ({ note, points: confusionPoints(note) }))
+        .filter((e) => e.points.length > 0),
     [notes]
   )
   const availableSubjects = useMemo(
@@ -75,6 +82,24 @@ export function ConfusionReview({
   const shownPoints = shown.reduce((n, e) => n + e.points.length, 0)
   const openNote = notes.find((n) => n.id === openId) ?? null
 
+  // 지워도 오답노트의 문제는 남는다 — 이 목록에서만 가린다
+  function removeFromList(ids: string[], what: string) {
+    if (ids.length === 0) return
+    if (!confirm(`${what}을(를) 헷갈린 곳 목록에서 지울까요?\n오답노트의 문제와 분석·메모는 그대로 남고, 다시 틀리거나 헷갈림으로 표시하면 목록에 다시 올라와요.`)) return
+    dismissConfusion(ids)
+    setCheckedIds(new Set())
+    setSelectMode(false)
+    onNotesChanged()
+  }
+  function toggleChecked(id: string) {
+    setCheckedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   if (entries.length === 0) {
     return (
       <div className="text-center py-20 text-muted-foreground text-sm max-w-md mx-auto space-y-2">
@@ -93,7 +118,7 @@ export function ConfusionReview({
         </p>
         <button
           onClick={() => window.print()}
-          className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-medium hover:opacity-90 transition-opacity"
+          className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
         >
           🖨️ 인쇄
         </button>
@@ -101,6 +126,40 @@ export function ConfusionReview({
 
       <div className="bg-card border border-border rounded-xl p-4 no-print">
         <FilterChips options={subjectOrder} selected={filterSubjects} onChange={setFilterSubjects} available={availableSubjects} />
+        <div className="flex items-center justify-end gap-3 pt-3 mt-3 border-t border-border">
+          <button
+            onClick={() => {
+              setSelectMode((v) => !v)
+              setCheckedIds(new Set())
+            }}
+            className={`text-xs whitespace-nowrap transition-colors ${selectMode ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            {selectMode ? '선택 취소' : '선택 삭제'}
+          </button>
+          <button
+            onClick={() => removeFromList(shown.map((e) => e.note.id), `표시 중인 ${shown.length}문제`)}
+            className="text-xs whitespace-nowrap text-red-400 hover:text-red-300 transition-colors"
+          >
+            전체 삭제
+          </button>
+        </div>
+        {selectMode && (
+          <div className="flex items-center justify-end gap-3 pt-2 mt-2 border-t border-border">
+            <button
+              onClick={() => setCheckedIds(checkedIds.size === shown.length ? new Set() : new Set(shown.map((e) => e.note.id)))}
+              className="text-xs whitespace-nowrap text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {checkedIds.size === shown.length ? '전체 해제' : '전체 선택'}
+            </button>
+            <button
+              onClick={() => removeFromList(Array.from(checkedIds), `선택한 ${checkedIds.size}문제`)}
+              disabled={checkedIds.size === 0}
+              className="text-xs whitespace-nowrap text-red-400 hover:text-red-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              선택 삭제 ({checkedIds.size})
+            </button>
+          </div>
+        )}
       </div>
 
       {grouped.map(({ subject, units }) => (
@@ -116,12 +175,15 @@ export function ConfusionReview({
                 {unit} <span className="font-normal text-muted-foreground">· {items.length}문제</span>
               </p>
               {items.map(({ note, points }) => (
+                <div key={note.id} className="relative break-inside-avoid">
                 <button
-                  key={note.id}
-                  onClick={() => setOpenId(note.id)}
-                  className="w-full text-left bg-card border border-border rounded-xl px-3 py-2.5 space-y-1.5 hover:bg-muted/30 transition-colors break-inside-avoid"
+                  onClick={() => (selectMode ? toggleChecked(note.id) : setOpenId(note.id))}
+                  className={`w-full text-left bg-card border rounded-xl px-3 py-2.5 space-y-1.5 hover:bg-muted/30 transition-colors ${
+                    selectMode && checkedIds.has(note.id) ? 'border-primary ring-2 ring-primary' : 'border-border'
+                  } ${selectMode && !checkedIds.has(note.id) ? 'opacity-70 hover:opacity-100' : ''}`}
                 >
-                  <p className="text-[11px] text-muted-foreground line-clamp-1">
+                  <p className="text-[11px] text-muted-foreground line-clamp-1 pr-6">
+                    {selectMode && <span className="mr-1">{checkedIds.has(note.id) ? '☑' : '☐'}</span>}
                     {note.question.year > 0 ? `${note.question.year}년 ` : ''}
                     {stemOf(note)}
                   </p>
@@ -138,6 +200,18 @@ export function ConfusionReview({
                     </div>
                   ))}
                 </button>
+                {/* 오른쪽 위 ✕: 이 문제만 목록에서 지운다(오답노트는 그대로) */}
+                {!selectMode && (
+                  <button
+                    onClick={() => removeFromList([note.id], '이 문제')}
+                    aria-label="헷갈린 곳 목록에서 지우기"
+                    title="목록에서 지우기 (오답노트는 그대로)"
+                    className="no-print absolute top-1.5 right-2 text-muted-foreground hover:text-foreground text-base leading-none px-1"
+                  >
+                    ×
+                  </button>
+                )}
+                </div>
               ))}
             </div>
           ))}

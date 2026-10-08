@@ -32,7 +32,7 @@ export function MemoTab({
     <div className="space-y-4 max-w-2xl mx-auto">
       <div className="flex items-center justify-between no-print">
         <h2 className="text-lg font-bold text-foreground">D-1 암기장</h2>
-        <div className="flex rounded-lg border border-border overflow-hidden text-xs">
+        <div className="flex rounded-lg border border-border overflow-hidden text-sm">
           {(
             [
               ['confusion', '🤔 헷갈린 곳'],
@@ -43,7 +43,7 @@ export function MemoTab({
               key={id}
               onClick={() => setView(id)}
               aria-pressed={view === id}
-              className={`px-3 py-1.5 transition-colors ${
+              className={`px-4 py-2 transition-colors ${
                 view === id ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:text-foreground'
               }`}
             >
@@ -52,6 +52,12 @@ export function MemoTab({
           ))}
         </div>
       </div>
+      {/* 두 화면이 무엇을 모으는지 */}
+      <p className="text-xs text-muted-foreground leading-relaxed no-print">
+        {view === 'confusion'
+          ? '별점과 상관없이, 오답노트 전체에서 내가 헷갈림/찍음으로 짚었거나 채점에서 갈린 보기·선지만 과목·단원별로 모아 봐요.'
+          : '위험도 ★3 이상이거나 직접 암기장에 추가한 문제를 카드로 모아 봐요. AI 분석·메모를 고치고 인쇄할 수 있어요.'}
+      </p>
       {view === 'confusion' ? (
         <ConfusionReview notes={notes} onNotesChanged={onNotesChanged} isGeneral={isGeneral} />
       ) : (

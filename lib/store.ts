@@ -969,6 +969,7 @@ export function addWrongNote(note: WrongNote) {
       memo: prev.memo,
       hiddenFields: prev.hiddenFields,
       isBookmarked: prev.isBookmarked,
+      confusionDismissed: undefined, // 다시 틀렸으니 헷갈린 곳 목록에 다시 올린다
       analysis: newAnalysis,
       analysisHistory,
       dominantCause,
@@ -1079,11 +1080,11 @@ export function addFlaggedCorrectNote(
     const wrongCount = prev.wrongCount ?? 0
     if (wrongCount > 0) {
       const 위험도 = calcRisk(wrongCount, totalCount)
-      notes[idx] = { ...prev, totalCount, analysis: prev.analysis ? { ...prev.analysis, 위험도 } : null }
+      notes[idx] = { ...prev, totalCount, analysis: prev.analysis ? { ...prev.analysis, 위험도 } : null, confusionDismissed: undefined }
     } else {
       // 순수 북마크였다가 처음 표시한 문제는 1회, 이미 표시돼 있던 문제는 한 번 더 쌓는다(옛 노트는 횟수가 없어 1회로 본다)
       const flaggedCount = prev.flaggedCorrect ? (prev.flaggedCount ?? 1) + 1 : 1
-      notes[idx] = { ...prev, totalCount, userAnswer, status, flaggedCorrect: true, flaggedCount, confusedWith: confusedWith.length > 0 ? confusedWith : undefined }
+      notes[idx] = { ...prev, totalCount, userAnswer, status, flaggedCorrect: true, flaggedCount, confusionDismissed: undefined, confusedWith: confusedWith.length > 0 ? confusedWith : undefined }
     }
     saveWrongNotes(notes)
     return
@@ -1107,6 +1108,19 @@ export function addFlaggedCorrectNote(
     ...(confusedWith.length > 0 ? { confusedWith } : {}),
   })
   saveWrongNotes(notes)
+}
+
+/** D-1 암기장 "헷갈린 곳" 목록에서 문제들을 지운다. 오답노트의 문제·분석·메모는 그대로 남는다 */
+export function dismissConfusion(ids: string[]) {
+  const set = new Set(ids)
+  const notes = getWrongNotes()
+  let changed = false
+  const next = notes.map((n) => {
+    if (!set.has(n.id) || n.confusionDismissed) return n
+    changed = true
+    return { ...n, confusionDismissed: true }
+  })
+  if (changed) saveWrongNotes(next)
 }
 
 // 정답 시 totalCount만 증가, 위험도 재계산
