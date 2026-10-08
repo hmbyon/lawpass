@@ -374,12 +374,16 @@ export function recognizeBracket(pts: P[], bbox: BBox): BracketChar | null {
  *  - 꺾임이 한곳에 몰려 있으면 호가 아니다: 어느 구간의 방향 변화도 전체 휨의 일정 비율을 넘지 못한다.
  *    < > 의 꼭짓점, [ ] 의 모서리는 방향이 한 점에서 확 바뀌므로 여기서 걸러진다
  */
-function roundBracket(pts: P[], bbox: BBox): BracketChar | null {
+export function roundBracket(pts: P[], bbox: BBox, why?: { reason?: string }): BracketChar | null {
+  const no = (reason: string): null => {
+    if (why) why.reason = reason
+    return null
+  }
   const w = bbox.x1 - bbox.x0
   const h = bbox.y1 - bbox.y0
-  if (h < 16 || h < 1.3 * w) return null
+  if (h < 16 || h < 1.3 * w) return no('size')
   const raw = resample(pts, 40)
-  if (raw.length < 12) return null
+  if (raw.length < 12) return no('resample')
   // 이동평균(폭 5). 양끝은 그대로 둬서 현이 줄지 않게 한다
   const r = raw.map((p, i) => {
     if (i < 2 || i > raw.length - 3) return p
@@ -395,40 +399,40 @@ function roundBracket(pts: P[], bbox: BBox): BracketChar | null {
   const b = r[r.length - 1]
   // 위→아래(또는 아래→위) 한 방향으로 간다
   const dirY = Math.sign(b.y - a.y)
-  if (dirY === 0 || Math.abs(b.y - a.y) < 0.7 * h) return null
+  if (dirY === 0 || Math.abs(b.y - a.y) < 0.7 * h) return no('direction')
   let forward = 0
   for (let i = 1; i < r.length; i++) if ((r[i].y - r[i - 1].y) * dirY >= -0.04 * h) forward++
-  if (forward < 0.9 * (r.length - 1)) return null
+  if (forward < 0.9 * (r.length - 1)) return no('forward')
 
   // 현에서 벗어난 부호 있는 거리
   const cx = b.x - a.x
   const cy = b.y - a.y
   const clen = Math.hypot(cx, cy)
-  if (clen === 0) return null
+  if (clen === 0) return no('chord0')
   const dev = r.map((p) => ((p.x - a.x) * cy - (p.y - a.y) * cx) / clen)
   let peak = 0
   for (let i = 1; i < dev.length - 1; i++) if (Math.abs(dev[i]) > Math.abs(dev[peak])) peak = i
   const m = Math.abs(dev[peak])
-  if (m < 0.1 * h || m > 0.5 * h) return null
+  if (m < 0.1 * h || m > 0.6 * h) return no('bulge')
   // 양끝 쪽 15% 는 손이 흔들리기 쉬우니 빼고, 나머지는 같은 쪽에 있어야 한다
   const lo = Math.round(dev.length * 0.15)
   const hi = dev.length - lo
   const side = Math.sign(dev[peak])
   let same = 0
   for (let i = lo; i < hi; i++) if (dev[i] * side > 0) same++
-  if (same < 0.9 * (hi - lo)) return null
+  if (same < 0.9 * (hi - lo)) return no('side')
   // 배는 가운데쯤
-  if (peak < 0.25 * dev.length || peak > 0.75 * dev.length) return null
+  if (peak < 0.25 * dev.length || peak > 0.75 * dev.length) return no('peakpos')
   // 꺾임이 없다: 이동평균을 거친 뒤에도 6칸(전체의 15%) 사이 방향이 크게 바뀌는 곳이 있으면 모서리다.
-  // 고르게 휜 호는 그 구간에서 전체 휨의 15% 안팎(배가 아주 큰 호도 20° 남짓)만 바뀌고,
-  // < > 의 꼭짓점과 [ ] 의 모서리는 한 자리에서 60° 넘게 꺾인다
+  // 고르게 휜 호는 그 구간에서 전체 휨의 15% 안팎만 바뀌지만, 작은 호는 손 떨림이 더해져 45° 까지 본다.
+  // < > 의 꼭짓점과 [ ] 의 모서리는 한 자리에서 대개 60° 넘게 꺾인다
   const step = 3
   const heading = (i: number) => Math.atan2(r[i + step].y - r[i].y, r[i + step].x - r[i].x)
   for (let i = 0; i + 2 * step < r.length; i++) {
     let d = heading(i + step) - heading(i)
     while (d > Math.PI) d -= 2 * Math.PI
     while (d < -Math.PI) d += 2 * Math.PI
-    if (Math.abs(d) * (180 / Math.PI) > 35) return null
+    if (Math.abs(d) * (180 / Math.PI) > 45) return no('corner')
   }
   // 배가 현의 왼쪽에 있으면 '(' — 현의 같은 높이 x 와 견준다
   const t = (r[peak].y - a.y) / (b.y - a.y)
