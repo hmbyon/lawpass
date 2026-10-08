@@ -82,11 +82,11 @@ export function StyleSwatch({ style, color }: { style: HighlightStyle; color: Hi
     )
   }
   if (style === 'wave') {
-    // 물결: 본문 물결 밑줄과 같은 모양(16×10 곡선, 진폭 약 2.8px)
+    // 물결: 본문 물결 밑줄과 같은 모양(16×7 곡선, 진폭 약 1.8px)
     return (
       <span className="flex w-full h-full items-end justify-center pb-0.5">
-        <svg width="20" height="10" viewBox="0 0 20 10" aria-hidden className="overflow-visible">
-          <path d="M0 5 Q2.5 -0.5 5 5 T10 5 T15 5 T20 5" fill="none" stroke={HIGHLIGHT_COLOR_HEX[color]} strokeWidth="2" strokeLinecap="round" />
+        <svg width="20" height="7" viewBox="0 0 20 7" aria-hidden className="overflow-visible">
+          <path d="M0 3.5 Q2.5 0 5 3.5 T10 3.5 T15 3.5 T20 3.5" fill="none" stroke={HIGHLIGHT_COLOR_HEX[color]} strokeWidth="2" strokeLinecap="round" />
         </svg>
       </span>
     )
@@ -337,7 +337,7 @@ export function HighlightEditor({ questionId, onChanged, className, children }: 
           type="button"
           onClick={togglePen}
           aria-pressed={penOn}
-          title="펜슬(또는 마우스를 누른 채)로 본문에 밑줄(—)·물결(∿)·원(○)·X 를 그으면 알아보고 표시로 남깁니다. 글자 사이에 괄호 [ ] < > 를 한 획씩 그으면 그 자리에 끼워 넣어요. 켜 두면 마우스로 끌어서 글자를 고르는 건 안 돼요"
+          title="펜슬(또는 마우스를 누른 채)로 본문에 밑줄(—)·물결(∿)·원(○)·X 를 그으면 알아보고 표시로 남깁니다. 글자 사이에 괄호 [ ] < > ( ) 를 한 획씩 그으면 그 자리에 끼워 넣어요. 켜 두면 마우스로 끌어서 글자를 고르는 건 안 돼요"
           className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all ${
             penOn
               ? 'bg-primary/15 text-primary border-primary/40'

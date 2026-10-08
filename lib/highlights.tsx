@@ -93,7 +93,7 @@ export const HIGHLIGHT_UNDERLINE_CLASSES: Record<HighlightColor, string> = {
   gray: `bg-[linear-gradient(#6b7280,#6b7280)] dark:bg-[linear-gradient(#9ca3af,#9ca3af)] ${UL}`,
 }
 
-// 물결 밑줄: 16×10px 곡선을 가로로 반복하는 배경이다(globals.css 의 .hl-wave, 색은 .hl-wave-<색>).
+// 물결 밑줄: 16×7px 곡선을 가로로 반복하는 배경이다(globals.css 의 .hl-wave, 색은 .hl-wave-<색>).
 // 브라우저 기본 물결(text-decoration: wavy)은 잔물결이라 직선과 구별이 안 돼서 바꿨다.
 // 취소선(text-decoration)과 속성이 겹치지 않아 함께 켜져도 둘 다 그려진다.
 // 지우개 hover(hover:line-through)는 이 선 위에 붉은 줄을 덮어 신호로 쓴다
