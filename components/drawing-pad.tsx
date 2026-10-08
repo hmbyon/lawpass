@@ -209,6 +209,9 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
   const live = useRef<DrawingStroke | null>(null)
   // 솎아내기 기준이 되는, 마지막으로 받아들인 점 (화면 픽셀)
   const lastPx = useRef<[number, number] | null>(null)
+  // 획을 시작할 때 한 번 잰 캔버스 위치. 점마다 getBoundingClientRect 를 부르면 그때마다 레이아웃을
+  // 강제로 다시 계산해, 페이지가 무거울 때 이벤트를 따라가지 못하고 점이 듬성듬성해진다
+  const rectRef = useRef<DOMRect | null>(null)
   // 획 지우개로 문지르는 중인지. 이때는 새 획을 만들지 않는다.
   // 어느 포인터가 문지르고 있는지는 아래 activePointer 가 함께 쥔다 — 그리기와 같은 규칙이다
   const wiping = useRef(false)
@@ -240,8 +243,11 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
     const inside = (n: Node | null) => !!n && !!asideRef.current?.contains(n)
     const block = (e: Event) => {
       // 그림판 패널 안(제목줄·버튼·도구)에서는 글자 선택이 필요 없다. 획을 긋는 중이 아니어도 막는다 —
-      // 손바닥을 얹어 둔 채 길게 누르기로 걸리는 선택은 그리는 중이 아닌 때에도 생긴다
-      if (activePointer.current !== null || inside(e.target as Node | null)) e.preventDefault()
+      // 손바닥을 얹어 둔 채 길게 누르기로 걸리는 선택은 그리는 중이 아닌 때에도 생긴다.
+      // 패널 밖은 여기서 막지 않는다: 이전에는 '획을 긋는 중(activePointer)'이면 문서 어디서든 막았는데,
+      // 아이패드에서 pointerup 을 못 받으면 그 값이 남아 본문 글자 선택이 계속 막혔다.
+      // 패널 밖은 펜슬이 쓰는 동안만 켜지는 .pen-writing(시간이 지나면 풀린다)이 맡는다
+      if (inside(e.target as Node | null)) e.preventDefault()
     }
     // selectstart 를 거치지 않고 걸리는 선택(사파리 길게 누르기)은 걸린 뒤에 걷어 낸다
     const clear = () => {
@@ -400,6 +406,7 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
         commitLive()
       }
       e.currentTarget.setPointerCapture?.(e.pointerId)
+      rectRef.current = e.currentTarget.getBoundingClientRect()
       const { ratio, px } = at(e)
       if (tool === 'strokeEraser') {
         wiping.current = true
@@ -444,7 +451,7 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
       typeof native.getCoalescedEvents === 'function' && native.getCoalescedEvents().length > 0
         ? native.getCoalescedEvents()
         : [native]
-    const r = e.currentTarget.getBoundingClientRect()
+    const r = rectRef.current ?? e.currentTarget.getBoundingClientRect()
     const rw = r.width || 1
     const ctx = canvasRef.current?.getContext('2d')
     for (const ev of samples) {
