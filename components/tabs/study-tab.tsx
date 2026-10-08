@@ -121,17 +121,21 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
     // ("풀던 퀴즈 이어서 하기"로 답안을 유지한 채 재진입할 수 있어야 한다)
     if (completed) clearSavedSession()
 
-    if (activeSession) {
+    // 실제로 답한 문항
+    const answered = new Set(result?.answeredQuestionIds ?? [])
+    // "풀던 퀴즈 이어서 하기"로 들어오면 activeSession 이 비어 있다(나갈 때 비우므로). 그때는 답한 문항이
+    // 속한 학습 세션을 찾아 이어 붙인다 — 안 그러면 끝까지 풀고 채점해도 학습 카드가 "일부만 풀이 완료"로 남는다
+    const session = activeSession ?? findSessionForQuestions(answered)
+    if (session) {
       // 출제 범위가 아니라 실제로 답한 문항만 풀이 완료로 기록한다
-      const answered = new Set(result?.answeredQuestionIds ?? [])
-      const newlyQuizzed = activeSession.allQuestions
+      const newlyQuizzed = session.allQuestions
         .map((q, i) => (answered.has(q.id) ? i : -1))
         .filter((i) => i >= 0)
 
       const updated: SavedStudySession = {
-        ...activeSession,
+        ...session,
         quizzedIndices: Array.from(
-          new Set([...activeSession.quizzedIndices, ...newlyQuizzed])
+          new Set([...session.quizzedIndices, ...newlyQuizzed])
         ).sort((a, b) => a - b),
       }
       const total = updated.allQuestions.length
@@ -149,6 +153,22 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
     setPreviewVisited([])
     setPhase('filter')
     onDone()
+  }
+
+  // 답한 문항들이 들어 있는 저장된 학습 세션. 여럿이면 겹치는 문항이 많은 것, 같으면 최근 것.
+  // 문항이 하나도 겹치지 않으면 null (엉뚱한 세션에 기록하지 않는다)
+  function findSessionForQuestions(answeredIds: Set<string>): SavedStudySession | null {
+    if (answeredIds.size === 0) return null
+    let best: SavedStudySession | null = null
+    let bestOverlap = 0
+    for (const s of getSavedStudySessions()) {
+      const overlap = s.allQuestions.filter((q) => answeredIds.has(q.id)).length
+      if (overlap > bestOverlap || (overlap === bestOverlap && overlap > 0 && best && s.savedAt > best.savedAt)) {
+        best = s
+        bestOverlap = overlap
+      }
+    }
+    return best
   }
 
   function handleResumePreview(session: SavedStudySession, startIndex?: number) {
