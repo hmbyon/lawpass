@@ -36,6 +36,7 @@ export function CbtTab({ questions, onDone }: { questions: Question[]; onDone: (
         initialIndex={savedSession.currentIndex}
         initialAnswers={savedSession.answers}
         initialStatuses={savedSession.statuses}
+        initialConfusedWith={savedSession.confusedWith}
         initialElapsed={savedSession.elapsedSeconds}
         sessionId={savedSession.id}
         onFinish={() => {

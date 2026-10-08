@@ -11,6 +11,7 @@ import { SORT_OPTIONS, sortNotes, type SortOption } from '@/lib/noteSort'
 import { getAppMode } from '@/lib/appMode'
 import { loadHighlights, renderHighlighted } from '@/lib/highlights'
 import { HighlightEditor } from '@/components/highlight-editor'
+import { SubItemList } from '@/components/quiz/sub-item-list'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const RISKS = ['★1', '★2', '★3', '★4', '★5']
@@ -80,6 +81,10 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
             <p ref={fieldRef('passage')} className="text-foreground leading-relaxed text-xs whitespace-pre-wrap select-text">
               {renderHighlighted(note.question.passage, 'passage', highlights, removeHighlight)}
             </p>
+            {/* ㄱㄴㄷ 보기가 지문과 따로 저장된 문제 */}
+            <div className="mt-2">
+              <SubItemList question={note.question} small />
+            </div>
           </div>
 
           {/* 선지 */}
@@ -98,6 +103,11 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
                   <span ref={fieldRef(`choice_${c.label}`)} className="flex-1 select-text">
                     {renderHighlighted(c.text, `choice_${c.label}`, highlights, removeHighlight)}
                   </span>
+                  {note.confusedWith?.includes(c.label) && (
+                    <span className="ml-auto shrink-0 text-amber-600 dark:text-amber-400">
+                      {note.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'}
+                    </span>
+                  )}
                   {c.label === note.question.answer && <span className="ml-auto shrink-0">✓ 정답</span>}
                   {c.label === note.userAnswer && c.label !== note.question.answer && <span className="ml-auto shrink-0">✗ 내 답</span>}
                 </div>
@@ -125,6 +135,9 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
             내 답: <span className="text-red-400 font-medium">{note.userAnswer}</span>{' '}
             정답: <span className="text-emerald-400 font-medium">{note.question.answer}</span>
             {note.status && <span className="ml-2 text-yellow-400">({note.status})</span>}
+            {note.confusedWith && note.confusedWith.length > 0 && (
+              <span className="ml-2 text-amber-500">같이 헷갈린 선지 {note.confusedWith.join(' ')}</span>
+            )}
           </div>
 
           {/* AI 분석 */}
@@ -454,6 +467,11 @@ export function WrongTab({
                     <p className="text-sm text-foreground line-clamp-1">
                       {renderHighlighted(note.question.passage.slice(0, 70), 'passage', listHighlights)}...
                     </p>
+                    {note.confusedWith && note.confusedWith.length > 0 && (
+                      <p className="text-xs text-amber-500">
+                        {note.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'} {note.confusedWith.join(' ')}
+                      </p>
+                    )}
                     <p className="text-xs text-muted-foreground">
                       {new Date(note.createdAt).toLocaleDateString('ko-KR')}
                     </p>

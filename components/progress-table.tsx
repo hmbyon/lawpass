@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import type { ExamType, Question, Subject, WrongNote } from '@/lib/types'
 import { getPoolQuestions, getQuestions } from '@/lib/store'
+import { solvedCountOf, type SolvedMap } from '@/lib/solvedMerge'
 
 /**
  * 진도표 — 과목·연도·단원별 풀이 현황.
@@ -53,12 +54,19 @@ export function progressQuestions(): Question[] {
   return [...getQuestions(), ...getPoolQuestions()]
 }
 
-export function computeProgress(questions: Question[], wrongNotes: WrongNote[]): Record<string, ProgressRow[]> {
-  const solvedIds = new Set(
-    wrongNotes.filter((n) => (n.totalCount ?? 0) > 0).map((n) => n.questionId)
-  )
-  // 문제마다 몇 번 풀었는가. 맞았든 틀렸든 풀 때마다 totalCount 가 오른다
-  const countById = new Map(wrongNotes.map((n) => [n.questionId, n.totalCount ?? 0]))
+export function computeProgress(
+  questions: Question[],
+  wrongNotes: WrongNote[],
+  // 채점된 문제의 푼 횟수(맞힌 문제 포함). 오답노트에는 틀렸거나 표시한 문제만 있어 이것이 없으면 맞힌 문제가 빠진다
+  solved: SolvedMap = {}
+): Record<string, ProgressRow[]> {
+  const noteTotals = new Map(wrongNotes.map((n) => [n.questionId, n.totalCount ?? 0]))
+  // 문제마다 몇 번 풀었는가. 맞았든 틀렸든 풀 때마다 오른다 (옛 기록은 오답노트 횟수로 이어 본다)
+  const countById = new Map<string, number>()
+  for (const id of new Set([...noteTotals.keys(), ...Object.keys(solved)])) {
+    countById.set(id, solvedCountOf(id, solved, noteTotals.get(id)))
+  }
+  const solvedIds = new Set([...countById].filter(([, c]) => c > 0).map(([id]) => id))
 
   const rowMap = new Map<string, ProgressRow & { subject: Subject }>()
   for (const q of questions) {

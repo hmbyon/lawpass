@@ -424,7 +424,9 @@ export async function analyzeWrongAnswer(
   question: Question,
   userAnswer: string,
   questionStatus: QuestionStatus,
-  isStudyMode: boolean
+  isStudyMode: boolean,
+  // 헷갈림/찍음일 때 같이 헷갈렸다고 고른 선지. 어디서 갈렸는지를 분석에 반영한다
+  confusedWith: string[] = []
 ): Promise<ErrorAnalysis> {
   const res = await fetchWithRetry('/api/analyze', {
     method: 'POST',
@@ -441,6 +443,7 @@ export async function analyzeWrongAnswer(
       },
       userAnswer,
       questionStatus,
+      confusedWith,
       isStudyMode,
     }),
   })

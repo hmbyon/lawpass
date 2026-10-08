@@ -3,9 +3,9 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { User } from 'firebase/auth'
 import type { Question, WrongNote } from '@/lib/types'
-import { FOREIGN_DRAWINGS_CHANGED_EVENT, getQuestions, getPoolQuestions, getWrongNotes, clearAll , isInMemoList, hasPendingSync } from '@/lib/store'
+import { FOREIGN_DRAWINGS_CHANGED_EVENT, SOLVED_CHANGED_EVENT, getQuestions, getPoolQuestions, getWrongNotes, clearAll , isInMemoList, hasPendingSync } from '@/lib/store'
 import { logout } from '@/lib/firebaseServices/auth'
-import { pullFromFirebase, pushToFirebase, syncHighlights, syncForeignDrawings, fetchAdminQuestions, ADMIN_UID } from '@/lib/firebaseServices/sync'
+import { pullFromFirebase, pushToFirebase, syncHighlights, syncForeignDrawings, syncSolved, fetchAdminQuestions, ADMIN_UID } from '@/lib/firebaseServices/sync'
 import { HIGHLIGHTS_CHANGED_EVENT } from '@/lib/highlights'
 import { recordUserDirectory } from '@/lib/firebaseServices/userDirectory'
 import { isAccountSwitch, rememberUid, unsyncedModes, clearAccountData } from '@/lib/accountSwitch'
@@ -228,6 +228,8 @@ export function AppShell({ user }: Props) {
       await syncHighlights(user.uid).catch((e) => console.error('표시 동기화 실패', e))
       // 관리자 공유 문제에 그린 그림도 같은 방식으로 맞춘다
       await syncForeignDrawings(user.uid).catch((e) => console.error('공유 문제 그림 동기화 실패', e))
+      // 푼 문제 기록(맞힌 문제 포함)도 맞춘다
+      await syncSolved(user.uid).catch((e) => console.error('푼 문제 동기화 실패', e))
     } catch (e) {
       // 실패해도 로컬 데이터는 그대로다 (pullFromFirebase가 로컬을 건드리기 전에 던진다)
       console.error('Firebase 동기화 실패 (오프라인?)', e)
@@ -253,13 +255,16 @@ export function AppShell({ user }: Props) {
         timer = null
         syncHighlights(user.uid).catch((e) => console.error('표시 동기화 실패', e))
         syncForeignDrawings(user.uid).catch((e) => console.error('공유 문제 그림 동기화 실패', e))
+        syncSolved(user.uid).catch((e) => console.error('푼 문제 동기화 실패', e))
       }, 3000)
     }
     window.addEventListener(HIGHLIGHTS_CHANGED_EVENT, onChanged)
     window.addEventListener(FOREIGN_DRAWINGS_CHANGED_EVENT, onChanged)
+    window.addEventListener(SOLVED_CHANGED_EVENT, onChanged)
     return () => {
       window.removeEventListener(HIGHLIGHTS_CHANGED_EVENT, onChanged)
       window.removeEventListener(FOREIGN_DRAWINGS_CHANGED_EVENT, onChanged)
+      window.removeEventListener(SOLVED_CHANGED_EVENT, onChanged)
       if (timer !== null) window.clearTimeout(timer)
     }
   }, [user.uid])

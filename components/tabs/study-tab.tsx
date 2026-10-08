@@ -25,6 +25,7 @@ import {
 import type { BoldRange } from '@/lib/highlights'
 import { PassageTable } from '@/components/passage-table'
 import { QuestionImages } from '@/components/question-images'
+import { resolveSubChoices, SUB_LABEL_CHARS, SUB_LABEL_MAP, OX_CHAR_CLASS } from '@/lib/subChoices'
 import { DrawLayer, useDrawBoard } from '@/components/quiz/draw-layer'
 import PenAnnotateLayer, { type PenGesture } from '@/components/pen-annotate-layer'
 import { PenColorPicker, STYLE_LABELS, StyleSwatch } from '@/components/highlight-editor'
@@ -228,6 +229,7 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
         initialIndex={saved?.currentIndex ?? 0}
         initialAnswers={saved?.answers ?? {}}
         initialStatuses={saved?.statuses}
+        initialConfusedWith={saved?.confusedWith}
         initialElapsed={saved?.elapsedSeconds ?? 0}
         onFinish={handleQuizFinish}
       />
@@ -334,74 +336,6 @@ function getTextOffset(container: Node, node: Node, offset: number): number {
   return range.toString().length
 }
 
-// 유니코드 한글 음절 조합 순서의 초성 19자
-const CHOSEONG = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ']
-const HANGUL_SYLLABLE_BASE = 0xac00 // '가'
-const CHOSEONG_STRIDE = 588 // 중성 21 × 종성 28
-
-// 자음 라벨을 같은 순서의 가나다 라벨로 변환한다 (중성 'ㅏ', 받침 없음)
-// 예: 'ㄱ' → '가', 'ㅁ' → '마', 'ㅎ' → '하'
-function syllableForConsonant(consonant: string): string | null {
-  const index = CHOSEONG.indexOf(consonant)
-  return index < 0 ? null : String.fromCharCode(HANGUL_SYLLABLE_BASE + index * CHOSEONG_STRIDE)
-}
-
-// 라벨로 인정할 자음: ㄱ~ㅎ (쌍자음은 보기 라벨로 쓰이지 않으므로 제외)
-const SUB_LABEL_CONSONANTS = CHOSEONG.filter((c) => !'ㄲㄸㅃㅆㅉ'.includes(c))
-
-// { 'ㄱ': 'ㄱ', '가': 'ㄱ', 'ㄴ': 'ㄴ', '나': 'ㄴ', ... 'ㅎ': 'ㅎ', '하': 'ㅎ' }
-// 글자를 직접 나열하지 않고 계산으로 만들어, 새로운 라벨(ㅂ/바, ㅅ/사 …)도 코드 수정 없이 인식된다
-const SUB_LABEL_MAP: Record<string, string> = Object.fromEntries(
-  SUB_LABEL_CONSONANTS.flatMap((consonant) => {
-    const syllable = syllableForConsonant(consonant)
-    const entries: [string, string][] = [[consonant, consonant]]
-    if (syllable) entries.push([syllable, consonant])
-    return entries
-  })
-)
-
-// 보기 항목 라벨로 인정하는 문자들. 마커 정규식들이 이 상수를 공유해야
-// SUB_LABEL_MAP과 어긋나지 않는다 (ㅁ/마가 빠져 ㄹ 항목에 흡수되던 버그)
-const SUB_LABEL_CHARS = Object.keys(SUB_LABEL_MAP).join('')
-
-const OX_CHAR_CLASS = 'OoXx○◯〇×✕✗ＯＸ'
-
-interface SubChoice {
-  stem: string
-  items: { label: string; text: string }[]
-}
-
-function parseSubChoices(passage: string): SubChoice | null {
-  const regex = new RegExp(`(?:^|\n)[ \t]*([${SUB_LABEL_CHARS}])[ \t]*\\.[ \t]*`, 'g')
-  const markers: { label: string; start: number; contentStart: number }[] = []
-  let m: RegExpExecArray | null
-  while ((m = regex.exec(passage))) {
-    const label = SUB_LABEL_MAP[m[1]]
-    if (!label) continue
-    const labelIndex = m.index + m[0].indexOf(m[1])
-    markers.push({ label, start: labelIndex, contentStart: m.index + m[0].length })
-  }
-  if (markers.length < 2) return null
-
-  // 표·서식 안의 "가.", "다." 같은 산발적 표기를 하위지문으로 오인하지 않도록,
-  // 실제 보기 항목처럼 ㄱ부터 순서대로 이어지는 경우만 인정한다
-  const order = markers.map((m) => SUB_LABEL_CONSONANTS.indexOf(m.label))
-  if (order[0] !== 0) return null
-  if (order.some((v, i) => i > 0 && v !== order[i - 1] + 1)) return null
-
-  const stem = passage.slice(0, markers[0].start).trim()
-  const items: { label: string; text: string }[] = []
-  for (let i = 0; i < markers.length; i++) {
-    const textStart = markers[i].contentStart
-    const textEnd = i + 1 < markers.length ? markers[i + 1].start : passage.length
-    const text = passage.slice(textStart, textEnd).trim()
-      .replace(new RegExp(`\\s*\\([${OX_CHAR_CLASS}]\\)\\.?\\s*$`), '')
-      .trim()
-    if (text) items.push({ label: markers[i].label, text })
-  }
-  return items.length >= 2 ? { stem, items } : null
-}
-
 // 원본에서 밑줄로 강조돼 있던 구간을 AI가 **텍스트** 형태로 표시해 준다.
 // 형광펜 오프셋은 화면에 렌더된 텍스트 기준이므로, ** 마크를 제거한 문자열과
 // 그 문자열 기준 볼드 범위를 함께 돌려줘야 두 기능이 어긋나지 않는다
@@ -446,39 +380,6 @@ function toExplanationBlocks(raw: string | ExplanationBlock[] | undefined): Expl
     return content ? [{ type: 'text', content }] : []
   }
   return raw.filter((b) => b?.content?.trim())
-}
-
-function escapeRegExp(text: string) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-// subItems에는 발문(stem)이 없다. 지문에서 첫 항목이 시작되는 위치를 찾아 그 앞을 발문으로 자른다.
-// 못 찾으면 기존 정규식 파싱의 stem으로, 그것도 없으면 지문 전체로 폴백한다
-function stemForSubItems(passage: string, items: { label: string; text: string }[]): string {
-  const first = items[0]
-  if (!first) return passage
-
-  const probe = first.text.trim().slice(0, 20)
-  let idx = probe ? passage.indexOf(probe) : -1
-  if (idx < 0) {
-    idx = passage.search(new RegExp(`(?:^|\n)\\s*${escapeRegExp(first.label)}\\s*[.)]`))
-  }
-  if (idx < 0) return parseSubChoices(passage)?.stem ?? passage
-
-  // 본문 앞에 남은 라벨 표기("ㄱ." 등)까지 함께 잘라낸다
-  return passage
-    .slice(0, idx)
-    .replace(new RegExp(`\\s*${escapeRegExp(first.label)}\\s*[.)]?\\s*$`), '')
-    .trim()
-}
-
-// subItems(구조화 추출)를 우선 사용하고, 없으면 지문 정규식 파싱으로 폴백한다
-function resolveSubChoices(q: Question): SubChoice | null {
-  if (q.subItems?.length) {
-    const items = q.subItems.map((it) => ({ label: it.label, text: it.text }))
-    return { stem: stemForSubItems(q.passage, items), items }
-  }
-  return parseSubChoices(q.passage)
 }
 
 function parseSubExplanations(explanation: string | null): Record<string, string> {

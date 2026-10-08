@@ -3,17 +3,20 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { Question, QuestionStatus, WrongNote, CauseType } from '@/lib/types'
 import { analyzeWrongAnswer, mapWithConcurrency } from '@/lib/gemini'
-import { addWrongNote, addCorrectNote, addFlaggedCorrectNote, saveSession, clearSavedSession, getRiskLevel } from '@/lib/store'
+import { addWrongNote, addCorrectNote, addFlaggedCorrectNote, recordSolved, saveSession, clearSavedSession, getRiskLevel } from '@/lib/store'
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
 import { PassageTable } from '@/components/passage-table'
 import { QuestionImages } from '@/components/question-images'
 import { DrawLayer, useDrawBoard } from '@/components/quiz/draw-layer'
+import { SubItemList } from '@/components/quiz/sub-item-list'
 
 interface QuizItem {
   question: Question
   userAnswer: string | null
   status: QuestionStatus
+  // 헷갈림/찍음일 때 같이 헷갈린 선지 (예: ['①','③'])
+  confusedWith: string[]
 }
 
 interface QuizEngineProps {
@@ -25,6 +28,7 @@ interface QuizEngineProps {
   initialIndex?: number
   initialAnswers?: Record<string, string | null>
   initialStatuses?: Record<string, QuestionStatus>
+  initialConfusedWith?: Record<string, string[]>
   initialElapsed?: number
   sessionId?: string
 }
@@ -48,6 +52,7 @@ export function QuizEngine({
   initialIndex = 0,
   initialAnswers = {},
   initialStatuses = {},
+  initialConfusedWith = {},
   initialElapsed = 0,
   sessionId,
 }: QuizEngineProps) {
@@ -56,6 +61,8 @@ export function QuizEngine({
       question: q,
       userAnswer: initialAnswers[q.id] ?? null,
       status: initialStatuses[q.id] ?? null,
+      // 표시가 없는 문제에 옛 값이 남아 있어도 쓰지 않는다
+      confusedWith: initialStatuses[q.id] ? (initialConfusedWith[q.id] ?? []) : [],
     }))
   )
   const [current, setCurrent] = useState(initialIndex)
@@ -79,13 +86,19 @@ export function QuizEngine({
     const interval = setInterval(() => {
       const answers: Record<string, string | null> = {}
       const statuses: Record<string, QuestionStatus> = {}
-      items.forEach((it) => { answers[it.question.id] = it.userAnswer; statuses[it.question.id] = it.status })
+      const confusedWith: Record<string, string[]> = {}
+      items.forEach((it) => {
+        answers[it.question.id] = it.userAnswer
+        statuses[it.question.id] = it.status
+        if (it.confusedWith.length > 0) confusedWith[it.question.id] = it.confusedWith
+      })
       saveSession({
         id: sid,
         mode,
         questions,
         answers,
         statuses,
+        confusedWith,
         currentIndex: current,
         timeLimitSeconds,
         elapsedSeconds: elapsed,
@@ -126,10 +139,13 @@ export function QuizEngine({
       (item) => item.userAnswer !== null && item.userAnswer !== item.question.answer
     )
 
+    // 채점된 문제는 맞혔든 틀렸든 푼 문제로 센다. 오답노트에는 틀린 것만 남아 맞힌 문제가 빠졌었다
+    recordSolved([...correctItems, ...wrongItems].map((item) => item.question.id))
+
     for (const item of correctItems) {
       // 맞혔어도 헷갈림/찍음으로 표시했다면 다시 볼 문제라서 오답노트에 남긴다
       if (item.status) {
-        addFlaggedCorrectNote(item.question, item.userAnswer!, item.status, mode === 'study')
+        addFlaggedCorrectNote(item.question, item.userAnswer!, item.status, mode === 'study', item.confusedWith)
       } else {
         addCorrectNote(item.question.id)
       }
@@ -155,7 +171,8 @@ export function QuizEngine({
           item.question,
           item.userAnswer!,
           item.status,
-          mode === 'study'
+          mode === 'study',
+          item.confusedWith
         )
         const note: WrongNote = {
           id: `${item.question.id}_${Date.now()}`,
@@ -163,6 +180,7 @@ export function QuizEngine({
           question: item.question,
           userAnswer: item.userAnswer!,
           status: item.status,
+          ...(item.confusedWith.length > 0 ? { confusedWith: item.confusedWith } : {}),
           isStudyMode: mode === 'study',
           analysis,
           analysisHistory: [],
@@ -182,6 +200,7 @@ export function QuizEngine({
           question: item.question,
           userAnswer: item.userAnswer!,
           status: item.status,
+          ...(item.confusedWith.length > 0 ? { confusedWith: item.confusedWith } : {}),
           isStudyMode: mode === 'study',
           analysis: null,
           analysisHistory: [],
@@ -235,10 +254,26 @@ export function QuizEngine({
   function setStatus(val: QuestionStatus) {
     setItems((prev) => {
       const next = [...prev]
+      const off = next[current].status === val
       next[current] = {
         ...next[current],
-        status: next[current].status === val ? null : val,
+        status: off ? null : val,
+        // 표시를 끄면 같이 고른 선지도 비운다. 헷갈림↔찍음으로 바꿀 때는 그대로 둔다
+        confusedWith: off ? [] : next[current].confusedWith,
       }
+      return next
+    })
+  }
+
+  function toggleConfused(label: string) {
+    setItems((prev) => {
+      const next = [...prev]
+      const cur = next[current].confusedWith
+      const picked = cur.includes(label) ? cur.filter((l) => l !== label) : [...cur, label]
+      // 선지 번호 순서(①②③…)로 둔다 — 고른 순서가 아니라 보기 좋은 순서로 남긴다
+      const order = next[current].question.choices.map((c) => c.label)
+      picked.sort((a, b) => order.indexOf(a) - order.indexOf(b))
+      next[current] = { ...next[current], confusedWith: picked }
       return next
     })
   }
@@ -248,13 +283,19 @@ export function QuizEngine({
     if (!confirm('지금까지 푼 내용을 임시저장하고 나갈까요?')) return
     const answers: Record<string, string | null> = {}
     const statuses: Record<string, QuestionStatus> = {}
-    items.forEach((it) => { answers[it.question.id] = it.userAnswer; statuses[it.question.id] = it.status })
+      const confusedWith: Record<string, string[]> = {}
+    items.forEach((it) => {
+        answers[it.question.id] = it.userAnswer
+        statuses[it.question.id] = it.status
+        if (it.confusedWith.length > 0) confusedWith[it.question.id] = it.confusedWith
+      })
     saveSession({
       id: sid,
       mode,
       questions,
       answers,
       statuses,
+      confusedWith,
       currentIndex: current,
       timeLimitSeconds,
       elapsedSeconds: elapsed,
@@ -333,6 +374,8 @@ export function QuizEngine({
 
       <DrawLayer board={board} questionId={q.id} className="bg-card border border-border rounded-xl p-5 space-y-4">
         <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">{q.passage}</p>
+        {/* 보기(ㄱㄴㄷ)가 지문과 따로 저장된 문제는 여기서 이어 붙인다 */}
+        <SubItemList question={q} />
         {q.passageTable && q.passageTable.length > 0 && (
           <div className="mt-3">
             <PassageTable tables={q.passageTable} />
@@ -385,6 +428,33 @@ export function QuizEngine({
             </label>
           ))}
         </div>
+
+        {/* 헷갈림·찍음을 눌렀을 때만. 어느 선지와 헷갈렸는지 골라 두면 채점 뒤 분석과 오답노트에 남는다 */}
+        {item.status && (
+          <div className="relative z-10 flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">
+              {item.status === '찍음' ? '어느 선지 사이에서 찍었나요?' : '어느 선지와 헷갈렸나요?'}
+            </span>
+            {q.choices.map((c) => {
+              const on = item.confusedWith.includes(c.label)
+              return (
+                <button
+                  key={c.label}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => toggleConfused(c.label)}
+                  className={`rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors ${
+                    on
+                      ? 'border-amber-500 bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-300'
+                      : 'border-border text-muted-foreground hover:border-amber-500/60'
+                  }`}
+                >
+                  {c.label}
+                </button>
+              )
+            })}
+          </div>
+        )}
       </DrawLayer>
 
       {unansweredWarning && (
@@ -454,6 +524,10 @@ function ResultsView({
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const total = items.filter((i) => i.userAnswer !== null).length
   const pct = total > 0 ? Math.round((results.correct / total) * 100) : 0
+  // 맞혔지만 헷갈림/찍음으로 표시한 문제. 오답노트에는 따로 들어가지만 채점 화면에서도 바로 보이게 한다
+  const flaggedCorrect = items.filter(
+    (i) => i.status && i.userAnswer !== null && i.userAnswer === i.question.answer
+  )
 
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
@@ -483,6 +557,11 @@ function ResultsView({
                   <p className="text-sm text-foreground line-clamp-2">{note.question.passage.slice(0, 80)}...</p>
                   <p className="text-xs text-muted-foreground">
                     내 답: {note.userAnswer} · 정답: {note.question.answer}
+                    {note.status && note.confusedWith && note.confusedWith.length > 0 && (
+                      <span className="ml-2 text-amber-500">
+                        {note.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'} {note.confusedWith.join(' ')}
+                      </span>
+                    )}
                   </p>
                 </div>
                 <span className="text-muted-foreground text-sm shrink-0">{expandedId === note.id ? '▲' : '▼'}</span>
@@ -499,6 +578,9 @@ function ResultsView({
                   <div className="bg-muted/40 border border-border/60 rounded-lg p-3">
                     <p className="text-xs text-muted-foreground mb-1">문제 지문</p>
                     <p className="text-foreground leading-relaxed text-xs whitespace-pre-wrap">{note.question.passage}</p>
+                    <div className="mt-2">
+                      <SubItemList question={note.question} small />
+                    </div>
                   </div>
 
                   <div className="space-y-1">
@@ -515,6 +597,11 @@ function ResultsView({
                       >
                         <span className="font-semibold shrink-0">{c.label}</span>
                         <span className="flex-1">{c.text}</span>
+                        {note.confusedWith?.includes(c.label) && (
+                          <span className="ml-auto shrink-0 text-amber-600 dark:text-amber-400">
+                            {note.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'}
+                          </span>
+                        )}
                         {c.label === note.question.answer && <span className="ml-auto shrink-0">✓ 정답</span>}
                         {c.label === note.userAnswer && c.label !== note.question.answer && (
                           <span className="ml-auto shrink-0">✗ 내 답</span>
@@ -546,6 +633,29 @@ function ResultsView({
                   )}
                 </div>
               )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {flaggedCorrect.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-foreground px-1">맞혔지만 표시한 문제</h3>
+          {flaggedCorrect.map((it) => (
+            <div key={it.question.id} className="bg-card border border-border rounded-xl p-4 space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-muted-foreground">{it.question.subject}</span>
+                <span className="text-xs text-amber-500">
+                  {it.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'}
+                </span>
+              </div>
+              <p className="text-sm text-foreground line-clamp-2">{it.question.passage.slice(0, 80)}...</p>
+              <p className="text-xs text-muted-foreground">
+                내 답(정답): {it.userAnswer}
+                {it.confusedWith.length > 0 && (
+                  <span className="ml-2 text-amber-500">같이 헷갈린 선지 {it.confusedWith.join(' ')}</span>
+                )}
+              </p>
             </div>
           ))}
         </div>

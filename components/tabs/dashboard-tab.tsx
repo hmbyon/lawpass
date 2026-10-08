@@ -1,10 +1,12 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Question, WrongNote } from '@/lib/types'
 import { getAppMode } from '@/lib/appMode'
 import { getSourceLabel, setSourceLabel } from '@/lib/sourceLabels'
 import { ProgressTable, computeProgress } from '@/components/progress-table'
+import { getSolvedCounts, SOLVED_CHANGED_EVENT } from '@/lib/store'
+import { solvedCountOf } from '@/lib/solvedMerge'
 
 /**
  * 일반 사용자의 첫 탭 — 학습 현황.
@@ -30,12 +32,29 @@ export function DashboardTab({ questions, wrongNotes, loading = false }: Props) 
   // 이름 수정은 localStorage에만 쓰므로 리렌더를 강제로 일으켜야 바로 반영된다
   const [labelVersion, setLabelVersion] = useState(0)
 
+  // 채점된 문제의 푼 횟수. 오답노트에는 틀렸거나 표시한 문제만 있어서, 맞힌 문제는 이 기록으로 센다.
+  // 동기화로 받은 기록도 바로 반영되도록 바뀔 때마다 다시 읽는다
+  const [solvedCounts, setSolvedCounts] = useState<Record<string, number>>(() => getSolvedCounts())
+  useEffect(() => {
+    const onChanged = () => setSolvedCounts(getSolvedCounts())
+    onChanged()
+    window.addEventListener(SOLVED_CHANGED_EVENT, onChanged)
+    return () => window.removeEventListener(SOLVED_CHANGED_EVENT, onChanged)
+  }, [])
+
   // 진도표와 같은 기준으로 '푼 문제'를 센다 (한 번이라도 채점된 문제)
-  const solvedIds = useMemo(
-    () => new Set(wrongNotes.filter((n) => (n.totalCount ?? 0) > 0).map((n) => n.questionId)),
-    [wrongNotes]
+  const solvedIds = useMemo(() => {
+    const noteTotals = new Map(wrongNotes.map((n) => [n.questionId, n.totalCount ?? 0]))
+    const ids = new Set<string>()
+    for (const id of new Set([...noteTotals.keys(), ...Object.keys(solvedCounts)])) {
+      if (solvedCountOf(id, solvedCounts, noteTotals.get(id)) > 0) ids.add(id)
+    }
+    return ids
+  }, [wrongNotes, solvedCounts])
+  const progress = useMemo(
+    () => computeProgress(questions, wrongNotes, solvedCounts),
+    [questions, wrongNotes, solvedCounts]
   )
-  const progress = useMemo(() => computeProgress(questions, wrongNotes), [questions, wrongNotes])
 
   const solved = questions.filter((q) => solvedIds.has(q.id)).length
 

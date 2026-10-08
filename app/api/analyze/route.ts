@@ -362,7 +362,7 @@ ${SUBJECT_UNITS_JSON}
 
     // ── Mode: analyse a wrong answer ──────────────────────────────────────
     if (mode === 'error') {
-      const { question, userAnswer, questionStatus, isStudyMode } = body as {
+      const { question, userAnswer, questionStatus, confusedWith, isStudyMode } = body as {
         question: {
           subject: string
           passage: string
@@ -372,6 +372,7 @@ ${SUBJECT_UNITS_JSON}
         }
         userAnswer: string
         questionStatus: string | null
+        confusedWith?: string[]
         isStudyMode: boolean
       }
 
@@ -390,6 +391,15 @@ ${SUBJECT_UNITS_JSON}
             ? '헷갈림 → 판정 B 가중'
             : '확신 오답 → 판정 C 가중'
 
+      // 수험생이 직접 짚은, 서로 헷갈린 선지. 선지 문자열만 받아 프롬프트에 넣는다
+      const confusedLabels = Array.isArray(confusedWith)
+        ? confusedWith.filter((l): l is string => typeof l === 'string' && question?.choices?.some((c) => c.label === l))
+        : []
+      const confusedLine =
+        confusedLabels.length > 0
+          ? `수험생이 헷갈렸다고 짚은 선지: ${confusedLabels.join(', ')} (이 선지들 사이에서 어디서 갈렸는지, 무엇이 구별 기준인지를 혼동주의에 구체적으로 짚어 줄 것)\n`
+          : ''
+
       const prompt = `당신은 변호사시험 출제위원 경력 20년의 학습 코치입니다.
 
 [문제]
@@ -400,7 +410,7 @@ ${question.choices.map((c) => `${c.label} ${c.text}`).join('\n')}
 정답: ${question.answer}
 수험생 선택: ${userAnswer}
 수험생 상태: ${statusNote}
-해설: ${question.explanation ?? '제공 없음'}
+${confusedLine}해설: ${question.explanation ?? '제공 없음'}
 
 ★★ 가장 중요한 원칙: 아래 항목들은 **독립된 메모가 아니라 하나의 사안을 설명하는 연속된 글**입니다.
 반드시 위에서 아래 순서로 작성하고, **뒤 항목은 앞 항목에서 세운 내용을 이어받아** 씁니다.

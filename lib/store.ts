@@ -23,6 +23,8 @@ const BASE_KEYS = {
   // 내 문제도 공유받은 문제집 문항도 아닌 문제(관리자 계정이 올려 둔 공유 문제)에 그린 그림.
   // 그런 문제는 내 저장소 어디에도 없어 그림을 붙일 자리가 없었다. 형태: { [questionId]: QuestionDrawing }
   foreignDrawings: 'lawpass_foreign_drawings',
+  // 채점된 문제 id → 푼 횟수. 맞힌 문제는 오답노트에 남지 않아 '풀어본 문제'를 셀 근거가 없었다
+  solvedCounts: 'lawpass_solved_counts',
 } as const
 
 const MODE_SCOPED_BASE_KEYS: string[] = [
@@ -1060,6 +1062,7 @@ export function addFlaggedCorrectNote(
   userAnswer: string,
   status: import('./types').QuestionStatus,
   isStudyMode: boolean,
+  confusedWith: string[] = [],
 ): void {
   const notes = getWrongNotes()
   const idx = notes.findIndex((n) => n.questionId === question.id)
@@ -1071,7 +1074,7 @@ export function addFlaggedCorrectNote(
       const 위험도 = calcRisk(wrongCount, totalCount)
       notes[idx] = { ...prev, totalCount, analysis: prev.analysis ? { ...prev.analysis, 위험도 } : null }
     } else {
-      notes[idx] = { ...prev, totalCount, userAnswer, status, flaggedCorrect: true }
+      notes[idx] = { ...prev, totalCount, userAnswer, status, flaggedCorrect: true, confusedWith: confusedWith.length > 0 ? confusedWith : undefined }
     }
     saveWrongNotes(notes)
     return
@@ -1091,6 +1094,7 @@ export function addFlaggedCorrectNote(
     totalCount: 1,
     isBookmarked: false,
     flaggedCorrect: true,
+    ...(confusedWith.length > 0 ? { confusedWith } : {}),
   })
   saveWrongNotes(notes)
 }
@@ -1262,6 +1266,28 @@ export function getQuestionDrawing(questionId: string): QuestionDrawing | null {
   return getForeignDrawings()[questionId] ?? null
 }
 
+// ── 푼 문제 기록 ──
+// 채점한 문제는 맞혔든 틀렸든 여기에 횟수를 올린다. 오답노트(totalCount)는 틀렸거나 표시한 문제만 갖고
+// 있어서, 처음부터 맞힌 문제는 풀어본 문제·진도·회독에 잡히지 않았다. 기기 간에는 syncSolved 가 맞춘다
+export const SOLVED_CHANGED_EVENT = 'lawpass:solved-changed'
+
+export function getSolvedCounts(): Record<string, number> {
+  return safeGet<Record<string, number>>(modeKey(BASE_KEYS.solvedCounts), {})
+}
+
+export function saveSolvedCounts(map: Record<string, number>) {
+  safeSet(modeKey(BASE_KEYS.solvedCounts), map)
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(SOLVED_CHANGED_EVENT))
+}
+
+/** 채점된 문제들의 푼 횟수를 하나씩 올린다 */
+export function recordSolved(questionIds: string[]) {
+  if (questionIds.length === 0) return
+  const map = getSolvedCounts()
+  for (const id of new Set(questionIds)) map[id] = (map[id] ?? 0) + 1
+  saveSolvedCounts(map)
+}
+
 // ── 내 저장소에 없는 문제(관리자 공유 문제)의 그림 ──
 // 문제 본문은 매번 서버에서 받아오고, 그림만 여기 따로 둔다. 기기 간에는 syncForeignDrawings 가 맞춘다
 export function getForeignDrawings(): Record<string, QuestionDrawing> {
@@ -1328,6 +1354,8 @@ export interface SavedSession {
   answers: Record<string, string | null>
   // 헷갈림/찍음 표시. 옛 임시저장에는 없다
   statuses?: Record<string, import('./types').QuestionStatus>
+  // 헷갈림/찍음 문제에서 같이 헷갈린 선지(문제 id → ['①','③']). 옛 임시저장에는 없다
+  confusedWith?: Record<string, string[]>
   currentIndex: number
   timeLimitSeconds: number | null
   elapsedSeconds: number

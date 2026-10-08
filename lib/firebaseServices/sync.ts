@@ -1,6 +1,6 @@
 import { db } from '@/lib/firebase'
 import { doc, setDoc, getDoc, getDocs, deleteDoc, collection } from 'firebase/firestore'
-import { getForeignDrawings, saveForeignDrawings,
+import { getForeignDrawings, saveForeignDrawings, getSolvedCounts, saveSolvedCounts,
   getQuestions, saveQuestions,
   getWrongNotes, saveWrongNotes,
   getApiKey, setApiKey,
@@ -11,6 +11,7 @@ import { getForeignDrawings, saveForeignDrawings,
 } from '@/lib/store'
 import { getAppMode } from '@/lib/appMode'
 import { mergeDrawings, mergeForeignDrawings, type ForeignDrawingRecord } from '@/lib/drawingMerge'
+import { mergeSolved, solvedToRecords, type SolvedRecord } from '@/lib/solvedMerge'
 import {
   listHighlightRecords, mergeHighlightRecords, writeHighlightRecords,
   type HighlightRecord,
@@ -40,7 +41,7 @@ function syncLog(...args: unknown[]) {
   console.log('[sync]', ...args)
 }
 
-type ListName = 'questions' | 'wrongNotes' | 'studySessions' | 'quizSession' | 'highlights' | 'foreignDrawings'
+type ListName = 'questions' | 'wrongNotes' | 'studySessions' | 'quizSession' | 'highlights' | 'foreignDrawings' | 'solved'
 
 export function byteLength(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).length
@@ -291,6 +292,27 @@ export function syncForeignDrawings(userId: string): Promise<void> {
     if ((remote === null && merged.length === 0) || (!toRemote && remote !== null)) return
     await writeList<ForeignDrawingRecord>(userId, mode, 'foreignDrawings', merged)
     syncLog('공유 문제 그림 동기화', { 이기기: local.length, 받음: fromRemote.length, 합계: merged.length })
+  })
+}
+
+/**
+ * 푼 문제 기록(채점된 횟수)을 기기 간에 맞춘다. 문제마다 큰 쪽을 남긴다.
+ * 읽기에 실패하면 던진다 — 모르는 채로 올리면 다른 기기의 기록을 덮을 수 있다
+ */
+export function syncSolved(userId: string): Promise<void> {
+  return enqueue(async () => {
+    const mode = getAppMode()
+    const remote = await readList<SolvedRecord>(userId, mode, 'solved')
+    const local = getSolvedCounts()
+    const { merged, fromRemote, toRemote } = mergeSolved(local, remote)
+    if (fromRemote.length > 0) {
+      const next = { ...local }
+      for (const r of fromRemote) next[r.id] = r.count
+      saveSolvedCounts(next)
+    }
+    if ((remote === null && merged.length === 0) || (!toRemote && remote !== null)) return
+    await writeList<SolvedRecord>(userId, mode, 'solved', merged)
+    syncLog('푼 문제 동기화', { 이기기: solvedToRecords(local).length, 받음: fromRemote.length, 합계: merged.length })
   })
 }
 

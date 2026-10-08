@@ -5,6 +5,7 @@ import type { Question } from '@/lib/types'
 import type { ExamType, Subject } from '@/lib/types'
 import { SUBJECT_UNITS } from '@/lib/units'
 import { FilterChips } from '@/components/filter-chips'
+import { SubItemList } from '@/components/quiz/sub-item-list'
 import {
   groupBySource, examMonthOf, examMonthValue, EXAM_MONTH_OPTIONS, type ExamMonthLabel,
 } from '@/lib/questionSource'
@@ -61,6 +62,7 @@ function QuestionLine({
             {q.unit ? ` · ${q.unit}` : ''}
           </p>
           <p className="text-foreground whitespace-pre-wrap leading-relaxed">{q.passage}</p>
+          <SubItemList question={q} small />
           <div className="space-y-1">
             {q.choices.map((c) => (
               <div
