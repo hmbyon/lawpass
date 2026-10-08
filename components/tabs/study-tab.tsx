@@ -25,6 +25,7 @@ import type { BoldRange } from '@/lib/highlights'
 import { PassageTable } from '@/components/passage-table'
 import { QuestionImages } from '@/components/question-images'
 import { DrawLayer, useDrawBoard } from '@/components/quiz/draw-layer'
+import PenAnnotateLayer, { type PenGesture } from '@/components/pen-annotate-layer'
 import { DrawingPad, useDockedPad } from '@/components/drawing-pad'
 
 type StudyPhase = 'filter' | 'preview' | 'quiz'
@@ -643,6 +644,34 @@ function StudyBulkPreview({
     [q.id, padSavedAt]
   )
   const fieldRefs = useRef<Record<string, HTMLElement | null>>({})
+
+  // 펜슬로 본문에 직접 긋는 밑줄·원·X 를 알아보는 기능. 글자를 선택하지 않으므로 복사/붙여넣기 메뉴가 뜨지 않는다.
+  // 끄고 싶은 사람을 위해 스위치를 둔다(기본 켜짐). 기기마다 따로 기억한다
+  const [penGesture, setPenGesture] = useState(true)
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('lawpass_pen_gesture') === '0') setPenGesture(false)
+    } catch {}
+  }, [])
+  function togglePenGesture() {
+    setPenGesture((on) => {
+      try {
+        localStorage.setItem('lawpass_pen_gesture', on ? '0' : '1')
+      } catch {}
+      return !on
+    })
+  }
+  // 펜슬 제스처에 쓰는 색은 가장 최근에 팝업에서 고른 색. 처음에는 빨강(밑줄·원·X 모두 고를 수 있는 색)이다
+  const lastColorRef = useRef<HighlightColor>('red')
+  // 이벤트 안에서 최신 하이라이트를 읽기 위한 거울
+  const highlightsRef = useRef<Highlight[]>(highlights)
+  highlightsRef.current = highlights
+  const [penToast, setPenToast] = useState<{ label: string; prev: Highlight[] } | null>(null)
+  useEffect(() => {
+    if (!penToast) return
+    const t = window.setTimeout(() => setPenToast(null), 4500)
+    return () => window.clearTimeout(t)
+  }, [penToast])
   const popupRef = useRef<HTMLDivElement>(null)
   // 실제로 렌더된 팝업 높이. 처음 열기 전에는 잰 적이 없어 어림값으로 시작한다
   const popupHeightRef = useRef(88)
@@ -650,6 +679,7 @@ function StudyBulkPreview({
   useEffect(() => {
     setHighlights(loadHighlights(q.id))
     setHighlightPopup(null)
+    setPenToast(null)
     fieldRefs.current = {}
   }, [q.id])
 
@@ -815,6 +845,7 @@ function StudyBulkPreview({
       selectionTimerRef.current = null
     }
     const { field, start, end } = highlightPopup
+    lastColorRef.current = color
     // 기존 하이라이트와 겹치는 구간은 경계에서 잘라 새 스타일을 더한다(둘 다 남는다). 같은 종류는 그대로 둔다
     const next = applyHighlightStyles(highlights, { id: `h_${Date.now()}`, field, start, end, color, styles: activeStyles })
     setHighlights(next)
@@ -823,6 +854,28 @@ function StudyBulkPreview({
     window.getSelection()?.removeAllRanges()
     // 오답노트 추가는 "☆ 오답노트에 추가" 버튼으로만 한다.
     // 형광펜을 칠했다는 이유로 자동으로 켜지 않는다
+  }
+
+  function applyPenGesture(g: PenGesture) {
+    const prev = highlightsRef.current
+    const next = applyHighlightStyles(prev, {
+      id: `h_${Date.now()}`,
+      field: g.field,
+      start: g.start,
+      end: g.end,
+      color: lastColorRef.current,
+      styles: [g.style],
+    })
+    setHighlights(next)
+    saveHighlights(q.id, next)
+    setPenToast({ label: STYLE_LABELS[g.style], prev })
+  }
+
+  function undoPenGesture() {
+    if (!penToast) return
+    setHighlights(penToast.prev)
+    saveHighlights(q.id, penToast.prev)
+    setPenToast(null)
   }
 
   // 형광펜이 모두 사라지면 북마크 해제. 선지 메모는 이제 북마크와 무관해 따지지 않는다.
@@ -893,6 +946,19 @@ function StudyBulkPreview({
         onTouchEnd={board.enabled ? undefined : handleTouchEnd}
       >
         <div className="flex justify-end gap-1.5">
+          <button
+            type="button"
+            onClick={togglePenGesture}
+            aria-pressed={penGesture}
+            title="펜슬로 본문에 바로 밑줄(—)·원(○)·X 를 그으면 알아보고 표시로 남깁니다"
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all ${
+              penGesture
+                ? 'bg-primary/15 text-primary border-primary/40'
+                : 'bg-muted text-muted-foreground border-border hover:border-primary/40 hover:text-primary'
+            }`}
+          >
+            ✏️ 펜 표시
+          </button>
           {/* 그림판은 이 문제에 딸린 독립 캔버스다. 지문 위 오버레이(그리기)와는 다른 기능이라
               버튼도 따로 둔다 — 저장되는 쪽이 이쪽이다 */}
           {!padDocked && (
@@ -1224,7 +1290,21 @@ function StudyBulkPreview({
             )
           })}
         </div>
+        <PenAnnotateLayer
+          enabled={penGesture && !board.enabled}
+          getFieldEls={() => fieldRefs.current}
+          onGesture={applyPenGesture}
+        />
       </DrawLayer>
+
+      {penToast && (
+        <div className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-full border border-border bg-card/95 px-4 py-2 text-xs shadow-lg backdrop-blur">
+          <span className="text-foreground">{penToast.label} 표시함</span>
+          <button type="button" onClick={undoPenGesture} className="font-medium text-primary hover:underline">
+            되돌리기
+          </button>
+        </div>
+      )}
 
       {/* 붙박이 패널은 늘 떠 있어야 하므로 padOpen 과 무관하게 걸어 둔다.
           key 로 문제마다 새로 여는 것은, 저장된 그림을 그때 불러오기 때문이다 */}
