@@ -238,9 +238,17 @@ mark[data-erasing] {
 
 /* 펜 자동표시로 글자 사이에 끼운 괄호([ ] < >). 글자가 아니라 ::before 내용이라 글자 오프셋을 어긋내지 않는다
    (lib/highlights.tsx withBrackets) */
+/* 본문 글자로 보이지 않게, 글자보다 크고 굵게 그리고 색 알약을 깐다. line-height: 0 이라 줄 간격은 변하지 않는다 */
 .hl-bracket {
-  font-weight: 700;
-  padding: 0 0.06em;
+  font-weight: 800;
+  font-size: 1.55em;
+  line-height: 0;
+  padding: 0 0.12em;
+  margin: 0 0.04em;
+  vertical-align: -0.1em;
+  border-radius: 0.25em;
+  background-color: color-mix(in srgb, currentColor 16%, transparent);
+  -webkit-text-stroke: 0.5px currentColor;
 }
 .hl-bracket::before {
   content: attr(data-bracket);
