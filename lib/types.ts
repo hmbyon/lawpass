@@ -86,7 +86,7 @@ export interface Question {
   unit?: string
   passage: string
   choices: Choice[]
-  answer: string // '①'~'⑤'
+  answer: string // '①'~'⑤'. 교재가 정답 없음으로 처리한 문제는 '정답없음'
   explanation: string | null
   // dedup support
   explanations?: string[]
