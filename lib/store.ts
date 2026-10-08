@@ -532,11 +532,19 @@ export function addQuestions(
   incoming: Question[],
   sourceFile?: string,
   // 이 묶음을 뽑아낸 원본 PDF 구간 (1-based, 양끝 포함). 알 수 없는 경로에서는 생략한다
-  pages?: { from: number; to: number }
-): { added: number; merged: number } {
+  pages?: { from: number; to: number },
+  options?: {
+    // JSON 가져오기에서만 켠다. 이미 있는 같은 문제의 연도를 가져온 JSON 의 값으로 고친다.
+    // PDF 재파싱 청크끼리는 어느 연도가 맞는지 가릴 근거가 없어 표시만 남기지만(아래), 사람이 손봐서
+    // 다시 올린 JSON 은 최신본이 맞는 값이라 그대로 따른다. 못 읽은 값(0)으로는 덮지 않는다.
+    // id 는 그대로라 오답노트·형광펜·푼 횟수 연결은 끊기지 않는다
+    overwriteYear?: boolean
+  }
+): { added: number; merged: number; yearFixed: number } {
   const result = getQuestions()
   let added = 0
   let merged = 0
+  let yearFixed = 0
 
   // 후보 키 → result 배열 인덱스 목록 (기존 문제의 순서를 그대로 보존한다)
   const buckets = new Map<string, number[]>()
@@ -593,7 +601,11 @@ export function addQuestions(
     //
     // 미상이면 받는다. 둘 다 값이 있고 서로 다르면 어느 쪽이 맞는지 가릴 근거가 없으므로
     // 값은 그대로 두고 표시만 남겨 검토 화면에서 사람이 고르게 한다
-    if (!found.year && q.year) {
+    if (options?.overwriteYear && q.year && found.year !== q.year) {
+      found.year = q.year
+      delete found.yearConflict
+      yearFixed++
+    } else if (!found.year && q.year) {
       found.year = q.year
     } else if (found.year && q.year && found.year !== q.year) {
       found.yearConflict = Array.from(new Set([...(found.yearConflict ?? [found.year]), q.year])).sort(
@@ -618,7 +630,7 @@ export function addQuestions(
   }
 
   saveQuestions(result)
-  return { added, merged }
+  return { added, merged, yearFixed }
 }
 
 /**

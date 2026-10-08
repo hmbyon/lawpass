@@ -239,7 +239,7 @@ export function PdfTab({
   const [actionError, setActionError] = useState<string | null>(null)
   const resumeInputRef = useRef<HTMLInputElement>(null)
   const resumeTargetRef = useRef<string | null>(null)
-  const [summary, setSummary] = useState<{ added: number; merged: number; skipped: number[] } | null>(null)
+  const [summary, setSummary] = useState<{ added: number; merged: number; skipped: number[]; yearFixed?: number } | null>(null)
   const [reparse, setReparse] = useState<ReparseState | null>(null)
   const reparseInputRef = useRef<HTMLInputElement>(null)
   const reparsePanelRef = useRef<HTMLDivElement>(null)
@@ -438,8 +438,8 @@ export function PdfTab({
       return
     }
     const sourceName = jsonDisplayName.trim()
-    const result = addQuestions(questions, sourceName)
-    setSummary({ added: result.added, merged: result.merged, skipped: [] })
+    const result = addQuestions(questions, sourceName, undefined, { overwriteYear: true })
+    setSummary({ added: result.added, merged: result.merged, skipped: [], yearFixed: result.yearFixed })
     showReview([sourceName], true, true)
     setJsonStatus('done')
     setJsonErrors([])
@@ -1735,6 +1735,11 @@ export function PdfTab({
             <p className="text-emerald-700 dark:text-emerald-300 font-medium">
               완료: <span className="font-bold">{summary.added}문제</span> 추가,{' '}
               <span className="font-bold">{summary.merged}문제</span> 병합
+              {!!summary.yearFixed && (
+                <>
+                  , <span className="font-bold">{summary.yearFixed}문제</span> 연도 고침
+                </>
+              )}
             </p>
             {summary.skipped.length > 0 && (
               <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
