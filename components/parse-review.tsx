@@ -310,6 +310,11 @@ const ReparseFromRow = createContext<{ request: (q: Question) => void; disabled:
 // 하나씩 더 매달면 정작 이 기능과 상관없는 자리까지 고쳐야 한다
 const ChangeSubject = createContext<((q: Question, subject: Subject) => void) | null>(null)
 
+// 이 검토에 변호사시험과 모의고사가 섞여 있을 때만 켠다. 줄에 '모의고사' 표시를 붙이려는 것이다 —
+// 시험 구분이 잘못 붙은 문제는 줄만 봐서는 같은 문제의 정상 사본과 구별이 안 된다.
+// 한 가지 시험유형뿐인 검토(모의고사 파일 등)에서는 전부 붙어 소음이므로 끈다
+const ShowExamType = createContext(false)
+
 // 지문 고치기·표 지우기도 같은 통로로 내려보낸다
 const EditBody = createContext<{
   savePassage: (q: Question, passage: string) => void
@@ -560,6 +565,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
       value={onReparse && isAdmin ? { request: requestReparseFor, disabled: Boolean(reparseDisabled) } : null}
     >
     <ChangeSubject.Provider value={isAdmin ? changeSubject : null}>
+    <ShowExamType.Provider value={new Set(questions.map((x) => x.examType)).size > 1}>
     <EditBody.Provider value={{ savePassage, clearTable, saveTables, imagesChanged: onUnitChanged, isAdmin }}>
     <div className="border border-border rounded-lg divide-y divide-border text-sm">
       <div className="px-3 py-2 space-y-0.5">
@@ -974,6 +980,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
       </div>
     </div>
     </EditBody.Provider>
+    </ShowExamType.Provider>
     </ChangeSubject.Provider>
     </ReparseFromRow.Provider>
   )
@@ -997,6 +1004,7 @@ function QuestionRow({
   // 단원/연도 변경 드롭다운. 전체 번호순 목록처럼 고칠 것이 없는 자리에서는 넘기지 않는다
   children?: React.ReactNode
 }) {
+  const showExamType = useContext(ShowExamType)
   return (
     <div>
       <div className="flex items-center gap-2 text-xs">
@@ -1018,6 +1026,11 @@ function QuestionRow({
             {q.subject}
             {q.subjectUnsure ? '?' : ''}
           </span>
+          {showExamType && q.examType === '모의고사' && (
+            <span className="shrink-0 rounded px-1 text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-400">
+              모의고사
+            </span>
+          )}
           <span className="flex-1 truncate text-foreground">{q.passage.slice(0, 40)}</span>
           {hasPassageTable(q) && (
             <span className="shrink-0 text-amber-600 dark:text-amber-400">⚠ 표/도면</span>
