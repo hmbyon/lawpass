@@ -12,6 +12,7 @@ import { getAppMode } from '@/lib/appMode'
 import { loadHighlights, renderHighlighted } from '@/lib/highlights'
 import { HighlightEditor } from '@/components/highlight-editor'
 import { SubItemList } from '@/components/quiz/sub-item-list'
+import { confusedKind } from '@/lib/subChoices'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const RISKS = ['★1', '★2', '★3', '★4', '★5']
@@ -136,7 +137,9 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
             정답: <span className="text-emerald-400 font-medium">{note.question.answer}</span>
             {note.status && <span className="ml-2 text-yellow-400">({note.status})</span>}
             {note.confusedWith && note.confusedWith.length > 0 && (
-              <span className="ml-2 text-amber-500">같이 헷갈린 선지 {note.confusedWith.join(' ')}</span>
+              <span className="ml-2 text-amber-500">
+                같이 헷갈린 {confusedKind(note.question, note.confusedWith)} {note.confusedWith.join(' ')}
+              </span>
             )}
           </div>
 

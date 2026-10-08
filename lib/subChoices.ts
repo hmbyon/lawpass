@@ -122,3 +122,21 @@ export function missingSubItems(q: Question): { label: string; text: string }[] 
   if (probe && q.passage.includes(probe)) return []
   return items.map((it) => ({ label: it.label, text: it.text }))
 }
+
+/**
+ * 헷갈린 곳을 고르는 칩의 라벨.
+ *
+ * ㄱㄴㄷㄹ(가나다라) 보기가 있는 문제는 ①~⑤가 보기의 조합("ㄱ, ㄷ")일 뿐이라, 헷갈린 것은 선지 번호가
+ * 아니라 어느 보기였는지다. 보기가 둘 이상 있으면 그 라벨을, 없으면 선지 라벨을 돌려준다
+ */
+export function confusionLabels(q: Question): { labels: string[]; kind: '보기' | '선지' } {
+  const sub = resolveSubChoices(q)
+  if (sub && sub.items.length >= 2) return { labels: sub.items.map((it) => it.label), kind: '보기' }
+  return { labels: q.choices.map((c) => c.label), kind: '선지' }
+}
+
+/** 저장된 라벨이 선지 번호면 '선지', 아니면 '보기'. 화면 문구에 쓴다 */
+export function confusedKind(q: Question, labels: string[]): '보기' | '선지' {
+  const choice = new Set(q.choices.map((c) => c.label))
+  return labels.length > 0 && labels.every((l) => choice.has(l)) ? '선지' : '보기'
+}

@@ -10,6 +10,7 @@ import { PassageTable } from '@/components/passage-table'
 import { QuestionImages } from '@/components/question-images'
 import { DrawLayer, useDrawBoard } from '@/components/quiz/draw-layer'
 import { SubItemList } from '@/components/quiz/sub-item-list'
+import { confusionLabels, confusedKind } from '@/lib/subChoices'
 
 interface QuizItem {
   question: Question
@@ -270,8 +271,8 @@ export function QuizEngine({
       const next = [...prev]
       const cur = next[current].confusedWith
       const picked = cur.includes(label) ? cur.filter((l) => l !== label) : [...cur, label]
-      // 선지 번호 순서(①②③…)로 둔다 — 고른 순서가 아니라 보기 좋은 순서로 남긴다
-      const order = next[current].question.choices.map((c) => c.label)
+      // 칩이 늘어선 순서(①②③… 또는 ㄱㄴㄷ…)로 둔다 — 고른 순서가 아니라 보기 좋은 순서로 남긴다
+      const order = confusionLabels(next[current].question).labels
       picked.sort((a, b) => order.indexOf(a) - order.indexOf(b))
       next[current] = { ...next[current], confusedWith: picked }
       return next
@@ -433,23 +434,25 @@ export function QuizEngine({
         {item.status && (
           <div className="relative z-10 flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-muted-foreground">
-              {item.status === '찍음' ? '어느 선지 사이에서 찍었나요?' : '어느 선지와 헷갈렸나요?'}
+              {item.status === '찍음'
+                ? `어느 ${confusionLabels(q).kind} 사이에서 찍었나요?`
+                : `어느 ${confusionLabels(q).kind}와 헷갈렸나요?`}
             </span>
-            {q.choices.map((c) => {
-              const on = item.confusedWith.includes(c.label)
+            {confusionLabels(q).labels.map((label) => {
+              const on = item.confusedWith.includes(label)
               return (
                 <button
-                  key={c.label}
+                  key={label}
                   type="button"
                   aria-pressed={on}
-                  onClick={() => toggleConfused(c.label)}
+                  onClick={() => toggleConfused(label)}
                   className={`rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors ${
                     on
                       ? 'border-amber-500 bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-300'
                       : 'border-border text-muted-foreground hover:border-amber-500/60'
                   }`}
                 >
-                  {c.label}
+                  {label}
                 </button>
               )
             })}
@@ -653,7 +656,9 @@ function ResultsView({
               <p className="text-xs text-muted-foreground">
                 내 답(정답): {it.userAnswer}
                 {it.confusedWith.length > 0 && (
-                  <span className="ml-2 text-amber-500">같이 헷갈린 선지 {it.confusedWith.join(' ')}</span>
+                  <span className="ml-2 text-amber-500">
+                    같이 헷갈린 {confusedKind(it.question, it.confusedWith)} {it.confusedWith.join(' ')}
+                  </span>
                 )}
               </p>
             </div>

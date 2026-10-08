@@ -391,13 +391,14 @@ ${SUBJECT_UNITS_JSON}
             ? '헷갈림 → 판정 B 가중'
             : '확신 오답 → 판정 C 가중'
 
-      // 수험생이 직접 짚은, 서로 헷갈린 선지. 선지 문자열만 받아 프롬프트에 넣는다
+      // 수험생이 직접 짚은, 서로 헷갈린 선지(①~⑤) 또는 보기(ㄱㄴㄷ·가나다). 짧은 라벨 문자열만 받아 프롬프트에 넣는다
       const confusedLabels = Array.isArray(confusedWith)
-        ? confusedWith.filter((l): l is string => typeof l === 'string' && question?.choices?.some((c) => c.label === l))
+        ? confusedWith.filter((l): l is string => typeof l === 'string' && l.length > 0 && l.length <= 3).slice(0, 8)
         : []
+      const confusedKindWord = confusedLabels.every((l) => question?.choices?.some((c) => c.label === l)) ? '선지' : '보기'
       const confusedLine =
         confusedLabels.length > 0
-          ? `수험생이 헷갈렸다고 짚은 선지: ${confusedLabels.join(', ')} (이 선지들 사이에서 어디서 갈렸는지, 무엇이 구별 기준인지를 혼동주의에 구체적으로 짚어 줄 것)\n`
+          ? `수험생이 헷갈렸다고 짚은 ${confusedKindWord}: ${confusedLabels.join(', ')} (이 ${confusedKindWord}들 사이에서 어디서 갈렸는지, 무엇이 구별 기준인지를 혼동주의에 구체적으로 짚어 줄 것)\n`
           : ''
 
       const prompt = `당신은 변호사시험 출제위원 경력 20년의 학습 코치입니다.
