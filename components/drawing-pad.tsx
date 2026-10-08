@@ -171,6 +171,7 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
   // 붙박이 패널을 잠시 치워 둘 수 있게 한다. 늘 떠 있는 것은 치울 길도 있어야 한다
   const [folded, setFolded] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveFailed, setSaveFailed] = useState(false)
   // 띄운 창의 자리와 폭. 높이는 4:3 이라 폭이 정한다 — 폭 하나만 붙들면 된다
   const [win, setWin] = useState<{ x: number; y: number; w: number } | null>(null)
   // 붙박이 패널의 폭은 부모가 쥔다(props). null 이면 화면에 맞춘 기본 폭(아래 클래스의 clamp)을 쓴다.
@@ -596,7 +597,9 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
 
   // 저장은 여기 한 번뿐이다. 획마다 저장하면 한 장 그리는 동안 로컬 쓰기가 수백 번 돈다
   function save() {
-    saveQuestionDrawing(questionId, { strokes })
+    const stored = saveQuestionDrawing(questionId, { strokes })
+    // 저장소에 이 문제가 없으면 저장되지 않은 것이다. '저장됨'이라고 말하지 않고 알린다
+    setSaveFailed(!stored)
     // 지금 것을 저장했다고 적어 둔다. 자동 저장이 같은 그림을 또 쓰지 않게 하는 표시다
     savedStrokes.current = strokes
     onSaved()
@@ -671,7 +674,7 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
         onClick={docked ? saveInPlace : saveAndClose}
         className="ml-auto rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
       >
-        {docked ? (saved ? '✓ 저장됨' : '저장') : '완료'}
+        {saveFailed ? '⚠ 저장 실패' : docked ? (saved ? '✓ 저장됨' : '저장') : '완료'}
       </button>
     </div>
   )

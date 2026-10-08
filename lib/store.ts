@@ -1258,26 +1258,34 @@ export function getQuestionDrawing(questionId: string): QuestionDrawing | null {
   return shared?.drawing ?? null
 }
 
-export function saveQuestionDrawing(questionId: string, drawing: QuestionDrawing | null) {
-  const next = drawing && drawing.strokes.length > 0 ? drawing : null
+/**
+ * 그림을 문제에 붙여 저장한다. 이 문제를 저장소에서 찾지 못해 아무것도 저장하지 못했으면 false.
+ * (예전에는 그때도 조용히 넘어가서, 저장했다고 믿은 그림이 새로고침하면 없어졌다)
+ */
+export function saveQuestionDrawing(questionId: string, drawing: QuestionDrawing | null): boolean {
+  const now = Date.now()
+  // 비웠을 때도 '지웠다'는 기록(빈 획 + 시각)을 남긴다. 아예 지워 버리면 다른 기기의 옛 그림이 되살아난다
+  const next: QuestionDrawing | null = drawing ? { ...drawing, savedAt: now } : { strokes: [], savedAt: now }
 
   const mine = getQuestions()
   const target = mine.find((q) => q.id === questionId)
   if (target) {
-    if (next) target.drawing = next
-    else delete target.drawing
+    // 그린 적도 없는 문제를 비우는 일에는 기록을 만들지 않는다
+    if (next.strokes.length === 0 && !target.drawing) return true
+    target.drawing = next
     saveQuestions(mine)
-    return
+    return true
   }
 
   // 공유받은 문제집의 문항. 이 저장소는 push 대상이 아니라(saveQuestions 주석 참고)
   // 여기 그린 그림은 이 기기에만 남는다
   const shared = getPoolQuestions()
   const found = shared.find((q) => q.id === questionId)
-  if (!found) return
-  if (next) found.drawing = next
-  else delete found.drawing
+  if (!found) return false
+  if (next.strokes.length === 0 && !found.drawing) return true
+  found.drawing = next
   savePoolQuestions(shared)
+  return true
 }
 
 export function clearAll() {
@@ -1292,6 +1300,8 @@ export interface SavedSession {
   mode: 'cbt' | 'study'
   questions: import('./types').Question[]
   answers: Record<string, string | null>
+  // 헷갈림/찍음 표시. 옛 임시저장에는 없다
+  statuses?: Record<string, import('./types').QuestionStatus>
   currentIndex: number
   timeLimitSeconds: number | null
   elapsedSeconds: number

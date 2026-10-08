@@ -225,6 +225,7 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
         timeLimitSeconds={null}
         initialIndex={saved?.currentIndex ?? 0}
         initialAnswers={saved?.answers ?? {}}
+        initialStatuses={saved?.statuses}
         initialElapsed={saved?.elapsedSeconds ?? 0}
         onFinish={handleQuizFinish}
       />
@@ -666,7 +667,7 @@ function StudyBulkPreview({
   // 이벤트 안에서 최신 하이라이트를 읽기 위한 거울
   const highlightsRef = useRef<Highlight[]>(highlights)
   highlightsRef.current = highlights
-  const [penToast, setPenToast] = useState<{ label: string; prev: Highlight[] } | null>(null)
+  const [penToast, setPenToast] = useState<{ label: string; prev: Highlight[] | null } | null>(null)
   useEffect(() => {
     if (!penToast) return
     const t = window.setTimeout(() => setPenToast(null), 4500)
@@ -872,7 +873,7 @@ function StudyBulkPreview({
   }
 
   function undoPenGesture() {
-    if (!penToast) return
+    if (!penToast?.prev) return
     setHighlights(penToast.prev)
     saveHighlights(q.id, penToast.prev)
     setPenToast(null)
@@ -957,7 +958,7 @@ function StudyBulkPreview({
                 : 'bg-muted text-muted-foreground border-border hover:border-primary/40 hover:text-primary'
             }`}
           >
-            ✏️ 펜 표시
+            ✨ 펜 자동표시
           </button>
           {/* 그림판은 이 문제에 딸린 독립 캔버스다. 지문 위 오버레이(그리기)와는 다른 기능이라
               버튼도 따로 둔다 — 저장되는 쪽이 이쪽이다 */}
@@ -1294,15 +1295,18 @@ function StudyBulkPreview({
           enabled={penGesture && !board.enabled}
           getFieldEls={() => fieldRefs.current}
           onGesture={applyPenGesture}
+          onInfo={(message) => setPenToast({ label: message, prev: null })}
         />
       </DrawLayer>
 
       {penToast && (
         <div className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-full border border-border bg-card/95 px-4 py-2 text-xs shadow-lg backdrop-blur">
-          <span className="text-foreground">{penToast.label} 표시함</span>
-          <button type="button" onClick={undoPenGesture} className="font-medium text-primary hover:underline">
-            되돌리기
-          </button>
+          <span className="text-foreground">{penToast.prev ? `${penToast.label} 표시함` : penToast.label}</span>
+          {penToast.prev && (
+            <button type="button" onClick={undoPenGesture} className="font-medium text-primary hover:underline">
+              되돌리기
+            </button>
+          )}
         </div>
       )}
 

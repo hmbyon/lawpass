@@ -35,6 +35,7 @@ export function CbtTab({ questions, onDone }: { questions: Question[]; onDone: (
         timeLimitSeconds={savedSession.timeLimitSeconds}
         initialIndex={savedSession.currentIndex}
         initialAnswers={savedSession.answers}
+        initialStatuses={savedSession.statuses}
         initialElapsed={savedSession.elapsedSeconds}
         sessionId={savedSession.id}
         onFinish={() => {

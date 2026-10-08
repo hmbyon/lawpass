@@ -232,6 +232,8 @@ export interface DrawingStroke {
 
 export interface QuestionDrawing {
   strokes: DrawingStroke[]
+  /** 마지막으로 저장한 시각(ms). 기기 둘이 같은 문제에 그렸을 때 최신 쪽을 고르는 기준 (옛 그림에는 없다) */
+  savedAt?: number
 }
 
 export interface WrongNote {

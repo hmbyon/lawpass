@@ -107,12 +107,15 @@ export function recognizeStroke(pts: P[]): Recognized | null {
     return { kind: 'circle', bbox, pts }
   }
 
-  // 대각선: 곧고 가로도 세로도 아닌 기울기(약 25°~75°)
+  // 대각선: 곧고 가로도 세로도 아닌 기울기(약 10°~80°).
+  // 글자 줄은 가로로 긴 단어 위에 X 를 치므로 획이 꽤 납작하다(폭 60 에 높이 20 이면 17°).
+  // 25° 부터로 잡았을 때는 그런 X 가 통째로 버려졌다. 납작한 대각선 한 획은 짝이 없으면 아무 일도
+  // 하지 않으므로(isCross 가 맞은편 획과 만나는지 본다) 문턱을 낮춰도 잘못 칠할 일이 적다
   if (straight >= 0.8 && len >= 20) {
     const dx = last.x - first.x
     const dy = last.y - first.y
     const deg = (Math.atan2(Math.abs(dy), Math.abs(dx)) * 180) / Math.PI
-    if (deg >= 25 && deg <= 75) {
+    if (deg >= 10 && deg <= 80) {
       // 화면 좌표는 y 가 아래로 늘어난다. 왼쪽 아래에서 오른쪽 위로 가면 up
       const up = dx * dy < 0
       return { kind: up ? 'diag-up' : 'diag-down', bbox, pts }

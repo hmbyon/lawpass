@@ -10,6 +10,7 @@ import {
   type SavedSession, type SavedStudySession,
 } from '@/lib/store'
 import { getAppMode } from '@/lib/appMode'
+import { mergeDrawings } from '@/lib/drawingMerge'
 import type { Question, WrongNote } from '@/lib/types'
 
 // Firestore 문서 하나의 한도는 1MiB다. 문제 목록은 지문·선지별 해설 원문까지 담아
@@ -221,7 +222,17 @@ async function runPush(userId: string) {
     }
   }
 
-  await attempt(() => writeList<Question>(userId, mode, 'questions', getQuestions()))
+  await attempt(async () => {
+    // 올리기 전에 원격의 그림과 맞춘다. 문제 목록은 통째로 올라가므로, 다른 기기에서 그린 그림이
+    // 이 기기의 옛 목록으로 덮이지 않게 최신 쪽을 남긴다.
+    // 읽기에 실패해도 올리기는 막지 않는다(그때는 예전처럼 이 기기 목록을 올린다)
+    const remote = await readList<Question>(userId, mode, 'questions').catch(() => null)
+    const local = getQuestions()
+    const merged = mergeDrawings(local, remote)
+    // 로컬은 위 읽기가 끝난 뒤에 읽었으므로 그 사이의 저장을 덮지 않는다. 바꿀 것이 있을 때만 저장한다
+    if (merged !== local) saveQuestions(merged)
+    await writeList<Question>(userId, mode, 'questions', merged)
+  })
   await attempt(() => writeList<WrongNote>(userId, mode, 'wrongNotes', getWrongNotes()))
   await attempt(() => writeList<SavedStudySession>(userId, mode, 'studySessions', getSavedStudySessions()))
   // 진행중인 퀴즈도 문제 배열을 통째로 담아 1MiB를 넘길 수 있어 같은 방식으로 나눠 저장한다.
@@ -268,7 +279,12 @@ async function runPull(userId: string): Promise<{ questions: Question[], wrongNo
   const remoteSessions = await readList<SavedStudySession>(userId, mode, 'studySessions')
   const remoteQuiz = await readQuizSession(userId, mode)
 
-  const questions = resolveList(remoteQuestions, getQuestions(), pending)
+  // 그림은 목록 전체가 아니라 문제마다 저장 시각이 더 늦은 쪽을 쓴다(원격이 이기든 로컬이 이기든)
+  const localQuestions = getQuestions()
+  const questions = mergeDrawings(
+    mergeDrawings(resolveList(remoteQuestions, localQuestions, pending), remoteQuestions),
+    localQuestions
+  )
   const wrongNotes = resolveList(remoteNotes, getWrongNotes(), pending)
 
   // API 키는 건드리지 않고 보존

@@ -24,6 +24,7 @@ interface QuizEngineProps {
   onFinish: (result?: { completed: boolean; answeredQuestionIds: string[] }) => void
   initialIndex?: number
   initialAnswers?: Record<string, string | null>
+  initialStatuses?: Record<string, QuestionStatus>
   initialElapsed?: number
   sessionId?: string
 }
@@ -46,6 +47,7 @@ export function QuizEngine({
   onFinish,
   initialIndex = 0,
   initialAnswers = {},
+  initialStatuses = {},
   initialElapsed = 0,
   sessionId,
 }: QuizEngineProps) {
@@ -53,7 +55,7 @@ export function QuizEngine({
     questions.map((q) => ({
       question: q,
       userAnswer: initialAnswers[q.id] ?? null,
-      status: null,
+      status: initialStatuses[q.id] ?? null,
     }))
   )
   const [current, setCurrent] = useState(initialIndex)
@@ -76,12 +78,14 @@ export function QuizEngine({
     if (submitted) return
     const interval = setInterval(() => {
       const answers: Record<string, string | null> = {}
-      items.forEach((it) => { answers[it.question.id] = it.userAnswer })
+      const statuses: Record<string, QuestionStatus> = {}
+      items.forEach((it) => { answers[it.question.id] = it.userAnswer; statuses[it.question.id] = it.status })
       saveSession({
         id: sid,
         mode,
         questions,
         answers,
+        statuses,
         currentIndex: current,
         timeLimitSeconds,
         elapsedSeconds: elapsed,
@@ -243,12 +247,14 @@ export function QuizEngine({
   function handleExit() {
     if (!confirm('지금까지 푼 내용을 임시저장하고 나갈까요?')) return
     const answers: Record<string, string | null> = {}
-    items.forEach((it) => { answers[it.question.id] = it.userAnswer })
+    const statuses: Record<string, QuestionStatus> = {}
+    items.forEach((it) => { answers[it.question.id] = it.userAnswer; statuses[it.question.id] = it.status })
     saveSession({
       id: sid,
       mode,
       questions,
       answers,
+      statuses,
       currentIndex: current,
       timeLimitSeconds,
       elapsedSeconds: elapsed,

@@ -25,6 +25,8 @@ interface Props {
   enabled: boolean
   getFieldEls: () => Record<string, HTMLElement | null>
   onGesture: (g: PenGesture) => void
+  /** 알아봤지만 표시로 남기지 못했거나, 아예 못 알아본 이유. 왜 안 됐는지 화면에서 보이게 한다 */
+  onInfo?: (message: string) => void
 }
 
 // 펜슬이 닿아도 종전대로 두는 요소. 눌러서 쓰는 것들이라 획으로 읽으면 안 된다
@@ -37,6 +39,8 @@ const CROSS_WINDOW_MS = 1500
 // 이 안이면 획이 아니라 톡 두드린 것으로 본다
 const TAP_MOVE_PX = 6
 const TAP_MS = 400
+
+const KIND_LABEL = { underline: '밑줄', circle: '원', cross: 'X' } as const
 
 interface CharBox {
   idx: number
@@ -127,11 +131,13 @@ function insideBox(c: CharBox, bb: BBox): boolean {
   return x >= bb.x0 && x <= bb.x1 && y >= bb.y0 && y <= bb.y1
 }
 
-export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture }: Props) {
+export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture, onInfo }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const getFieldElsRef = useRef(getFieldEls)
   const onGestureRef = useRef(onGesture)
+  const onInfoRef = useRef(onInfo)
   getFieldElsRef.current = getFieldEls
+  onInfoRef.current = onInfo
   onGestureRef.current = onGesture
 
   useEffect(() => {
@@ -226,10 +232,16 @@ export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture }: Pr
     function commit(kind: 'underline' | 'circle' | 'cross', bb: BBox, my: number) {
       const g = locate(kind, bb, my)
       if (g) onGestureRef.current(g)
+      else onInfoRef.current?.(`${KIND_LABEL[kind]}(으)로 읽었지만 겹치는 글자를 못 찾았어요`)
     }
     function handle(pts: P[]) {
       const rec = recognizeStroke(pts)
-      if (!rec) return
+      if (!rec) {
+        const b = bboxOf(pts)
+        // 아주 짧은 낙서까지 알리면 시끄럽다
+        if (Math.hypot(b.x1 - b.x0, b.y1 - b.y0) >= 40) onInfoRef.current?.('모양을 못 알아봤어요 (밑줄·원·X 로 읽히지 않음)')
+        return
+      }
       const now = performance.now()
       if (rec.kind === 'underline') {
         pending = null
@@ -245,6 +257,7 @@ export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture }: Pr
           commit('cross', bb, 0)
         } else {
           pending = { rec, at: now }
+          onInfoRef.current?.('X 의 한 획을 읽었어요 — 반대 방향 획을 이어서 그어 주세요')
         }
       }
     }
