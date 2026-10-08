@@ -9,6 +9,7 @@ import { CauseBadge } from '@/components/cause-badge'
 import { FilterChips } from '@/components/filter-chips'
 import { SORT_OPTIONS, sortNotes, type SortOption } from '@/lib/noteSort'
 import { getAppMode } from '@/lib/appMode'
+import { isAnswerLabel } from '@/lib/answers'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const RISKS = ['★1', '★2', '★3', '★4', '★5']
@@ -374,7 +375,7 @@ function MemoCard({ note, onMemoSaved, isGeneral }: { note: WrongNote; onMemoSav
               <div
                 key={c.label}
                 className={`flex gap-2 p-2 rounded-lg text-xs border ${
-                  c.label === note.question.answer
+                  isAnswerLabel(note.question.answer, c.label)
                     ? 'border-emerald-500 bg-emerald-100 text-emerald-900 dark:border-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300'
                     : c.label === note.userAnswer
                       ? 'border-red-500 bg-red-100 text-red-900 dark:border-red-600 dark:bg-red-900/20 dark:text-red-300'
@@ -383,7 +384,7 @@ function MemoCard({ note, onMemoSaved, isGeneral }: { note: WrongNote; onMemoSav
               >
                 <span className="font-semibold shrink-0">{c.label}</span>
                 <span className="flex-1">{c.text}</span>
-                {c.label === note.question.answer && <span className="ml-auto shrink-0">✓ 정답</span>}
+                {isAnswerLabel(note.question.answer, c.label) && <span className="ml-auto shrink-0">✓ 정답</span>}
               </div>
             ))}
           </div>

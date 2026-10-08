@@ -13,6 +13,7 @@ import { PassageTable } from '@/components/passage-table'
 import { PassageTableEditor } from '@/components/passage-table-editor'
 import { QuestionImages } from '@/components/question-images'
 import { loadHighlights } from '@/lib/highlights'
+import { isAnswerLabel } from '@/lib/answers'
 import {
   buildParseReview, unitWarning, unitOptionsFor, subjectOptions, yearOptions, formatMissing, allMissing,
   filledChoices, hasPassageTable,
@@ -1327,9 +1328,9 @@ function QuestionDetail({
       {filled.length > 0 && (
         <div className="space-y-0.5">
           {filled.map((c) => (
-            <p key={c.label} className={c.label === q.answer ? 'text-foreground font-medium' : 'text-muted-foreground'}>
+            <p key={c.label} className={isAnswerLabel(q.answer, c.label) ? 'text-foreground font-medium' : 'text-muted-foreground'}>
               {c.label} {c.text}
-              {c.label === q.answer && <span className="text-emerald-600 dark:text-emerald-400"> ← 정답</span>}
+              {isAnswerLabel(q.answer, c.label) && <span className="text-emerald-600 dark:text-emerald-400"> ← 정답</span>}
             </p>
           ))}
         </div>
@@ -1390,7 +1391,7 @@ function QuestionDetail({
                   <div key={c.label} className="pl-1.5 border-l-2 border-border space-y-0.5">
                     <p className="font-medium text-foreground">
                       {c.label}
-                      {c.label === q.answer && (
+                      {isAnswerLabel(q.answer, c.label) && (
                         <span className="text-emerald-600 dark:text-emerald-400"> ← 정답</span>
                       )}
                     </p>

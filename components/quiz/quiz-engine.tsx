@@ -11,6 +11,7 @@ import { QuestionImages } from '@/components/question-images'
 import { DrawLayer, useDrawBoard } from '@/components/quiz/draw-layer'
 import { SubItemList } from '@/components/quiz/sub-item-list'
 import { confusionLabels, confusedKind } from '@/lib/subChoices'
+import { isAnswerLabel, formatAnswer } from '@/lib/answers'
 
 interface QuizItem {
   question: Question
@@ -136,10 +137,10 @@ export function QuizEngine({
       : ''
 
     const correctItems = items.filter(
-      (item) => item.userAnswer !== null && item.userAnswer === item.question.answer
+      (item) => item.userAnswer !== null && isAnswerLabel(item.question.answer, item.userAnswer)
     )
     const wrongItems = items.filter(
-      (item) => item.userAnswer !== null && item.userAnswer !== item.question.answer
+      (item) => item.userAnswer !== null && !isAnswerLabel(item.question.answer, item.userAnswer)
     )
 
     // 채점된 문제는 맞혔든 틀렸든 푼 문제로 센다. 오답노트에는 틀린 것만 남아 맞힌 문제가 빠졌었다
@@ -353,7 +354,7 @@ export function QuizEngine({
         <div className="text-4xl animate-spin">⚙️</div>
         <p className="text-foreground font-medium">오답 분석 중...</p>
         <p className="text-sm text-muted-foreground">
-          Gemini가 {items.filter(i => i.userAnswer !== i.question.answer && i.userAnswer !== null).length}개의 오답을 분석하고 있습니다
+          Gemini가 {items.filter(i => !isAnswerLabel(i.question.answer, i.userAnswer) && i.userAnswer !== null).length}개의 오답을 분석하고 있습니다
         </p>
         <div className="w-64 bg-border rounded-full h-2">
           <div
@@ -566,7 +567,7 @@ function ResultsView({
   const pct = total > 0 ? Math.round((results.correct / total) * 100) : 0
   // 맞혔지만 헷갈림/찍음으로 표시한 문제. 오답노트에는 따로 들어가지만 채점 화면에서도 바로 보이게 한다
   const flaggedCorrect = items.filter(
-    (i) => i.status && i.userAnswer !== null && i.userAnswer === i.question.answer
+    (i) => i.status && i.userAnswer !== null && isAnswerLabel(i.question.answer, i.userAnswer)
   )
 
   return (
@@ -596,7 +597,7 @@ function ResultsView({
                   </div>
                   <p className="text-sm text-foreground line-clamp-2">{note.question.passage.slice(0, 80)}...</p>
                   <p className="text-xs text-muted-foreground">
-                    내 답: {note.userAnswer} · 정답: {note.question.answer}
+                    내 답: {note.userAnswer} · 정답: {formatAnswer(note.question.answer)}
                     {note.status && note.confusedWith && note.confusedWith.length > 0 && (
                       <span className="ml-2 text-amber-500">
                         {note.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'} {note.confusedWith.join(' ')}
@@ -628,7 +629,7 @@ function ResultsView({
                       <div
                         key={c.label}
                         className={`flex gap-2 p-2 rounded-lg text-xs border ${
-                          c.label === note.question.answer
+                          isAnswerLabel(note.question.answer, c.label)
                             ? 'border-emerald-500 bg-emerald-100 text-emerald-900 dark:border-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300'
                             : c.label === note.userAnswer
                               ? 'border-red-500 bg-red-100 text-red-900 dark:border-red-600 dark:bg-red-900/20 dark:text-red-300'
@@ -642,8 +643,8 @@ function ResultsView({
                             {note.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'}
                           </span>
                         )}
-                        {c.label === note.question.answer && <span className="ml-auto shrink-0">✓ 정답</span>}
-                        {c.label === note.userAnswer && c.label !== note.question.answer && (
+                        {isAnswerLabel(note.question.answer, c.label) && <span className="ml-auto shrink-0">✓ 정답</span>}
+                        {c.label === note.userAnswer && !isAnswerLabel(note.question.answer, c.label) && (
                           <span className="ml-auto shrink-0">✗ 내 답</span>
                         )}
                       </div>

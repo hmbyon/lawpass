@@ -30,6 +30,7 @@ import { DrawLayer, useDrawBoard } from '@/components/quiz/draw-layer'
 import PenAnnotateLayer, { type PenGesture } from '@/components/pen-annotate-layer'
 import { PenColorPicker, STYLE_LABELS, StyleSwatch } from '@/components/highlight-editor'
 import { DrawingPad, useDockedPad } from '@/components/drawing-pad'
+import { isAnswerLabel } from '@/lib/answers'
 
 type StudyPhase = 'filter' | 'preview' | 'quiz'
 
@@ -368,7 +369,7 @@ function deriveChoiceTruth(q: Question): Record<string, boolean> | undefined {
   const positive = POSITIVE_STEM.test(q.passage)
   if (!negative && !positive) return undefined // 유형을 못 읽으면 추측하지 않는다
   return Object.fromEntries(
-    q.choices.map((c) => [c.label, negative ? c.label !== q.answer : c.label === q.answer])
+    q.choices.map((c) => [c.label, negative ? !isAnswerLabel(q.answer, c.label) : isAnswerLabel(q.answer, c.label)])
   )
 }
 
@@ -1020,7 +1021,7 @@ function StudyBulkPreview({
           {q.choices.map((c) => {
             const memoKey = `${q.id}_${c.label}`
             const existingMemo = choiceMemos[q.id]?.[c.label]
-            const isCorrect = c.label === q.answer
+            const isCorrect = isAnswerLabel(q.answer, c.label)
             const rawExplanation = q.choiceExplanations?.[c.label]
             const explanationBlocks = toExplanationBlocks(rawExplanation)
             // 블록 배열이면 블록마다 독립 필드 키가 필요하다.

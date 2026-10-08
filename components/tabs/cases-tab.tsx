@@ -6,6 +6,7 @@ import type { ExamType, Subject } from '@/lib/types'
 import { SUBJECT_UNITS } from '@/lib/units'
 import { FilterChips } from '@/components/filter-chips'
 import { SubItemList } from '@/components/quiz/sub-item-list'
+import { isAnswerLabel } from '@/lib/answers'
 import {
   groupBySource, examMonthOf, examMonthValue, EXAM_MONTH_OPTIONS, type ExamMonthLabel,
 } from '@/lib/questionSource'
@@ -68,14 +69,14 @@ function QuestionLine({
               <div
                 key={c.label}
                 className={`flex gap-2 p-1.5 rounded border ${
-                  c.label === q.answer
+                  isAnswerLabel(q.answer, c.label)
                     ? 'border-emerald-500 bg-emerald-100 text-emerald-900 dark:border-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300'
                     : 'border-border text-muted-foreground'
                 }`}
               >
                 <span className="font-semibold shrink-0">{c.label}</span>
                 <span className="flex-1">{c.text}</span>
-                {c.label === q.answer && <span className="shrink-0">✓ 정답</span>}
+                {isAnswerLabel(q.answer, c.label) && <span className="shrink-0">✓ 정답</span>}
               </div>
             ))}
           </div>

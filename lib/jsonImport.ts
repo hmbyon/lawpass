@@ -1,5 +1,6 @@
 import type { ExamType, Question, Subject } from './types'
 import { SUBJECT_UNITS } from './units'
+import { NO_ANSWER, isValidAnswerValue } from './answers'
 
 /**
  * 외부에서 만든 문제 JSON 을 저장할 수 있는 Question 으로 바꾼다.
@@ -16,10 +17,6 @@ import { SUBJECT_UNITS } from './units'
  *    **값이 없을 때만** 화면에서 고른 값으로 채우고, 적힌 값이 허용 밖이면 오류로 알린다
  */
 
-const LABELS = ['①', '②', '③', '④', '⑤']
-// 판례 변경 등으로 교재가 '정답 없음'으로 처리한 문제는 answer 에 이 값이 그대로 들어온다.
-// 어느 선지도 정답으로 표시되지 않고, 선택한 답은 항상 오답으로 채점된다
-export const NO_ANSWER = '정답없음'
 const EXAM_TYPES: ExamType[] = ['변호사시험', '모의고사']
 
 export interface ImportFallback {
@@ -100,8 +97,8 @@ export function importQuestionsJson(text: string, fallback: ImportFallback, now:
       })
     }
 
-    if (typeof raw.answer !== 'string' || !(LABELS.includes(raw.answer) || raw.answer === NO_ANSWER)) {
-      problems.push(`answer 는 ①~⑤ 중 하나이거나 "${NO_ANSWER}" 여야 합니다 (${JSON.stringify(raw.answer)})`)
+    if (!isValidAnswerValue(raw.answer)) {
+      problems.push(`answer 는 ①~⑤ 중 하나, 복수정답이면 "②,④" 처럼 쉼표로 이은 값, 정답 없음이면 "${NO_ANSWER}" 여야 합니다 (${JSON.stringify(raw.answer)})`)
     }
     // 해설이 없는 문제는 흔하다. 키가 아예 없는 것도 '없음'으로 받는다
     if (raw.explanation !== undefined && raw.explanation !== null && typeof raw.explanation !== 'string') {
