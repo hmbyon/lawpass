@@ -68,6 +68,9 @@ export function AppShell({ user }: Props) {
   const [adminQuestions, setAdminQuestions] = useState<Question[]>([])
   // 관리자 본인은 받아올 필요가 없다 (자기 문제는 이미 questions 에 있다)
   const isAdminAccount = isAdminEmail(user.email) || user.uid === ADMIN_UID
+  // 관리자 문제를 받아오는 중. 내 데이터 동기화가 끝나도 이게 끝나기 전에는 문제가 0개로 보이므로,
+  // 대시보드가 '문제 없음' 안내를 잠깐 띄웠다 지우지 않도록 로딩으로 취급한다
+  const [adminLoading, setAdminLoading] = useState(!isAdminAccount)
   // 계정이 바뀌어 이전 데이터를 치우고 새로 받아오는 중. 그동안은 화면을 열지 않는다 —
   // 반쯤 지워진 상태를 보여주면 그 위에서 조작이 일어나 다시 오염된다
   const [switching, setSwitching] = useState(false)
@@ -200,13 +203,16 @@ export function AppShell({ user }: Props) {
     // 남의 문제를 못 읽은 것 때문에 내 문제집이 안 열리면 그게 더 큰 사고다
     if (isAdminAccount) {
       setAdminQuestions([])
+      setAdminLoading(false)
     } else {
+      setAdminLoading(true)
       fetchAdminQuestions(getAppMode())
         .then(setAdminQuestions)
         .catch((e) => {
           console.error('공유 문제(관리자 계정)를 불러오지 못했습니다', e)
           setAdminQuestions([])
         })
+        .finally(() => setAdminLoading(false))
     }
 
     setSyncing(true)
@@ -521,7 +527,7 @@ export function AppShell({ user }: Props) {
           (isAdmin ? (
             <PdfTab syncedAt={syncedAt} onQuestionsAdded={refreshAndSync} isAdmin={isAdmin} />
           ) : (
-            <DashboardTab key={syncedAt} questions={[...questions, ...poolQuestions, ...adminQuestions]} wrongNotes={wrongNotes} loading={syncedAt === 0} />
+            <DashboardTab key={syncedAt} questions={[...questions, ...poolQuestions, ...adminQuestions]} wrongNotes={wrongNotes} loading={syncedAt === 0 || adminLoading} />
           ))}
         {/* 공유받은 문제를 합쳐 넘긴다. 합치는 것은 화면에 보여줄 배열뿐이고,
             문항에 붙은 poolId 가 그대로 따라가 오답노트·학습 세션 사본에도 출처가 남는다.
