@@ -8,7 +8,7 @@ import { HighlightEditor } from '@/components/highlight-editor'
 import { PassageTable } from '@/components/passage-table'
 import { QuestionImages } from '@/components/question-images'
 import { DrawingPreview } from '@/components/drawing-preview'
-import { parseSubExplanations, resolveSubChoices } from '@/lib/subChoices'
+import { canonicalSubLabel, parseSubExplanations, resolveSubChoices, subItemDiffs } from '@/lib/subChoices'
 import {
   ExplanationBox, choiceExplanationParts, subItemExplanationParts, hasExplanationParts, toExplanationBlocks,
   type ExplanationParts,
@@ -52,6 +52,8 @@ export function NoteQuestionView({ note, onChanged }: { note: WrongNote; onChang
   // 선지 메모는 오답노트와 따로 저장된다. 옛 메모(note.choiceMemos)도 이 안에 합쳐져 온다
   const [choiceMemos] = useState(() => getChoiceMemosFor(note.questionId))
   const mine = selectedLabels(note.userAnswer)
+  // 내가 고른 조합과 정답 조합이 갈린 보기(ㄱㄷㄹ 을 골랐는데 정답이 ㄱㄹ 이면 ㄷ)
+  const diffs = useMemo(() => subItemDiffs(q, note.userAnswer), [q, note.userAnswer])
 
   return (
     <div className="space-y-4">
@@ -98,9 +100,19 @@ export function NoteQuestionView({ note, onChanged }: { note: WrongNote; onChang
                     const parts = subParts(item.label)
                     // ㄱㄴㄷㄹ 보기가 있는 문제에서 헷갈렸다고 고른 것은 선지 번호가 아니라 이 보기다
                     const confused = note.confusedWith?.includes(item.label) ?? false
+                    const diff = diffs.get(canonicalSubLabel(item.label))
                     return (
                       <div key={item.label}>
-                        <div className={`flex gap-2 items-start text-xs ${confused ? 'rounded-md bg-amber-100 px-1.5 py-1 ring-1 ring-amber-400/60 dark:bg-amber-900/20' : ''}`}>
+                        <div className={`flex gap-2 items-start text-xs ${
+                            diff === 'wrongPick'
+                              ? 'rounded-md bg-red-100 px-1.5 py-1 ring-1 ring-red-400/60 dark:bg-red-900/20'
+                              : diff === 'missed'
+                                ? 'rounded-md bg-sky-100 px-1.5 py-1 ring-1 ring-sky-400/60 dark:bg-sky-900/20'
+                                : confused
+                                  ? 'rounded-md bg-amber-100 px-1.5 py-1 ring-1 ring-amber-400/60 dark:bg-amber-900/20'
+                                  : ''
+                          }`}
+                        >
                           {ox !== undefined && (
                             <span className={`shrink-0 font-bold ${ox ? 'text-blue-400' : 'text-red-400'}`}>{ox ? 'O' : 'X'}</span>
                           )}
@@ -108,6 +120,12 @@ export function NoteQuestionView({ note, onChanged }: { note: WrongNote; onChang
                           <span ref={fieldRef(`sub_${item.label}`)} className="flex-1 text-foreground leading-relaxed select-text">
                             {renderHighlighted(item.text, `sub_${item.label}`, highlights, removeHighlight)}
                           </span>
+                          {diff === 'wrongPick' && (
+                            <span className="shrink-0 font-medium text-red-600 dark:text-red-400">✗ 여기서 갈림 (내가 고름·정답엔 없음)</span>
+                          )}
+                          {diff === 'missed' && (
+                            <span className="shrink-0 font-medium text-sky-700 dark:text-sky-400">△ 놓침 (정답엔 있음)</span>
+                          )}
                           {confused && (
                             <span className="shrink-0 text-amber-600 dark:text-amber-400">
                               {note.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'}

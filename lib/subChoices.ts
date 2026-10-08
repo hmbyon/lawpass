@@ -1,4 +1,5 @@
 import type { Question } from '@/lib/types'
+import { isAnswerLabel, selectedLabels } from '@/lib/answers'
 
 /**
  * 보기 항목(ㄱㄴㄷㄹ·가나다라) 해석. 선학습·CBT 가 같은 기준으로 지문과 보기를 나눠 보여주도록
@@ -164,4 +165,45 @@ export function parseSubExplanations(explanation: string | null): Record<string,
   }
 
   return result
+}
+
+/** 보기 라벨을 ㄱ/가 어느 쪽으로 적었든 같은 키(ㄱ)로 본다 */
+export function canonicalSubLabel(label: string): string {
+  return SUB_LABEL_MAP[label] ?? label
+}
+
+/**
+ * ①~⑤ 선지가 "ㄱ, ㄷ, ㄹ" 처럼 보기 라벨만 늘어놓은 조합이면 그 라벨들(ㄱ 기준 정규화)을, 아니면 null.
+ * 일반 문장 선지를 조합으로 잘못 읽지 않도록 라벨·구분 기호 외의 글자가 하나라도 있으면 null 이다
+ */
+export function choiceSubLabels(text: string): string[] | null {
+  const labels: string[] = []
+  for (const ch of text) {
+    if (SUB_LABEL_MAP[ch]) labels.push(SUB_LABEL_MAP[ch])
+    else if (!/[\s,.·ㆍ/、]/.test(ch)) return null
+  }
+  return labels.length > 0 ? labels : null
+}
+
+/**
+ * 내가 고른 조합과 정답 조합을 견줘, 어느 보기에서 갈렸는지.
+ *  - wrongPick: 내가 골랐는데 정답 조합에는 없는 보기 (예: 정답 ㄱㄹ, 내 답 ㄱㄷㄹ → ㄷ)
+ *  - missed: 정답 조합에는 있는데 내가 안 고른 보기
+ * 발문이 '옳은 것'인지 '옳지 않은 것'인지와 상관없이 두 조합의 차이만 본다.
+ * 조합형 문제가 아니거나 답이 같으면 빈 맵이다
+ */
+export function subItemDiffs(q: Question, userAnswer: string | null): Map<string, 'wrongPick' | 'missed'> {
+  const out = new Map<string, 'wrongPick' | 'missed'>()
+  if (!userAnswer) return out
+  const labelsOf = (choiceLabel: string | undefined) => {
+    const c = q.choices.find((x) => x.label === choiceLabel)
+    return c ? choiceSubLabels(c.text) : null
+  }
+  const mine = labelsOf(selectedLabels(userAnswer)[0])
+  const correctChoice = q.choices.find((c) => isAnswerLabel(q.answer, c.label))
+  const correct = labelsOf(correctChoice?.label)
+  if (!mine || !correct) return out
+  for (const l of mine) if (!correct.includes(l)) out.set(l, 'wrongPick')
+  for (const l of correct) if (!mine.includes(l)) out.set(l, 'missed')
+  return out
 }
