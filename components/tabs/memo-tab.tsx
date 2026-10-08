@@ -5,6 +5,7 @@ import type { WrongNote, Subject } from '@/lib/types'
 import { saveWrongNotes, updateWrongNoteMemo, updateWrongNoteAnalysis, updateWrongNoteHiddenFields, getRiskLevel, isInMemoList } from '@/lib/store'
 import { StarRating } from '@/components/star-rating'
 import { NoteQuestionView } from '@/components/note-question-view'
+import { ConfusionReview } from '@/components/tabs/confusion-review'
 import { CauseBadge } from '@/components/cause-badge'
 import { FilterChips } from '@/components/filter-chips'
 import { SORT_OPTIONS, sortNotes, type SortOption } from '@/lib/noteSort'
@@ -13,7 +14,54 @@ import { getAppMode } from '@/lib/appMode'
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const RISKS = ['★1', '★2', '★3', '★4', '★5']
 
+/**
+ * D-1 암기장. 두 화면을 오간다.
+ *  - 헷갈린 곳 모아보기(기본): 헷갈림/찍음으로 짚었거나 채점에서 갈린 보기·선지만 과목 → 단원별로
+ *  - 카드 목록: 별 3개 이상·직접 추가한 문제의 카드(AI 분석·메모·인쇄·선택 삭제)
+ */
 export function MemoTab({
+  notes,
+  onNotesChanged,
+}: {
+  notes: WrongNote[]
+  onNotesChanged: () => void
+}) {
+  const [view, setView] = useState<'confusion' | 'cards'>('confusion')
+  const [isGeneral] = useState(() => getAppMode() === 'general')
+  return (
+    <div className="space-y-4 max-w-2xl mx-auto">
+      <div className="flex items-center justify-between no-print">
+        <h2 className="text-lg font-bold text-foreground">D-1 암기장</h2>
+        <div className="flex rounded-lg border border-border overflow-hidden text-xs">
+          {(
+            [
+              ['confusion', '🤔 헷갈린 곳'],
+              ['cards', '📇 카드 목록'],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setView(id)}
+              aria-pressed={view === id}
+              className={`px-3 py-1.5 transition-colors ${
+                view === id ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {view === 'confusion' ? (
+        <ConfusionReview notes={notes} onNotesChanged={onNotesChanged} isGeneral={isGeneral} />
+      ) : (
+        <MemoCardList notes={notes} onNotesChanged={onNotesChanged} />
+      )}
+    </div>
+  )
+}
+
+function MemoCardList({
   notes,
   onNotesChanged,
 }: {
@@ -118,15 +166,12 @@ export function MemoTab({
   }
 
   return (
-    <div className="space-y-4 max-w-2xl mx-auto">
+    <div className="space-y-4">
       {/* 헤더 */}
       <div className="flex items-center justify-between no-print">
-        <div>
-          <h2 className="text-lg font-bold text-foreground">D-1 암기장</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            위험도 ★3 이상 항목 {highNotes.length}개
-          </p>
-        </div>
+        <p className="text-xs text-muted-foreground">
+          위험도 ★3 이상 항목 {highNotes.length}개
+        </p>
         <button
           onClick={handlePrint}
           className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
