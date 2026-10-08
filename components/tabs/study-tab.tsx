@@ -15,6 +15,7 @@ import {
   Highlight,
   colorsForStyles,
   HIGHLIGHT_COLOR_LABELS,
+  HIGHLIGHT_COLOR_HEX,
   loadHighlights,
   saveHighlights,
   applyHighlightStyles,
@@ -25,7 +26,7 @@ import { PassageTable } from '@/components/passage-table'
 import { QuestionImages } from '@/components/question-images'
 import { DrawLayer, useDrawBoard } from '@/components/quiz/draw-layer'
 import PenAnnotateLayer, { type PenGesture } from '@/components/pen-annotate-layer'
-import { STYLE_LABELS, StyleSwatch } from '@/components/highlight-editor'
+import { PenColorPicker, STYLE_LABELS, StyleSwatch } from '@/components/highlight-editor'
 import { DrawingPad, useDockedPad } from '@/components/drawing-pad'
 
 type StudyPhase = 'filter' | 'preview' | 'quiz'
@@ -631,6 +632,12 @@ function StudyBulkPreview({
   }
   // 펜슬 제스처에 쓰는 색은 가장 최근에 팝업에서 고른 색. 처음에는 회색(밑줄·원·X 모두 고를 수 있는 색)이다
   const lastColorRef = useRef<HighlightColor>('gray')
+  // 화면에 보이는 펜 색(고르개·임시 선). 실제로 칠할 때는 lastColorRef 를 읽는다 — 둘은 항상 같이 바꾼다
+  const [penColor, setPenColor] = useState<HighlightColor>('gray')
+  function choosePenColor(c: HighlightColor) {
+    lastColorRef.current = c
+    setPenColor(c)
+  }
   // 이벤트 안에서 최신 하이라이트를 읽기 위한 거울
   const highlightsRef = useRef<Highlight[]>(highlights)
   highlightsRef.current = highlights
@@ -813,7 +820,7 @@ function StudyBulkPreview({
       selectionTimerRef.current = null
     }
     const { field, start, end } = highlightPopup
-    lastColorRef.current = color
+    choosePenColor(color)
     // 기존 하이라이트와 겹치는 구간은 경계에서 잘라 새 스타일을 더한다(둘 다 남는다). 같은 종류는 그대로 둔다
     const next = applyHighlightStyles(highlights, { id: `h_${Date.now()}`, field, start, end, color, styles: activeStyles })
     setHighlights(next)
@@ -913,7 +920,8 @@ function StudyBulkPreview({
         onTouchStart={board.enabled ? undefined : handleTouchStart}
         onTouchEnd={board.enabled ? undefined : handleTouchEnd}
       >
-        <div className="flex justify-end gap-1.5">
+        <div className="flex items-center justify-end gap-1.5">
+          {penGesture && !board.enabled && <PenColorPicker value={penColor} onChange={choosePenColor} />}
           <button
             type="button"
             onClick={togglePenGesture}
@@ -1260,6 +1268,7 @@ function StudyBulkPreview({
         </div>
         <PenAnnotateLayer
           enabled={penGesture && !board.enabled}
+          color={HIGHLIGHT_COLOR_HEX[penColor]}
           getFieldEls={() => fieldRefs.current}
           onGesture={applyPenGesture}
           onInfo={(message) => setPenToast({ label: message, prev: null })}

@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
+  HIGHLIGHT_COLOR_HEX,
   HIGHLIGHT_COLOR_LABELS,
   HIGHLIGHT_SWATCH_CLASSES,
+  UNDERLINE_COLORS,
   applyHighlightStyles,
   colorsForStyles,
   loadHighlights,
@@ -21,6 +23,32 @@ import PenAnnotateLayer, { type PenGesture } from '@/components/pen-annotate-lay
  * 표시는 문제 id 로 저장되므로 선학습에서 친 것이 여기서도 보이고, 여기서 친 것이 선학습에서도 보인다.
  * (오답노트 상세 창에서 쓴다. 선학습 화면은 같은 동작을 자기 안에 따로 갖고 있다.)
  */
+
+/**
+ * 펜 자동표시가 켜져 있을 때 보이는 색 고르개. 펜으로 긋는 밑줄·원·X 가 이 색으로 남고,
+ * 긋는 동안 보이는 임시 선도 같은 색이다. 선으로 그리는 표시라 회색까지 고를 수 있다
+ */
+export function PenColorPicker({ value, onChange }: { value: HighlightColor; onChange: (c: HighlightColor) => void }) {
+  return (
+    <div role="radiogroup" aria-label="펜 색" className="mr-auto flex items-center gap-1.5">
+      <span className="text-[11px] text-muted-foreground">펜 색</span>
+      {UNDERLINE_COLORS.map((c) => (
+        <button
+          key={c}
+          type="button"
+          role="radio"
+          aria-checked={value === c}
+          aria-label={HIGHLIGHT_COLOR_LABELS[c]}
+          title={HIGHLIGHT_COLOR_LABELS[c]}
+          onClick={() => onChange(c)}
+          className={`h-5 w-5 rounded-full border border-black/10 transition-all ${HIGHLIGHT_SWATCH_CLASSES[c]} ${
+            value === c ? 'ring-2 ring-primary ring-offset-1 ring-offset-card scale-110' : 'opacity-60 hover:opacity-100'
+          }`}
+        />
+      ))}
+    </div>
+  )
+}
 
 export const STYLE_LABELS: Record<HighlightStyle, string> = {
   fill: '형광펜',
@@ -100,6 +128,12 @@ export function HighlightEditor({ questionId, onChanged, className, children }: 
   const popupHeightRef = useRef(88)
   const [style, setStyle] = useState<HighlightStyle>('fill')
   const lastColorRef = useRef<HighlightColor>('gray')
+  // 화면에 보이는 펜 색(고르개·임시 선). 실제로 칠할 때는 lastColorRef 를 읽는다 — 둘은 항상 같이 바꾼다
+  const [penColor, setPenColor] = useState<HighlightColor>('gray')
+  function choosePenColor(c: HighlightColor) {
+    lastColorRef.current = c
+    setPenColor(c)
+  }
 
   const [penOn, setPenOn] = useState(true)
   const [toast, setToast] = useState<{ label: string; prev: Highlight[] | null } | null>(null)
@@ -225,7 +259,7 @@ export function HighlightEditor({ questionId, onChanged, className, children }: 
 
   function applyFromPopup(color: HighlightColor) {
     if (!popup) return
-    lastColorRef.current = color
+    choosePenColor(color)
     const next = applyHighlightStyles(highlightsRef.current, {
       id: `h_${Date.now()}`,
       field: popup.field,
@@ -270,7 +304,8 @@ export function HighlightEditor({ questionId, onChanged, className, children }: 
       }}
       onTouchEnd={() => schedule(80)}
     >
-      <div className="mb-2 flex justify-end">
+      <div className="mb-2 flex items-center justify-end gap-2">
+        {penOn && <PenColorPicker value={penColor} onChange={choosePenColor} />}
         <button
           type="button"
           onClick={togglePen}
@@ -290,6 +325,7 @@ export function HighlightEditor({ questionId, onChanged, className, children }: 
 
       <PenAnnotateLayer
         enabled={penOn}
+        color={HIGHLIGHT_COLOR_HEX[penColor]}
         getFieldEls={() => fieldRefs.current}
         onGesture={applyPen}
         onInfo={(message) => setToast({ label: message, prev: null })}

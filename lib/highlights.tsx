@@ -215,6 +215,18 @@ function colorOfStyle(h: Highlight, style: HighlightStyle): HighlightColor {
   return h.colors?.[style] ?? h.color
 }
 
+// 캔버스(펜 자동표시의 임시 선)처럼 클래스를 못 쓰는 곳에서 쓰는 색값. 위 장식 클래스들의 500 색과 같다
+export const HIGHLIGHT_COLOR_HEX: Record<HighlightColor, string> = {
+  yellow: '#eab308',
+  green: '#10b981',
+  pink: '#ec4899',
+  blue: '#3b82f6',
+  purple: '#a855f7',
+  orange: '#f97316',
+  red: '#ef4444',
+  gray: '#6b7280',
+}
+
 export const HIGHLIGHT_SWATCH_CLASSES: Record<HighlightColor, string> = {
   yellow: 'bg-yellow-400',
   green: 'bg-emerald-400',

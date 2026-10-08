@@ -28,6 +28,8 @@ interface Props {
   onGesture: (g: PenGesture) => void
   /** 알아봤지만 표시로 남기지 못했거나, 아예 못 알아본 이유. 왜 안 됐는지 화면에서 보이게 한다 */
   onInfo?: (message: string) => void
+  /** 임시 선의 색(CSS 색). 지금 정해 둔 펜 색을 그대로 보여 준다. 바뀌어도 그리는 중인 획에 바로 반영된다 */
+  color?: string
 }
 
 // 펜슬이 닿아도 종전대로 두는 요소. 눌러서 쓰는 것들이라 획으로 읽으면 안 된다
@@ -132,11 +134,13 @@ function insideBox(c: CharBox, bb: BBox): boolean {
   return x >= bb.x0 && x <= bb.x1 && y >= bb.y0 && y <= bb.y1
 }
 
-export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture, onInfo }: Props) {
+export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture, onInfo, color = '#6b7280' }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const getFieldElsRef = useRef(getFieldEls)
   const onGestureRef = useRef(onGesture)
   const onInfoRef = useRef(onInfo)
+  const colorRef = useRef(color)
+  colorRef.current = color
   getFieldElsRef.current = getFieldEls
   onInfoRef.current = onInfo
   onGestureRef.current = onGesture
@@ -186,9 +190,11 @@ export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture, onIn
           traces.splice(i, 1)
           continue
         }
-        ctx.globalAlpha = 1 - age / FADE_MS
-        ctx.strokeStyle = '#6b7280'
-        ctx.lineWidth = 2.5
+        // 남는 표시가 아니라 '이렇게 읽는 중'이라는 임시 선이라, 얇은 점선에 살짝 옅게 그린다
+        ctx.globalAlpha = 0.85 * (1 - age / FADE_MS)
+        ctx.strokeStyle = colorRef.current
+        ctx.lineWidth = 1.5
+        ctx.setLineDash([5, 4])
         ctx.lineCap = 'round'
         ctx.lineJoin = 'round'
         ctx.beginPath()
