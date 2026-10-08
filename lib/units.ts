@@ -5,12 +5,18 @@ import type { Subject } from './types'
 // 파싱 결과의 단원이 올바른지 검증할 때도 반드시 같은 목록을 기준으로 삼아야 한다.
 // (components/quiz/quiz-filter.tsx에도 비슷한 목록이 있지만 그쪽은 필터 UI용 후보라
 //  표기가 다르다 — 예: 상법 '총칙' vs 여기 '총칙・상행위'. 검증 기준은 이 파일이다)
+// 형법·형소가 한 문제에 섞여 단원에 못 들어가는 통합 사례(교재 부록 "형사법 종합문제")를 모으는 단원.
+// 교재 PDF에서 가져올 때만 쓰는 값이라 AI 단원 분류 프롬프트에는 싣지 않는다 (아래 PROMPT_EXCLUDED_UNITS).
+// 일반 형소 문제를 모델이 이 단원으로 분류해 버리는 일을 막으려는 것이다
+export const COMPOSITE_UNIT = '형사법 종합'
+const PROMPT_EXCLUDED_UNITS = new Set([COMPOSITE_UNIT])
+
 export const SUBJECT_UNITS: Record<Subject, string[]> = {
   '민법': ['민법총칙', '물권법', '채권총론', '채권각론', '가족법'],
   '민사소송법': ['소송요건', '소송절차', '증거', '상소', '강제집행'],
   '상법': ['총칙・상행위', '회사법', '어음수표법', '보험법', '해상법'],
   '형법': ['범죄론', '미수론・공범론', '죄수론・형벌론', '개인적 법익에 관한 죄', '사회적 법익에 관한 죄', '국가적 법익에 관한 죄', '특별형법'],
-  '형사소송법': ['수사', '공소', '공판', '증거', '상소'],
+  '형사소송법': ['수사', '공소', '공판', '증거', '상소', COMPOSITE_UNIT],
   '헌법': ['헌법총론', '기본권총론', '자유권', '사회권・참정권・청구권', '통치구조'],
   '행정법': ['행정법통론', '행정작용법・절차법', '행정구제법', '각론'],
 }
@@ -20,7 +26,7 @@ export const SUBJECT_UNITS: Record<Subject, string[]> = {
 export const SUBJECT_UNITS_JSON =
   '{\n' +
   Object.entries(SUBJECT_UNITS)
-    .map(([subject, units]) => `  ${JSON.stringify(subject)}: [${units.map((u) => JSON.stringify(u)).join(', ')}]`)
+    .map(([subject, units]) => `  ${JSON.stringify(subject)}: [${units.filter((u) => !PROMPT_EXCLUDED_UNITS.has(u)).map((u) => JSON.stringify(u)).join(', ')}]`)
     .join(',\n') +
   '\n}'
 
