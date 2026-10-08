@@ -344,14 +344,19 @@ export function QuizEngine({
                   : 'border-border hover:border-primary/40 hover:bg-muted/50'
               }`}
             >
-              <input
-                type="radio"
-                name={`q-${current}`}
-                value={c.label}
-                checked={item.userAnswer === c.label}
-                onChange={() => setAnswer(c.label)}
-                className="mt-0.5 accent-[oklch(0.65_0.2_290)]"
-              />
+              {/* 임시 그리기를 켜 두면 캔버스가 카드 전체를 덮어 선지 체크가 안 눌린다.
+                  체크 칸만 캔버스 위(z-10)로 올린다 — 선지 글자 위로는 계속 그릴 수 있다.
+                  손가락으로 누르기 쉽게 눌리는 자리는 -m-2/p-2 로 넓히고 배치는 그대로 둔다 */}
+              <span className="relative z-10 -m-2 shrink-0 p-2">
+                <input
+                  type="radio"
+                  name={`q-${current}`}
+                  value={c.label}
+                  checked={item.userAnswer === c.label}
+                  onChange={() => setAnswer(c.label)}
+                  className="mt-0.5 block accent-[oklch(0.65_0.2_290)]"
+                />
+              </span>
               <span className="text-sm text-foreground leading-relaxed">
                 <span className="font-semibold text-primary mr-1">{c.label}</span>
                 {c.text}
@@ -362,7 +367,8 @@ export function QuizEngine({
 
         <div className="flex gap-3">
           {(['헷갈림', '찍음'] as QuestionStatus[]).map((s) => (
-            <label key={s} className="flex items-center gap-1.5 cursor-pointer text-xs">
+            // 헷갈림/찍음 칸도 같은 이유로 캔버스 위로 올린다
+            <label key={s} className="relative z-10 flex items-center gap-1.5 cursor-pointer text-xs">
               <input
                 type="checkbox"
                 checked={item.status === s}
