@@ -4,12 +4,11 @@ import { useState, useMemo } from 'react'
 import type { WrongNote, Subject } from '@/lib/types'
 import { saveWrongNotes, updateWrongNoteMemo, updateWrongNoteAnalysis, updateWrongNoteHiddenFields, getRiskLevel, isInMemoList } from '@/lib/store'
 import { StarRating } from '@/components/star-rating'
-import { SubItemList } from '@/components/quiz/sub-item-list'
+import { NoteQuestionView } from '@/components/note-question-view'
 import { CauseBadge } from '@/components/cause-badge'
 import { FilterChips } from '@/components/filter-chips'
 import { SORT_OPTIONS, sortNotes, type SortOption } from '@/lib/noteSort'
 import { getAppMode } from '@/lib/appMode'
-import { isAnswerLabel, selectedLabels } from '@/lib/answers'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const RISKS = ['★1', '★2', '★3', '★4', '★5']
@@ -316,6 +315,7 @@ function MemoCard({ note, onMemoSaved, isGeneral }: { note: WrongNote; onMemoSav
   const [memo, setMemo] = useState(note.memo ?? '')
   const [memoSaved, setMemoSaved] = useState(false)
   const [memoOpen, setMemoOpen] = useState(false)
+  const [questionOpen, setQuestionOpen] = useState(false)
   const [hidden, setHidden] = useState<Set<string>>(new Set(note.hiddenFields ?? []))
 
   function saveMemo() {
@@ -365,37 +365,8 @@ function MemoCard({ note, onMemoSaved, isGeneral }: { note: WrongNote; onMemoSav
         <span className="text-xs text-muted-foreground">{note.question.year}년 {note.question.examType}</span>
       </div>
 
-      {/* AI 분석이 없는 노트(일반 사용자는 분석이 꺼져 있다)는 문제와 해설을 그대로 보여준다 */}
-      {!a && (
-        <div className="space-y-2">
-          <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{note.question.passage}</p>
-          <SubItemList question={note.question} small />
-          <div className="space-y-1">
-            {note.question.choices.map((c) => (
-              <div
-                key={c.label}
-                className={`flex gap-2 p-2 rounded-lg text-xs border ${
-                  isAnswerLabel(note.question.answer, c.label)
-                    ? 'border-emerald-500 bg-emerald-100 text-emerald-900 dark:border-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300'
-                    : selectedLabels(note.userAnswer).includes(c.label)
-                      ? 'border-red-500 bg-red-100 text-red-900 dark:border-red-600 dark:bg-red-900/20 dark:text-red-300'
-                      : 'border-border text-muted-foreground'
-                }`}
-              >
-                <span className="font-semibold shrink-0">{c.label}</span>
-                <span className="flex-1">{c.text}</span>
-                {isAnswerLabel(note.question.answer, c.label) && <span className="ml-auto shrink-0">✓ 정답</span>}
-              </div>
-            ))}
-          </div>
-          {note.question.explanation && (
-            <div className="bg-muted rounded-lg p-3 space-y-0.5">
-              <p className="text-xs text-muted-foreground font-medium">해설</p>
-              <p className="text-foreground text-xs leading-relaxed whitespace-pre-wrap break-words">{note.question.explanation}</p>
-            </div>
-          )}
-        </div>
-      )}
+      {/* AI 분석이 없는 노트(일반 사용자는 분석이 꺼져 있다)는 선학습과 같은 문제 화면(형광펜·펜·보기별 해설·그림판)을 그대로 보여준다 */}
+      {!a && <NoteQuestionView note={note} onChanged={onMemoSaved} />}
 
       {a && !hidden.has('핵심개념') && (
         <div className="space-y-0.5">
@@ -439,6 +410,19 @@ function MemoCard({ note, onMemoSaved, isGeneral }: { note: WrongNote; onMemoSav
               + {f}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* 분석이 있는 카드는 분석을 먼저 보여 주고, 문제 화면(내가 칠한 형광펜·펜·그림판 포함)은 눌러서 펼친다 */}
+      {a && (
+        <div className="no-print space-y-2">
+          <button
+            onClick={() => setQuestionOpen((v) => !v)}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            📄 문제·내 표시 {questionOpen ? '접기 ▲' : '보기 ▼'}
+          </button>
+          {questionOpen && <NoteQuestionView note={note} onChanged={onMemoSaved} />}
         </div>
       )}
 

@@ -26,7 +26,7 @@ import {
 } from '@/lib/highlights'
 import { PassageTable } from '@/components/passage-table'
 import { QuestionImages } from '@/components/question-images'
-import { resolveSubChoices, SUB_LABEL_CHARS, SUB_LABEL_MAP, OX_CHAR_CLASS } from '@/lib/subChoices'
+import { resolveSubChoices, parseSubExplanations } from '@/lib/subChoices'
 import { DrawLayer, useDrawBoard } from '@/components/quiz/draw-layer'
 import PenAnnotateLayer, { type BracketGesture, type PenGesture } from '@/components/pen-annotate-layer'
 import { PenColorPicker, STYLE_LABELS, StyleSwatch } from '@/components/highlight-editor'
@@ -372,28 +372,6 @@ function deriveChoiceTruth(q: Question): Record<string, boolean> | undefined {
   return Object.fromEntries(
     q.choices.map((c) => [c.label, negative ? !isAnswerLabel(q.answer, c.label) : isAnswerLabel(q.answer, c.label)])
   )
-}
-
-
-function parseSubExplanations(explanation: string | null): Record<string, string> {
-  if (!explanation) return {}
-  const regex = new RegExp(`(?<![가-힣])([${SUB_LABEL_CHARS}])\\s*\\.\\s*\\([${OX_CHAR_CLASS}]\\)`, 'g')
-  const markers: { label: string; start: number; end: number }[] = []
-  let match: RegExpExecArray | null
-  while ((match = regex.exec(explanation))) {
-    const label = SUB_LABEL_MAP[match[1]]
-    if (label) markers.push({ label, start: match.index, end: match.index + match[0].length })
-  }
-
-  const result: Record<string, string> = {}
-  for (let i = 0; i < markers.length; i++) {
-    const textStart = markers[i].end
-    const textEnd = i + 1 < markers.length ? markers[i + 1].start : explanation.length
-    const text = explanation.slice(textStart, textEnd).trim()
-    if (text) result[markers[i].label] = text
-  }
-
-  return result
 }
 
 // 팝업과 선택 영역 사이 간격. 위치 계산과 높이 보정이 같은 값을 봐야 한다
@@ -836,7 +814,7 @@ function StudyBulkPreview({
             type="button"
             onClick={togglePenGesture}
             aria-pressed={penGesture}
-            title="펜슬(또는 마우스를 누른 채)로 본문에 밑줄(—)·원(○)·X 를 그으면 알아보고 표시로 남깁니다. 글자 사이에 괄호 [ ] < > 를 한 획씩 그으면 그 자리에 끼워 넣어요. 켜 두면 마우스로 끌어서 글자를 고르는 건 안 돼요"
+            title="펜슬(또는 마우스를 누른 채)로 본문에 밑줄(—)·물결(∿)·원(○)·X 를 그으면 알아보고 표시로 남깁니다. 글자 사이에 괄호 [ ] < > 를 한 획씩 그으면 그 자리에 끼워 넣어요. 켜 두면 마우스로 끌어서 글자를 고르는 건 안 돼요"
             className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all ${
               penGesture
                 ? 'bg-primary/15 text-primary border-primary/40'

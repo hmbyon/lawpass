@@ -140,3 +140,28 @@ export function confusedKind(q: Question, labels: string[]): '보기' | '선지'
   const choice = new Set(q.choices.map((c) => c.label))
   return labels.length > 0 && labels.every((l) => choice.has(l)) ? '선지' : '보기'
 }
+
+/**
+ * 해설 한 덩어리 안에 "ㄱ. (O) …" 식으로 이어 적힌 보기별 해설을 라벨별로 쪼갠다.
+ * subItems 가 없는 옛 데이터의 폴백이다. 선학습과 오답노트·암기장이 같은 규칙으로 읽도록 한 곳에 둔다
+ */
+export function parseSubExplanations(explanation: string | null): Record<string, string> {
+  if (!explanation) return {}
+  const regex = new RegExp(`(?<![가-힣])([${SUB_LABEL_CHARS}])\\s*\\.\\s*\\([${OX_CHAR_CLASS}]\\)`, 'g')
+  const markers: { label: string; start: number; end: number }[] = []
+  let match: RegExpExecArray | null
+  while ((match = regex.exec(explanation))) {
+    const label = SUB_LABEL_MAP[match[1]]
+    if (label) markers.push({ label, start: match.index, end: match.index + match[0].length })
+  }
+
+  const result: Record<string, string> = {}
+  for (let i = 0; i < markers.length; i++) {
+    const textStart = markers[i].end
+    const textEnd = i + 1 < markers.length ? markers[i + 1].start : explanation.length
+    const text = explanation.slice(textStart, textEnd).trim()
+    if (text) result[markers[i].label] = text
+  }
+
+  return result
+}

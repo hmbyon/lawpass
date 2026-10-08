@@ -331,13 +331,13 @@ export function HighlightEditor({ questionId, onChanged, className, children }: 
       }}
       onTouchEnd={() => schedule(80)}
     >
-      <div className="mb-2 flex items-center justify-end gap-2">
+      <div className="mb-2 flex items-center justify-end gap-2 no-print">
         {penOn && <PenColorPicker value={penColor} onChange={choosePenColor} />}
         <button
           type="button"
           onClick={togglePen}
           aria-pressed={penOn}
-          title="펜슬(또는 마우스를 누른 채)로 본문에 밑줄(—)·원(○)·X 를 그으면 알아보고 표시로 남깁니다. 글자 사이에 괄호 [ ] < > 를 한 획씩 그으면 그 자리에 끼워 넣어요. 켜 두면 마우스로 끌어서 글자를 고르는 건 안 돼요"
+          title="펜슬(또는 마우스를 누른 채)로 본문에 밑줄(—)·물결(∿)·원(○)·X 를 그으면 알아보고 표시로 남깁니다. 글자 사이에 괄호 [ ] < > 를 한 획씩 그으면 그 자리에 끼워 넣어요. 켜 두면 마우스로 끌어서 글자를 고르는 건 안 돼요"
           className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all ${
             penOn
               ? 'bg-primary/15 text-primary border-primary/40'

@@ -10,8 +10,10 @@ import { PassageTable } from '@/components/passage-table'
 import { QuestionImages } from '@/components/question-images'
 import { DrawLayer, useDrawBoard } from '@/components/quiz/draw-layer'
 import { SubItemList } from '@/components/quiz/sub-item-list'
+import { WrongNoteDetailModal } from '@/components/wrong-note-detail'
+import { getAppMode } from '@/lib/appMode'
 import { confusionLabels, confusedKind } from '@/lib/subChoices'
-import { isAnswerLabel, formatAnswer, isCorrectSelection, isMultiAnswer, selectedLabels, toggleSelection, NO_ANSWER } from '@/lib/answers'
+import { formatAnswer, isCorrectSelection, isMultiAnswer, selectedLabels, toggleSelection, NO_ANSWER } from '@/lib/answers'
 
 interface QuizItem {
   question: Question
@@ -599,7 +601,9 @@ function ResultsView({
   analysisErrors: Record<string, string>
   onFinish: () => void
 }) {
-  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [openId, setOpenId] = useState<string | null>(null)
+  const openNote = results.wrong.find((n) => n.id === openId) ?? null
+  const [isGeneral] = useState(() => getAppMode() === 'general')
   const total = items.filter((i) => i.userAnswer !== null).length
   const pct = total > 0 ? Math.round((results.correct / total) * 100) : 0
   // 맞혔지만 헷갈림/찍음으로 표시한 문제. 오답노트에는 따로 들어가지만 채점 화면에서도 바로 보이게 한다
@@ -622,8 +626,9 @@ function ResultsView({
           <h3 className="text-sm font-semibold text-foreground px-1">오답 분석 결과</h3>
           {results.wrong.map((note) => (
             <div key={note.id} className="bg-card border border-border rounded-xl overflow-hidden">
+              {/* 누르면 오답노트와 같은 상세 창이 뜬다(지문·선지·보기별 해설·형광펜/펜·AI 분석·메모) */}
               <button
-                onClick={() => setExpandedId(expandedId === note.id ? null : note.id)}
+                onClick={() => setOpenId(note.id)}
                 className="w-full p-4 text-left flex items-start justify-between gap-3 hover:bg-muted/30 transition-colors"
               >
                 <div className="space-y-1 flex-1">
@@ -642,92 +647,21 @@ function ResultsView({
                     )}
                   </p>
                 </div>
-                <span className="text-muted-foreground text-sm shrink-0">{expandedId === note.id ? '▲' : '▼'}</span>
+                <span className="text-muted-foreground text-sm shrink-0">▶</span>
               </button>
-
-              {/* 토글을 누르면 늘 문제 전문(지문·선지·해설)을 먼저 보여준다. AI 분석은
-                  성공했을 때만 그 아래 덧붙인다. 전에는 note.analysis가 없으면(AI 분석
-                  실패) 토글을 눌러도 이 블록 자체가 안 그려져 — 그림도 없는 문제는 —
-                  아무 반응이 없는 것처럼 보였다 */}
-              {expandedId === note.id && (
-                <div className="border-t border-border px-4 py-3 space-y-3 text-sm">
-                  <QuestionImages questionId={note.question.id} imageIds={note.question.images} poolId={note.question.poolId} readOnly />
-
-                  <div className="bg-muted/40 border border-border/60 rounded-lg p-3">
-                    <p className="text-xs text-muted-foreground mb-1">문제 지문</p>
-                    <p className="text-foreground leading-relaxed text-xs whitespace-pre-wrap">{note.question.passage}</p>
-                    <div className="mt-2">
-                      <SubItemList question={note.question} small />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    {note.question.choices.map((c) => (
-                      <div
-                        key={c.label}
-                        className={`flex gap-2 p-2 rounded-lg text-xs border ${
-                          isAnswerLabel(note.question.answer, c.label)
-                            ? 'border-emerald-500 bg-emerald-100 text-emerald-900 dark:border-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300'
-                            : selectedLabels(note.userAnswer).includes(c.label)
-                              ? 'border-red-500 bg-red-100 text-red-900 dark:border-red-600 dark:bg-red-900/20 dark:text-red-300'
-                              : 'border-border text-muted-foreground'
-                        }`}
-                      >
-                        <span className="font-semibold shrink-0">{c.label}</span>
-                        <span className="flex-1">{c.text}</span>
-                        {note.confusedWith?.includes(c.label) && (
-                          <span className="ml-auto shrink-0 text-amber-600 dark:text-amber-400">
-                            {note.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'}
-                          </span>
-                        )}
-                        {isAnswerLabel(note.question.answer, c.label) && (
-                          <span className="ml-auto shrink-0">
-                            ✓ 정답{isMultiAnswer(note.question.answer) && !selectedLabels(note.userAnswer).includes(c.label) ? ' · 놓침' : ''}
-                          </span>
-                        )}
-                        {selectedLabels(note.userAnswer).includes(c.label) && !isAnswerLabel(note.question.answer, c.label) && (
-                          <span className="ml-auto shrink-0">✗ 내 답</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-
-                  {note.question.explanation && (
-                    <div className="bg-muted/40 border border-border/60 rounded-lg p-3">
-                      <p className="text-xs text-muted-foreground mb-1 font-medium">해설</p>
-                      <p className="text-foreground text-xs leading-relaxed whitespace-pre-wrap break-words">
-                        {note.question.explanation}
-                      </p>
-                    </div>
-                  )}
-
-                  {note.analysis ? (
-                    <>
-                      <InfoRow label="핵심개념" value={note.analysis.핵심개념} />
-                      <InfoRow label="관련조문" value={note.analysis.관련조문} />
-                      <InfoRow label="원인상세" value={note.analysis.원인상세} />
-                      <InfoRow label="개념요약" value={note.analysis.개념요약} />
-                      <InfoRow label="혼동주의" value={note.analysis.혼동주의} />
-                      <InfoRow label="체크포인트" value={note.analysis.체크포인트} />
-                    </>
-                  ) : (
-                    <div className="space-y-1">
-                      {/* 분석을 시도했다가 실패한 경우에만 알린다. 분석이 꺼진 계정은 아무 말도 하지 않는다 */}
-                      {analysisErrors[note.question.id] && (
-                        <>
-                          <p className="text-xs text-muted-foreground">AI 분석에 실패했습니다.</p>
-                          <p className="text-xs text-red-400 break-words">
-                            이유: {explainAnalysisError(analysisErrors[note.question.id])}
-                          </p>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           ))}
         </div>
+      )}
+
+      {openNote && (
+        <WrongNoteDetailModal
+          note={openNote}
+          onClose={() => setOpenId(null)}
+          onMemoSaved={() => {}}
+          isGeneral={isGeneral}
+          analysisError={analysisErrors[openNote.question.id] ? explainAnalysisError(analysisErrors[openNote.question.id]) : undefined}
+        />
       )}
 
       {flaggedCorrect.length > 0 && (
@@ -774,13 +708,4 @@ function explainAnalysisError(message: string): string {
   }
   if (code === '503' || code === '504') return 'Gemini 서버가 바쁜 상태예요. 잠시 뒤 다시 시도해 주세요.'
   return message.length > 160 ? `${message.slice(0, 160)}…` : message
-}
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-xs text-muted-foreground font-medium mb-0.5">{label}</p>
-      <p className="text-foreground leading-relaxed">{value}</p>
-    </div>
-  )
 }
