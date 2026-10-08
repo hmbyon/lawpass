@@ -12,7 +12,7 @@ import { getAppMode } from '@/lib/appMode'
 import { loadHighlights, renderHighlighted } from '@/lib/highlights'
 import { HighlightEditor } from '@/components/highlight-editor'
 import { SubItemList } from '@/components/quiz/sub-item-list'
-import { confusedKind } from '@/lib/subChoices'
+import { confusedKind, resolveSubChoices } from '@/lib/subChoices'
 import {
   ExplanationBox, choiceExplanationParts, subItemExplanationParts, hasExplanationParts,
 } from '@/components/quiz/explanation-blocks'
@@ -33,6 +33,10 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
   const a = note.analysis
   const isCombination = (note.question.subItems?.length ?? 0) > 0
   const subItemsWithExplanation = (note.question.subItems ?? []).filter((it) => hasExplanationParts(subItemExplanationParts(it)))
+  // ㄱㄴㄷ 보기가 구조화돼 있으면 선학습처럼 발문 → 보기 → 그 보기의 해설 순으로 그린다.
+  // 형광펜 필드 키(passage_stem·sub_ㄱ)도 선학습과 같아서 거기서 칠한 표시가 그대로 보인다
+  const inlineSub = isCombination ? resolveSubChoices(note.question) : null
+  const subItemByLabel = new Map((note.question.subItems ?? []).map((it) => [it.label, it]))
   // 선지별·보기별 해설이 하나라도 있으면 선학습처럼 각 자리에서 보여 주므로, 합쳐 둔 해설 블록은 겹치게 되어 숨긴다
   const hasPerItemExplanation =
     subItemsWithExplanation.length > 0 ||
@@ -90,13 +94,53 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
           {/* 문제 지문 */}
           <div className="bg-muted/40 border border-border/60 rounded-lg p-3">
             <p className="text-xs text-muted-foreground mb-1">문제 지문</p>
-            <p ref={fieldRef('passage')} className="text-foreground leading-relaxed text-xs whitespace-pre-wrap select-text">
-              {renderHighlighted(note.question.passage, 'passage', highlights, removeHighlight)}
-            </p>
-            {/* ㄱㄴㄷ 보기가 지문과 따로 저장된 문제 */}
-            <div className="mt-2">
-              <SubItemList question={note.question} small />
-            </div>
+            {inlineSub ? (
+              <>
+                <p ref={fieldRef('passage_stem')} className="text-foreground leading-relaxed text-xs whitespace-pre-wrap select-text">
+                  {renderHighlighted(inlineSub.stem, 'passage_stem', highlights, removeHighlight)}
+                </p>
+                {/* ㄱㄴㄷ 보기 — 각 보기 바로 밑에 그 보기의 해설 */}
+                <div className="mt-2 space-y-2 pl-3 border-l-2 border-border">
+                  {inlineSub.items.map((item) => {
+                    const subItem = subItemByLabel.get(item.label)
+                    return (
+                      <div key={item.label}>
+                        <div className="flex gap-2 items-start text-xs">
+                          {subItem && (
+                            <span className={`shrink-0 font-bold ${subItem.isCorrect ? 'text-blue-400' : 'text-red-400'}`}>
+                              {subItem.isCorrect ? 'O' : 'X'}
+                            </span>
+                          )}
+                          <span className="font-semibold text-primary shrink-0">{item.label}.</span>
+                          <span ref={fieldRef(`sub_${item.label}`)} className="flex-1 text-foreground leading-relaxed select-text">
+                            {renderHighlighted(item.text, `sub_${item.label}`, highlights, removeHighlight)}
+                          </span>
+                        </div>
+                        {subItem && (
+                          <ExplanationBox
+                            parts={subItemExplanationParts(subItem)}
+                            highlights={highlights}
+                            onRemove={removeHighlight}
+                            fieldRef={fieldRef}
+                            className="ml-3 mt-1"
+                          />
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            ) : (
+              <>
+                <p ref={fieldRef('passage')} className="text-foreground leading-relaxed text-xs whitespace-pre-wrap select-text">
+                  {renderHighlighted(note.question.passage, 'passage', highlights, removeHighlight)}
+                </p>
+                {/* ㄱㄴㄷ 보기가 지문과 따로 저장된 문제 */}
+                <div className="mt-2">
+                  <SubItemList question={note.question} small />
+                </div>
+              </>
+            )}
           </div>
 
           {/* 선지 */}
@@ -146,26 +190,6 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
             ))}
           </div>
 
-          {/* ㄱㄴㄷ 보기 항목별 해설 (subItems 구조 데이터) */}
-          {isCombination && subItemsWithExplanation.length > 0 && (
-            <div className="space-y-2">
-              {subItemsWithExplanation.map((item) => (
-                <div key={item.label}>
-                  <p className="text-xs text-muted-foreground">
-                    <span className="font-semibold text-primary">{item.label}.</span>{' '}
-                    <span className={item.isCorrect ? 'text-blue-400 font-bold' : 'text-red-400 font-bold'}>{item.isCorrect ? 'O' : 'X'}</span>
-                  </p>
-                  <ExplanationBox
-                    parts={subItemExplanationParts(item)}
-                    highlights={highlights}
-                    onRemove={removeHighlight}
-                    fieldRef={fieldRef}
-                    className="ml-3 mt-0.5"
-                  />
-                </div>
-              ))}
-            </div>
-          )}
               </>
             )}
           </HighlightEditor>
