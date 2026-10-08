@@ -970,6 +970,7 @@ export function addWrongNote(note: WrongNote) {
       hiddenFields: prev.hiddenFields,
       isBookmarked: prev.isBookmarked,
       confusionDismissed: undefined, // 다시 틀렸으니 헷갈린 곳 목록에 다시 올린다
+      memoExcluded: undefined, // 다시 틀렸으니 암기장 자동 편입도 다시 본다
       analysis: newAnalysis,
       analysisHistory,
       dominantCause,
@@ -1110,6 +1111,22 @@ export function addFlaggedCorrectNote(
   saveWrongNotes(notes)
 }
 
+/**
+ * D-1 암기장(카드 목록)에서 문제들을 뺀다. 오답노트의 문제·분석·메모는 그대로 남는다.
+ * 별 3개 이상이어도 다시 올라오지 않도록 memoExcluded 를 건다
+ */
+export function removeFromMemo(ids: string[]) {
+  const set = new Set(ids)
+  const notes = getWrongNotes()
+  let changed = false
+  const next = notes.map((n) => {
+    if (!set.has(n.id)) return n
+    changed = true
+    return { ...n, manuallyAddedToMemo: false, memoExcluded: true }
+  })
+  if (changed) saveWrongNotes(next)
+}
+
 /** D-1 암기장 "헷갈린 곳" 목록에서 문제들을 지운다. 오답노트의 문제·분석·메모는 그대로 남는다 */
 export function dismissConfusion(ids: string[]) {
   const set = new Set(ids)
@@ -1205,6 +1222,7 @@ export function updateWrongNoteAnalysis(id: string, patch: Partial<import('./typ
 // 위험도는 getRiskLevel 로 읽는다 — AI 분석(analysis)이 없는 노트(일반 사용자는 분석이 꺼져 있다)도
 // 틀린 횟수로 계산한 별점으로 똑같이 판정하려는 것이다. 분석이 있는 노트의 값은 예전과 같다
 export function isInMemoList(note: WrongNote): boolean {
+  if (note.memoExcluded) return false // 사용자가 암기장에서 뺐다
   if (note.manuallyAddedToMemo) return true
   return getRiskLevel(note) >= 3
 }
@@ -1214,7 +1232,8 @@ export function updateWrongNoteMemoInclusion(id: string, included: boolean) {
   const notes = getWrongNotes()
   const idx = notes.findIndex((n) => n.id === id)
   if (idx >= 0) {
-    notes[idx] = { ...notes[idx], manuallyAddedToMemo: included }
+    // 넣으면 제외 표시를 풀고, 빼면 별점 자동 편입도 막는다(별 3개 이상이어도 다시 들어오지 않게)
+    notes[idx] = { ...notes[idx], manuallyAddedToMemo: included, memoExcluded: included ? undefined : true }
     saveWrongNotes(notes)
   }
 }

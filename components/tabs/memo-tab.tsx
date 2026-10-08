@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import type { WrongNote, Subject } from '@/lib/types'
-import { saveWrongNotes, updateWrongNoteMemo, updateWrongNoteAnalysis, updateWrongNoteHiddenFields, getRiskLevel, isInMemoList } from '@/lib/store'
+import { removeFromMemo, updateWrongNoteMemo, updateWrongNoteAnalysis, updateWrongNoteHiddenFields, getRiskLevel, isInMemoList } from '@/lib/store'
 import { StarRating } from '@/components/star-rating'
 import { NoteQuestionView } from '@/components/note-question-view'
 import { ConfusionReview } from '@/components/tabs/confusion-review'
@@ -144,18 +144,16 @@ function MemoCardList({
 
   function delSelected() {
     if (checkedIds.size === 0) return
-    if (!confirm(`선택한 ${checkedIds.size}개를 삭제할까요?`)) return
-    const remaining = notes.filter((n) => !checkedIds.has(n.id))
-    saveWrongNotes(remaining)
+    if (!confirm(`선택한 ${checkedIds.size}개를 암기장에서 뺄까요?\n오답노트의 문제와 분석·메모는 그대로 남아요.`)) return
+    removeFromMemo(Array.from(checkedIds))
     setCheckedIds(new Set())
     setSelectMode(false)
     onNotesChanged()
   }
 
   function delAll() {
-    if (!confirm(`암기장 항목 ${highNotes.length}개를 모두 삭제할까요?`)) return
-    const remaining = notes.filter((n) => !isInMemoList(n))
-    saveWrongNotes(remaining)
+    if (!confirm(`암기장 항목 ${highNotes.length}개를 모두 암기장에서 뺄까요?\n오답노트의 문제와 분석·메모는 그대로 남아요.`)) return
+    removeFromMemo(highNotes.map((n) => n.id))
     setCheckedIds(new Set())
     setSelectMode(false)
     onNotesChanged()
@@ -413,7 +411,23 @@ function MemoCard({ note, onMemoSaved, isGeneral }: { note: WrongNote; onMemoSav
           {!isGeneral && note.dominantCause && <CauseBadge cause={note.dominantCause} />}
           {getRiskLevel(note) > 0 && <StarRating value={getRiskLevel(note)} />}
         </div>
-        <span className="text-xs text-muted-foreground">{note.question.year}년 {note.question.examType}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">{note.question.year}년 {note.question.examType}</span>
+          {/* 오른쪽 위 ✕: 이 카드만 암기장에서 뺀다. 오답노트의 문제는 그대로 남는다 */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              if (!confirm('이 문제를 암기장에서 뺄까요?\n오답노트의 문제와 분석·메모는 그대로 남아요.')) return
+              removeFromMemo([note.id])
+              onMemoSaved()
+            }}
+            aria-label="암기장에서 빼기"
+            title="암기장에서 빼기 (오답노트는 그대로)"
+            className="no-print text-muted-foreground hover:text-foreground text-base leading-none px-1"
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       {/* AI 분석이 없는 노트(일반 사용자는 분석이 꺼져 있다)는 선학습과 같은 문제 화면(형광펜·펜·보기별 해설·그림판)을 그대로 보여준다 */}

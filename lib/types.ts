@@ -263,6 +263,9 @@ export interface WrongNote {
   // 헷갈림/찍음으로 표시할 때 어느 선지와 헷갈렸는지 (예: ['①','③']). 옛 노트에는 없다
   confusedWith?: string[]
   manuallyAddedToMemo?: boolean // 자동 조건과 무관하게 사용자가 직접 D-1 암기장에 넣은 문제
+  // 암기장에서 뺀 문제. 별 3개 이상이어도 암기장에 올리지 않는다(오답노트의 문제 자체는 그대로).
+  // 다시 틀리거나 상세 창에서 "암기장에 추가"를 누르면 풀린다
+  memoExcluded?: boolean
   choiceMemos?: Record<string, string>  // 선지별 메모 (키: ①②③④⑤)
 }
 

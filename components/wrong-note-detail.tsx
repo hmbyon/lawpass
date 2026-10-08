@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import type { WrongNote } from '@/lib/types'
 import { resolveErrorCause, CAUSE_LABELS } from '@/lib/types'
-import { updateWrongNoteMemo, getRiskLevel, updateWrongNoteMemoInclusion } from '@/lib/store'
+import { updateWrongNoteMemo, getRiskLevel, updateWrongNoteMemoInclusion, isInMemoList } from '@/lib/store'
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
 import { NoteQuestionView } from '@/components/note-question-view'
@@ -26,7 +26,7 @@ export function WrongNoteDetailModal({ note, onClose, onMemoSaved, isGeneral, an
   const a = note.analysis
   const [memo, setMemo] = useState(note.memo ?? '')
   const [memoSaved, setMemoSaved] = useState(false)
-  const [inMemoList, setInMemoList] = useState(note.manuallyAddedToMemo ?? false)
+  const [inMemoList, setInMemoList] = useState(isInMemoList(note))
 
   // 북마크(표시 전용 배지)와는 별개 기능이다. 자동 조건과 무관하게 암기장에 넣고 뺀다
   function toggleMemoInclusion() {
