@@ -521,6 +521,10 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
     onUnitChanged()
   }
 
+  // 시험 구분이 둘 이상 섞였을 때만, 그중 모의고사로 붙은 문제를 모은다
+  const mockQuestions =
+    new Set(questions.map((x) => x.examType)).size > 1 ? questions.filter((x) => x.examType === '모의고사') : []
+
   // 검토 대상 파일명 (문제에 기록된 sourceFile에서 뽑는다)
   const reviewedFiles = Array.from(new Set(questions.map((q) => q.sourceFile).filter(Boolean))) as string[]
 
@@ -579,6 +583,44 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
           <p className="text-[11px] text-muted-foreground truncate">{reviewedFiles.join(', ')}</p>
         )}
       </div>
+
+      {/* 모의고사 문제 — 변호사시험 기출 틈에 모의고사로 붙은 문제만 맨 위에 모은다.
+          기출 문제집에 섞여 들어온 모의고사는 대개 잘못 붙은 것이라(예: 같은 문제가 변시·모의고사로 두 벌),
+          번호 연속성·연도 분포를 뒤지지 않고 여기서 바로 보고 지울 수 있게 한다. 시험 구분이 하나뿐이면 나오지 않는다 */}
+      {mockQuestions.length > 0 && (
+        <div className="px-3 py-2 space-y-1.5">
+          <p className="text-xs text-muted-foreground">모의고사 문제</p>
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            ⚠ 변호사시험 기출 사이에 &apos;모의고사&apos;로 붙은 문제가 {mockQuestions.length}개 있습니다. 기출이 아니라
+            잘못 붙은 문제라면 펼쳐서 지문을 확인하고 지워주세요
+          </p>
+          <div className="ml-2 mt-1 mb-1.5 pl-2 border-l-2 border-border space-y-1">
+            {byQuestionNo(mockQuestions).map((q) => (
+              <QuestionRow
+                key={q.id}
+                q={q}
+                duplicates={review.duplicateIds[q.id] ?? 0}
+                open={openQuestion === q.id}
+                onToggle={() => setOpenQuestion(openQuestion === q.id ? null : q.id)}
+                onDelete={removeQuestion}
+              >
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => removeQuestion(q)}
+                    className="shrink-0 rounded border border-red-500/40 px-1.5 py-0.5 text-[11px] text-red-600 hover:bg-red-500/10 dark:text-red-400"
+                  >
+                    삭제
+                  </button>
+                )}
+              </QuestionRow>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            삭제는 되돌릴 수 없습니다. 삭제 전에 지문을 눌러 원본과 같은 문제인지 확인하세요.
+          </p>
+        </div>
+      )}
 
       {/* A. 번호 연속성 */}
       <div className="px-3 py-2 space-y-1.5">
