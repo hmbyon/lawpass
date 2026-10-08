@@ -104,11 +104,9 @@ export function NoteQuestionView({ note, onChanged }: { note: WrongNote; onChang
                     return (
                       <div key={item.label}>
                         <div className={`flex gap-2 items-start text-xs ${
-                            diff === 'wrongPick'
+                            diff
                               ? 'rounded-md bg-red-100 px-1.5 py-1 ring-1 ring-red-400/60 dark:bg-red-900/20'
-                              : diff === 'missed'
-                                ? 'rounded-md bg-sky-100 px-1.5 py-1 ring-1 ring-sky-400/60 dark:bg-sky-900/20'
-                                : confused
+                              : confused
                                   ? 'rounded-md bg-amber-100 px-1.5 py-1 ring-1 ring-amber-400/60 dark:bg-amber-900/20'
                                   : ''
                           }`}
@@ -125,14 +123,12 @@ export function NoteQuestionView({ note, onChanged }: { note: WrongNote; onChang
                             </span>
                             {(diff || confused) && (
                               <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px]">
-                                {diff === 'wrongPick' && (
-                                  <span className="font-medium text-red-600 dark:text-red-400" title="내가 고른 조합엔 있는데 정답 조합엔 없는 보기">
+                                {diff && (
+                                  <span
+                                    className="font-medium text-red-600 dark:text-red-400"
+                                    title={diff === 'wrongPick' ? '내가 고른 조합엔 있는데 정답 조합엔 없는 보기' : '정답 조합엔 있는데 내가 고르지 않은 보기'}
+                                  >
                                     ✗ 여기서 갈림
-                                  </span>
-                                )}
-                                {diff === 'missed' && (
-                                  <span className="font-medium text-sky-700 dark:text-sky-400" title="정답 조합엔 있는데 내가 고르지 않은 보기">
-                                    △ 놓침
                                   </span>
                                 )}
                                 {confused && (
