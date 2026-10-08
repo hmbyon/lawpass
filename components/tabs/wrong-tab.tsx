@@ -66,7 +66,7 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
             {note.flaggedCorrect && note.wrongCount === 0 && (
               <span className="text-xs text-amber-400">🤔 맞혔지만 {note.status}</span>
             )}
-                        {note.wrongCount > 0 && <StarRating value={getRiskLevel(note)} />}
+                        {getRiskLevel(note) > 0 && <StarRating value={getRiskLevel(note)} />}
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xl leading-none">×</button>
         </div>
@@ -220,9 +220,7 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
                 </div>
               )}
             </>
-          ) : (
-            <p className="text-muted-foreground text-xs">분석 데이터 없음</p>
-          )}
+          ) : null /* AI 분석이 없는 노트는 아무것도 그리지 않는다 — 일반 사용자는 분석이 꺼져 있다 */}
 
           {/* D-1 암기장 수동 추가 (상단 📌 북마크 배지와는 다른 기능) */}
           <div className="border-t border-border pt-3">
@@ -462,7 +460,7 @@ export function WrongTab({
                       {note.flaggedCorrect && note.wrongCount === 0 && (
                         <span className="text-xs text-amber-400">🤔 맞혔지만 {note.status}</span>
                       )}
-                      {note.wrongCount > 0 && <StarRating value={getRiskLevel(note)} />}
+                      {getRiskLevel(note) > 0 && <StarRating value={getRiskLevel(note)} />}
                     </div>
                     {note.analysis?.핵심개념 && (
                       <p className="text-xs text-muted-foreground">{note.analysis.핵심개념}</p>

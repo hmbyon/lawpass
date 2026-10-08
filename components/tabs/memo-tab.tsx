@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import type { WrongNote, Subject } from '@/lib/types'
 import { saveWrongNotes, updateWrongNoteMemo, updateWrongNoteAnalysis, updateWrongNoteHiddenFields, getRiskLevel, isInMemoList } from '@/lib/store'
 import { StarRating } from '@/components/star-rating'
+import { SubItemList } from '@/components/quiz/sub-item-list'
 import { CauseBadge } from '@/components/cause-badge'
 import { FilterChips } from '@/components/filter-chips'
 import { SORT_OPTIONS, sortNotes, type SortOption } from '@/lib/noteSort'
@@ -44,8 +45,8 @@ export function MemoTab({
       if (activeFilterSubjects.length && !activeFilterSubjects.includes(n.question.subject)) return false
       if (filterRisks.length) {
         const levels = filterRisks.map((r) => Number(r.replace('★', '')))
-        const risk = n.analysis?.위험도
-        if (risk === undefined || risk === null || !levels.includes(Number(risk))) return false
+        // 분석이 없는 노트도 별점이 있다 (틀린 횟수 기준)
+        if (!levels.includes(getRiskLevel(n))) return false
       }
       return true
     })
@@ -344,10 +345,8 @@ function MemoCard({ note, onMemoSaved, isGeneral }: { note: WrongNote; onMemoSav
     onMemoSaved()
   }
 
-  if (!a) return null
-
   const FIELDS = ['핵심개념', '관련조문', '개념요약', '혼동주의', '체크포인트']
-  const hiddenList = FIELDS.filter((f) => hidden.has(f))
+  const hiddenList = a ? FIELDS.filter((f) => hidden.has(f)) : []
 
   return (
     <div className="bg-card border border-border rounded-xl p-4 space-y-3 text-sm break-inside-avoid">
@@ -360,40 +359,72 @@ function MemoCard({ note, onMemoSaved, isGeneral }: { note: WrongNote; onMemoSav
             <span className="text-xs text-amber-400">🤔 맞혔지만 {note.status}</span>
           )}
           {!isGeneral && note.dominantCause && <CauseBadge cause={note.dominantCause} />}
-          {note.wrongCount > 0 && <StarRating value={getRiskLevel(note)} />}
+          {getRiskLevel(note) > 0 && <StarRating value={getRiskLevel(note)} />}
         </div>
         <span className="text-xs text-muted-foreground">{note.question.year}년 {note.question.examType}</span>
       </div>
 
-      {!hidden.has('핵심개념') && (
+      {/* AI 분석이 없는 노트(일반 사용자는 분석이 꺼져 있다)는 문제와 해설을 그대로 보여준다 */}
+      {!a && (
+        <div className="space-y-2">
+          <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{note.question.passage}</p>
+          <SubItemList question={note.question} small />
+          <div className="space-y-1">
+            {note.question.choices.map((c) => (
+              <div
+                key={c.label}
+                className={`flex gap-2 p-2 rounded-lg text-xs border ${
+                  c.label === note.question.answer
+                    ? 'border-emerald-500 bg-emerald-100 text-emerald-900 dark:border-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300'
+                    : c.label === note.userAnswer
+                      ? 'border-red-500 bg-red-100 text-red-900 dark:border-red-600 dark:bg-red-900/20 dark:text-red-300'
+                      : 'border-border text-muted-foreground'
+                }`}
+              >
+                <span className="font-semibold shrink-0">{c.label}</span>
+                <span className="flex-1">{c.text}</span>
+                {c.label === note.question.answer && <span className="ml-auto shrink-0">✓ 정답</span>}
+              </div>
+            ))}
+          </div>
+          {note.question.explanation && (
+            <div className="bg-muted rounded-lg p-3 space-y-0.5">
+              <p className="text-xs text-muted-foreground font-medium">해설</p>
+              <p className="text-foreground text-xs leading-relaxed whitespace-pre-wrap break-words">{note.question.explanation}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {a && !hidden.has('핵심개념') && (
         <div className="space-y-0.5">
           <p className="text-xs text-muted-foreground font-medium">핵심개념</p>
           <EditableField value={a.핵심개념} onSave={(v) => saveField({ 핵심개념: v })} onDelete={() => hideField('핵심개념')} label="핵심개념" className="font-semibold text-foreground" />
         </div>
       )}
 
-      {!hidden.has('관련조문') && (
+      {a && !hidden.has('관련조문') && (
         <div className="bg-muted rounded-lg p-3 space-y-0.5">
           <p className="text-xs text-muted-foreground font-medium">관련조문</p>
           <EditableField value={a.관련조문} onSave={(v) => saveField({ 관련조문: v })} onDelete={() => hideField('관련조문')} label="관련조문" className="text-foreground text-xs" multiline />
         </div>
       )}
 
-      {!hidden.has('개념요약') && (
+      {a && !hidden.has('개념요약') && (
         <div className="space-y-0.5">
           <p className="text-xs text-muted-foreground font-medium">개념요약 (3줄)</p>
           <EditableField value={a.개념요약} onSave={(v) => saveField({ 개념요약: v })} onDelete={() => hideField('개념요약')} label="개념요약" className="text-foreground leading-relaxed whitespace-pre-line" multiline />
         </div>
       )}
 
-      {!hidden.has('혼동주의') && (
+      {a && !hidden.has('혼동주의') && (
         <div className="bg-yellow-500/5 border border-yellow-500/40 rounded-lg p-3 space-y-0.5">
           <p className="text-xs text-yellow-800 font-medium dark:text-yellow-400">⚠ 혼동주의</p>
           <EditableField value={a.혼동주의} onSave={(v) => saveField({ 혼동주의: v })} onDelete={() => hideField('혼동주의')} label="혼동주의" className="text-foreground text-xs leading-relaxed" multiline />
         </div>
       )}
 
-      {!hidden.has('체크포인트') && (
+      {a && !hidden.has('체크포인트') && (
         <div className="bg-emerald-500/5 border border-emerald-500/40 rounded-lg p-3 space-y-0.5">
           <p className="text-xs text-emerald-800 font-medium dark:text-emerald-400">✓ 체크포인트</p>
           <EditableField value={a.체크포인트} onSave={(v) => saveField({ 체크포인트: v })} onDelete={() => hideField('체크포인트')} label="체크포인트" className="text-foreground text-xs leading-relaxed" multiline />

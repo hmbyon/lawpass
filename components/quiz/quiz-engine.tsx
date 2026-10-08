@@ -70,6 +70,8 @@ export function QuizEngine({
   const [submitted, setSubmitted] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [results, setResults] = useState<{ correct: number; wrong: WrongNote[] } | null>(null)
+  // AI 분석이 실패한 문제 id → 이유. 채점 화면에서 왜 실패했는지 보이게 한다
+  const [analysisErrors, setAnalysisErrors] = useState<Record<string, string>>({})
   const [timeLeft, setTimeLeft] = useState(
     timeLimitSeconds !== null ? timeLimitSeconds - initialElapsed : null
   )
@@ -157,6 +159,34 @@ export function QuizEngine({
       return
     }
 
+    // AI 분석은 API 키가 있는 계정(관리자)만 돌린다. 일반 사용자는 키를 넣을 곳이 없어
+    // 요청이 항상 거절됐다 — 호출하지 않고 분석 없이 오답노트에 남긴다
+    const aiEnabled = apiKey.trim().length > 0
+    if (!aiEnabled) {
+      const plain = wrongItems.map((item) => {
+        const note: WrongNote = {
+          id: `${item.question.id}_${Date.now()}`,
+          questionId: item.question.id,
+          question: item.question,
+          userAnswer: item.userAnswer!,
+          status: item.status,
+          ...(item.confusedWith.length > 0 ? { confusedWith: item.confusedWith } : {}),
+          isStudyMode: mode === 'study',
+          analysis: null,
+          analysisHistory: [],
+          dominantCause: null,
+          createdAt: Date.now(),
+          wrongCount: 1,
+          totalCount: 1,
+          isBookmarked: false,
+        }
+        addWrongNote(note)
+        return note
+      })
+      setResults({ correct: correctItems.length, wrong: plain })
+      return
+    }
+
     setAnalyzing(true)
     setAnalyzeProgress(0)
 
@@ -195,6 +225,10 @@ export function QuizEngine({
         return note
       } catch (err) {
         console.error('[v0] Analysis failed for question', item.question.id, err)
+        setAnalysisErrors((prev) => ({
+          ...prev,
+          [item.question.id]: err instanceof Error ? err.message : String(err),
+        }))
         const failNote: WrongNote = {
           id: `${item.question.id}_${Date.now()}`,
           questionId: item.question.id,
@@ -336,6 +370,7 @@ export function QuizEngine({
       <ResultsView
         results={results}
         items={items}
+        analysisErrors={analysisErrors}
         onFinish={() =>
           onFinish({
             completed: true,
@@ -518,10 +553,12 @@ export function QuizEngine({
 function ResultsView({
   results,
   items,
+  analysisErrors,
   onFinish,
 }: {
   results: { correct: number; wrong: WrongNote[] }
   items: QuizItem[]
+  analysisErrors: Record<string, string>
   onFinish: () => void
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -632,7 +669,17 @@ function ResultsView({
                       <InfoRow label="체크포인트" value={note.analysis.체크포인트} />
                     </>
                   ) : (
-                    <p className="text-xs text-muted-foreground">AI 분석에 실패했습니다.</p>
+                    <div className="space-y-1">
+                      {/* 분석을 시도했다가 실패한 경우에만 알린다. 분석이 꺼진 계정은 아무 말도 하지 않는다 */}
+                      {analysisErrors[note.question.id] && (
+                        <>
+                          <p className="text-xs text-muted-foreground">AI 분석에 실패했습니다.</p>
+                          <p className="text-xs text-red-400 break-words">
+                            이유: {explainAnalysisError(analysisErrors[note.question.id])}
+                          </p>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
@@ -674,6 +721,17 @@ function ResultsView({
       </button>
     </div>
   )
+}
+
+// 분석 실패 메시지를 알아볼 수 있는 한 줄로 바꾼다. 서버가 `[상태코드] 본문`으로 전해 주는 것을 이용한다
+function explainAnalysisError(message: string): string {
+  const code = message.match(/\[(\d{3})\]/)?.[1]
+  if (code === '429') return 'Gemini 요청 한도를 넘었어요(429). 잠시 뒤 다시 시도하거나, 하루 한도라면 내일 풀어주세요.'
+  if (code === '400' || code === '401' || code === '403') {
+    return `API 키가 올바르지 않을 수 있어요(${code}). PDF 분석 탭의 키를 확인해 주세요.`
+  }
+  if (code === '503' || code === '504') return 'Gemini 서버가 바쁜 상태예요. 잠시 뒤 다시 시도해 주세요.'
+  return message.length > 160 ? `${message.slice(0, 160)}…` : message
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {

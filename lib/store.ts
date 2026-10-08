@@ -1128,7 +1128,9 @@ export function getRiskLevel(note: WrongNote): number {
 
   const wrongCount = note.wrongCount ?? 0
   const totalCount = note.totalCount ?? 0
-  if (wrongCount === 0) return 0 // 순수 북마크는 별점 없음
+  // 틀린 적은 없지만 헷갈림/찍음으로 표시해 들어온 문제는 별 1개로 쌓는다(암기장 자동 편입 기준 3에는 못 미친다).
+  // 순수 북마크는 별점 없음
+  if (wrongCount === 0) return note.flaggedCorrect ? 1 : 0
   if (totalCount <= 1) return DEFAULT_RISK // 오답 1회뿐이라 오답률 계산 불가
   return calcRisk(wrongCount, totalCount)
 }
@@ -1171,10 +1173,12 @@ export function updateWrongNoteAnalysis(id: string, patch: Partial<import('./typ
 
 // 숨긴 필드 저장
 // D-1 암기장에 노출할 노트인지. 자동 조건(위험도 3 이상)과 수동 추가를 OR로 결합한다.
-// 목록 추출과 일괄 삭제가 같은 판정을 쓰도록 여기 한 곳에 둔다
+// 목록 추출과 일괄 삭제가 같은 판정을 쓰도록 여기 한 곳에 둔다.
+// 위험도는 getRiskLevel 로 읽는다 — AI 분석(analysis)이 없는 노트(일반 사용자는 분석이 꺼져 있다)도
+// 틀린 횟수로 계산한 별점으로 똑같이 판정하려는 것이다. 분석이 있는 노트의 값은 예전과 같다
 export function isInMemoList(note: WrongNote): boolean {
   if (note.manuallyAddedToMemo) return true
-  return (note.analysis?.위험도 ?? 0) >= 3
+  return getRiskLevel(note) >= 3
 }
 
 // 암기장 수동 추가/제거 토글
