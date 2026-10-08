@@ -55,9 +55,19 @@ export const HIGHLIGHT_CLASSES: Record<HighlightColor, string> = {
 // 두고 다투는데, Tailwind 는 클래스를 적은 순서가 아니라 스타일시트 순서로 이겨서 결과를
 // 예측할 수 없다.
 //
-// 밑줄: 아래 테두리만 그린다.
-// text-decoration 대신 border를 쓰는 이유는 지우개 hover의 line-through/decoration과 충돌하지 않기 위해서다
-export const HIGHLIGHT_UNDERLINE_CLASSES: Record<HighlightColor, string> = {
+// 밑줄: 아래 테두리(border-b)는 글자 상자(내려긋는 획 자리까지 포함) '바깥'에 그려져서
+// 한글처럼 내려긋는 획이 적은 글자 밑에서는 선이 글자와 한참 떨어져 보인다.
+// 그래서 기본은 배경 그라디언트로 2px 선을 그리고, 글자 상자 아래에서 0.08em 올려 붙인다.
+// 위치를 em 으로 둬서 지문(text-sm)과 선지 해설(text-xs)에서 모두 비슷하게 붙는다.
+// 선 위치(0.08em)·두께(2px)를 바꾸고 싶으면 아래 UL 한 곳만 고치면 된다.
+//
+// 배경 그라디언트는 X표시(HIGHLIGHT_CROSS_CLASSES)와 같은 background-image 를 쓰므로 둘이 함께 켜지면
+// 한쪽이 가려진다. 그 조합에서는 예전 테두리 밑줄(HIGHLIGHT_UNDERLINE_BORDER_CLASSES)로 돌아간다.
+// text-decoration 을 안 쓰는 이유는 지우개 hover의 line-through/decoration과 충돌하고,
+// 취소선과 함께 켰을 때 같은 속성을 두고 다투기 때문이다
+// (Tailwind 는 소스에 글자 그대로 적힌 클래스만 만든다. 값을 변수로 끼워 넣으면 CSS 가 생기지 않는다)
+const UL = 'bg-no-repeat bg-[length:100%_2px] bg-[position:0_calc(100%_-_0.08em)]'
+export const HIGHLIGHT_UNDERLINE_BORDER_CLASSES: Record<HighlightColor, string> = {
   yellow: 'border-b-2 border-yellow-500 dark:border-yellow-400',
   green: 'border-b-2 border-emerald-500 dark:border-emerald-400',
   pink: 'border-b-2 border-pink-500 dark:border-pink-400',
@@ -66,6 +76,17 @@ export const HIGHLIGHT_UNDERLINE_CLASSES: Record<HighlightColor, string> = {
   orange: 'border-b-2 border-orange-500 dark:border-orange-400',
   red: 'border-b-2 border-red-500 dark:border-red-400',
   gray: 'border-b-2 border-gray-500 dark:border-gray-400',
+}
+
+export const HIGHLIGHT_UNDERLINE_CLASSES: Record<HighlightColor, string> = {
+  yellow: `bg-[linear-gradient(#eab308,#eab308)] dark:bg-[linear-gradient(#facc15,#facc15)] ${UL}`,
+  green: `bg-[linear-gradient(#10b981,#10b981)] dark:bg-[linear-gradient(#34d399,#34d399)] ${UL}`,
+  pink: `bg-[linear-gradient(#ec4899,#ec4899)] dark:bg-[linear-gradient(#f472b6,#f472b6)] ${UL}`,
+  blue: `bg-[linear-gradient(#3b82f6,#3b82f6)] dark:bg-[linear-gradient(#60a5fa,#60a5fa)] ${UL}`,
+  purple: `bg-[linear-gradient(#a855f7,#a855f7)] dark:bg-[linear-gradient(#c084fc,#c084fc)] ${UL}`,
+  orange: `bg-[linear-gradient(#f97316,#f97316)] dark:bg-[linear-gradient(#fb923c,#fb923c)] ${UL}`,
+  red: `bg-[linear-gradient(#ef4444,#ef4444)] dark:bg-[linear-gradient(#f87171,#f87171)] ${UL}`,
+  gray: `bg-[linear-gradient(#6b7280,#6b7280)] dark:bg-[linear-gradient(#9ca3af,#9ca3af)] ${UL}`,
 }
 
 // 취소선: 밑줄과 달리 text-decoration 을 그대로 쓴다. 지우개 hover 가 line-through 를
@@ -125,10 +146,10 @@ export const HIGHLIGHT_CROSS_CLASSES: Record<HighlightColor, string> = {
 // 고정 픽셀로 두면 작은 글씨에서만 헐렁해진다.
 //
 // 세로 여백이 타원이 글자를 얼마나 품는지를 정한다. 타원은 네 귀퉁이를 잘라내므로
-// 0.15em 이면 글자 윗변의 가운데 60% 만 덮고 양끝이 밖으로 나온다. 0.25em 이면 71% 다.
-// 더 키우면 더 품지만 위아래 줄을 침범한다 — 여기가 그 절충점이다
+// 여백이 작을수록 글자 윗변의 양끝이 밖으로 나온다. 키우면 더 품지만 위아래 줄과 멀어져 헐렁해 보인다.
+// 글자 상자 자체가 글자보다 위아래로 넉넉해서 0.25em 은 헐렁했다 — 지금은 0.1em 이다
 const SHAPE_DEFAULT = 'rounded-sm'
-const SHAPE_CIRCLE = 'rounded-[50%] px-[0.5em] py-[0.25em] box-decoration-clone'
+const SHAPE_CIRCLE = 'rounded-[50%] px-[0.5em] py-[0.1em] box-decoration-clone'
 
 // 형광펜(fill)은 배경이라 장식 목록에 없다
 const DECORATION_CLASSES: Record<Exclude<HighlightStyle, 'fill'>, Record<HighlightColor, string>> = {
@@ -180,7 +201,12 @@ export function highlightClassName(
   const background = s.includes('fill') ? HIGHLIGHT_CLASSES[colorOf('fill')] : 'bg-transparent'
   const decorations = s
     .filter((x): x is Exclude<HighlightStyle, 'fill'> => x !== 'fill')
-    .map((x) => DECORATION_CLASSES[x][colorOf(x)])
+    .map((x) =>
+      // 밑줄(배경 그라디언트)은 X표시와 같은 background-image 를 쓰므로 함께 있으면 테두리 밑줄로 돌아간다
+      x === 'underline' && s.includes('cross')
+        ? HIGHLIGHT_UNDERLINE_BORDER_CLASSES[colorOf(x)]
+        : DECORATION_CLASSES[x][colorOf(x)]
+    )
   return [shape, background, ...decorations].join(' ')
 }
 
