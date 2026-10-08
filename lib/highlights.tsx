@@ -33,6 +33,9 @@ export interface Highlight {
   // 한 구간에 겹쳐 적용한 스타일들(형광펜+밑줄 등). 색은 위의 color 하나를 함께 쓴다.
   // 옛 데이터에는 없으므로 읽을 때는 반드시 stylesOf() 를 거친다
   styles?: HighlightStyle[]
+  // 스타일마다 따로 고른 색. 밑줄은 빨강, 형광펜은 노랑처럼 같은 구간에 겹쳐 둘 때 각자의 색을
+  // 지키려는 것이다. 여기 없는 스타일은 위의 color 를 쓴다(옛 데이터는 이 필드가 없다)
+  colors?: Partial<Record<HighlightStyle, HighlightColor>>
 }
 
 export const HIGHLIGHT_CLASSES: Record<HighlightColor, string> = {
@@ -164,14 +167,26 @@ export function colorsForStyles(styles: readonly HighlightStyle[]): HighlightCol
  *  - 장식: 형광펜을 뺀 나머지 스타일의 선·테두리·그라디언트
  * 원과 X표시처럼 모양이 어울리지 않는 조합도 깨지지만 않으면 그대로 둔다
  */
-export function highlightClassName(styles: readonly HighlightStyle[], color: HighlightColor): string {
+export function highlightClassName(
+  styles: readonly HighlightStyle[],
+  color: HighlightColor,
+  colors?: Partial<Record<HighlightStyle, HighlightColor>>
+): string {
   const s = normalizeStyles(styles)
-  const shape = s.includes('circle') ? SHAPE_CIRCLE : SHAPE_DEFAULT
-  const background = s.includes('fill') ? HIGHLIGHT_CLASSES[color] : 'bg-transparent'
+  const colorOf = (style: HighlightStyle): HighlightColor => colors?.[style] ?? color
+  // 밑줄은 아래 테두리라, 모서리가 둥글면 양끝이 위로 말려 올라간다. 밑줄이 있으면(원이 아닐 때)
+  // 모서리를 각지게 둔다
+  const shape = s.includes('circle') ? SHAPE_CIRCLE : s.includes('underline') ? 'rounded-none' : SHAPE_DEFAULT
+  const background = s.includes('fill') ? HIGHLIGHT_CLASSES[colorOf('fill')] : 'bg-transparent'
   const decorations = s
     .filter((x): x is Exclude<HighlightStyle, 'fill'> => x !== 'fill')
-    .map((x) => DECORATION_CLASSES[x][color])
+    .map((x) => DECORATION_CLASSES[x][colorOf(x)])
   return [shape, background, ...decorations].join(' ')
+}
+
+/** 하이라이트에서 그 스타일이 쓰는 색 */
+function colorOfStyle(h: Highlight, style: HighlightStyle): HighlightColor {
+  return h.colors?.[style] ?? h.color
 }
 
 export const HIGHLIGHT_SWATCH_CLASSES: Record<HighlightColor, string> = {
@@ -222,23 +237,102 @@ export function withoutOverlaps(
 /**
  * 새로 칠한 구간을 반영한 목록을 돌려준다.
  *
- * 구간이 기존 하이라이트와 정확히 같으면 지우지 않고 그 하이라이트에 스타일을 더한다
- * (형광펜 위에 밑줄을 그어도 형광펜이 남는다). 색은 이번에 고른 색으로 바뀐다 — 색은
- * 하이라이트마다 하나라서, 마지막에 고른 색이 전체의 색이 된다.
- * 부분적으로만 겹치면 예전처럼 겹치는 것을 지우고 새로 만든다
+ * 하이라이트끼리는 겹치지 않게 늘 구간을 쪼개 둔다(그래서 그리는 쪽은 겹침을 신경 쓰지 않는다).
+ * 새 구간과 겹치는 기존 하이라이트는 경계에서 잘라, 겹친 조각에는 새 스타일을 **더하고** 바깥
+ * 조각은 그대로 둔다. 그래서 밑줄을 친 자리에 형광펜을 쳐도 밑줄이 남고, 구간이 정확히 같지
+ * 않아도 마찬가지다. 기존 하이라이트가 없던 자리는 새 스타일만 가진 조각이 된다.
+ *
+ * 같은 종류를 같은 자리에 다시 치면 아무것도 바꾸지 않는다(색도 먼저 칠한 것이 남는다).
+ * 스타일마다 색을 따로 쥐므로 밑줄(빨강)과 형광펜(노랑)이 각자의 색으로 겹친다.
+ * 이어 붙은 조각이 같은 모양이면 하나로 다시 합친다 — 지우개로 누르면 조각 하나가 아니라
+ * 눈에 보이는 한 덩어리가 지워진다
  */
 export function applyHighlightStyles(
   highlights: Highlight[],
   target: { id: string; field: string; start: number; end: number; color: HighlightColor; styles: readonly HighlightStyle[] }
 ): Highlight[] {
   const { id, field, start, end, color } = target
-  const styles = normalizeStyles(target.styles)
-  const same = highlights.find((h) => h.field === field && h.start === start && h.end === end)
-  if (same) {
-    const merged: Highlight = { ...same, color, styles: normalizeStyles([...stylesOf(same), ...styles]) }
-    return withoutOverlaps(highlights, field, start, end, same.id).map((h) => (h.id === same.id ? merged : h))
+  if (!(start < end)) return highlights
+  const addStyles = normalizeStyles(target.styles)
+
+  let seq = 0
+  const nextId = () => `${id}_${seq++}`
+
+  /** 조각 하나. 스타일별 색은 모두 풀어서 담는다 */
+  const piece = (
+    from: Highlight | null,
+    s: number,
+    e: number,
+    styles: HighlightStyle[],
+    colors: Partial<Record<HighlightStyle, HighlightColor>>
+  ): Highlight => ({
+    id: from && seq === 0 && s === from.start ? from.id : nextId(),
+    field,
+    start: s,
+    end: e,
+    color: colors[styles[0]] ?? color,
+    styles,
+    colors,
+  })
+
+  const colorsOf = (h: Highlight, styles: HighlightStyle[]) => {
+    const out: Partial<Record<HighlightStyle, HighlightColor>> = {}
+    for (const st of styles) out[st] = colorOfStyle(h, st)
+    return out
   }
-  return [...withoutOverlaps(highlights, field, start, end), { id, field, start, end, color, styles }]
+
+  const others = highlights.filter((h) => h.field !== field)
+  const mine = highlights
+    .filter((h) => h.field === field && h.start < h.end)
+    .sort((a, b) => a.start - b.start)
+
+  const result: Highlight[] = []
+  // 새 구간 안에서 기존 하이라이트가 덮은 자리. 덮이지 않은 자리는 아래에서 새로 채운다
+  const covered: [number, number][] = []
+
+  for (const h of mine) {
+    if (h.end <= start || h.start >= end) {
+      result.push(h)
+      continue
+    }
+    const hStyles = stylesOf(h)
+    if (h.start < start) result.push(piece(h, h.start, start, hStyles, colorsOf(h, hStyles)))
+    const ms = Math.max(h.start, start)
+    const me = Math.min(h.end, end)
+    // 겹친 조각: 이미 있는 스타일은 그대로(색 포함), 없는 스타일만 이번 색으로 더한다
+    const merged = normalizeStyles([...hStyles, ...addStyles])
+    const colors = colorsOf(h, hStyles)
+    for (const st of addStyles) if (!hStyles.includes(st)) colors[st] = color
+    result.push(piece(h, ms, me, merged, colors))
+    covered.push([ms, me])
+    if (h.end > end) result.push(piece(h, end, h.end, hStyles, colorsOf(h, hStyles)))
+  }
+
+  // 새 구간 중 기존 하이라이트가 없던 자리
+  let cursor = start
+  for (const [cs, ce] of covered.sort((a, b) => a[0] - b[0])) {
+    if (cs > cursor) result.push(piece(null, cursor, cs, addStyles, Object.fromEntries(addStyles.map((st) => [st, color]))))
+    cursor = Math.max(cursor, ce)
+  }
+  if (cursor < end) result.push(piece(null, cursor, end, addStyles, Object.fromEntries(addStyles.map((st) => [st, color]))))
+
+  // 이어 붙은 조각이 같은 모양이면 합친다
+  result.sort((a, b) => a.start - b.start)
+  const same = (a: Highlight, b: Highlight) => {
+    const sa = stylesOf(a)
+    const sb = stylesOf(b)
+    return sa.length === sb.length && sa.every((st, i) => st === sb[i] && colorOfStyle(a, st) === colorOfStyle(b, st))
+  }
+  const coalesced: Highlight[] = []
+  for (const h of result) {
+    const last = coalesced[coalesced.length - 1]
+    if (last && last.end === h.start && same(last, h)) {
+      coalesced[coalesced.length - 1] = { ...last, end: h.end }
+    } else {
+      coalesced.push(h)
+    }
+  }
+  return [...others, ...coalesced]
 }
 
 // 🧹 빨간색 지우개 커서 SVG
@@ -326,7 +420,7 @@ export function renderHighlighted(
         style={{
           cursor: onRemove ? `url("${ERASER_CURSOR_SVG}") 4 20, pointer` : 'default',
         }}
-        className={`${highlightClassName(styles, h.color)} transition-all ${
+        className={`${highlightClassName(styles, h.color, h.colors)} transition-all ${
           onRemove ? eraserHoverClass(styles) : ''
         }`}
       >

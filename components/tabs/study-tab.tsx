@@ -603,9 +603,9 @@ function StudyBulkPreview({
 
   const [highlights, setHighlights] = useState<Highlight[]>(() => loadHighlights(q.id))
   const [highlightPopup, setHighlightPopup] = useState<{ field: string; start: number; end: number; x: number; y: number } | null>(null)
-  // 켜둔 스타일들(형광펜·밑줄 등을 함께 켤 수 있다). 연속 적용 편하도록 선택을 유지한다
+  // 고른 스타일(한 번에 하나). 연속 적용이 편하도록 선택을 유지한다. 저장 형태는 여전히 배열이다
   const [highlightStyles, setHighlightStyles] = useState<HighlightStyle[]>(['fill'])
-  // 다 꺼두고 색을 누르면 옛 기본값인 형광펜으로 칠한다
+  // 비어 있으면(그럴 일은 없지만) 옛 기본값인 형광펜으로 칠한다
   const activeStyles: HighlightStyle[] = highlightStyles.length > 0 ? highlightStyles : ['fill']
   // 형광펜과 별개의 레이어다. 글자에 매이지 않아 지문 옆 여백에도 그을 수 있다
   const board = useDrawBoard()
@@ -815,7 +815,7 @@ function StudyBulkPreview({
       selectionTimerRef.current = null
     }
     const { field, start, end } = highlightPopup
-    // 이미 칠한 구간과 정확히 같으면 그 하이라이트에 스타일을 더하고, 부분만 겹치면 교체한다
+    // 기존 하이라이트와 겹치는 구간은 경계에서 잘라 새 스타일을 더한다(둘 다 남는다). 같은 종류는 그대로 둔다
     const next = applyHighlightStyles(highlights, { id: `h_${Date.now()}`, field, start, end, color, styles: activeStyles })
     setHighlights(next)
     saveHighlights(q.id, next)
@@ -1261,11 +1261,9 @@ function StudyBulkPreview({
                 key={style}
                 type="button"
                 aria-pressed={highlightStyles.includes(style)}
-                onClick={() =>
-                  setHighlightStyles((prev) =>
-                    prev.includes(style) ? prev.filter((s) => s !== style) : [...prev, style]
-                  )
-                }
+                // 한 번에 하나만 고른다. 다른 종류를 겹쳐 두고 싶으면 하나씩 차례로 친다
+                // (밑줄을 친 뒤 같은 자리에 형광펜을 치면 둘 다 남는다)
+                onClick={() => setHighlightStyles([style])}
                 className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
                   highlightStyles.includes(style)
                     ? 'border-primary text-primary bg-primary/10'
