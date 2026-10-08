@@ -117,20 +117,32 @@ export function NoteQuestionView({ note, onChanged }: { note: WrongNote; onChang
                             <span className={`shrink-0 font-bold ${ox ? 'text-blue-400' : 'text-red-400'}`}>{ox ? 'O' : 'X'}</span>
                           )}
                           <span className="font-semibold text-primary shrink-0">{item.label}.</span>
-                          <span ref={fieldRef(`sub_${item.label}`)} className="flex-1 text-foreground leading-relaxed select-text">
-                            {renderHighlighted(item.text, `sub_${item.label}`, highlights, removeHighlight)}
-                          </span>
-                          {diff === 'wrongPick' && (
-                            <span className="shrink-0 font-medium text-red-600 dark:text-red-400">✗ 여기서 갈림 (내가 고름·정답엔 없음)</span>
-                          )}
-                          {diff === 'missed' && (
-                            <span className="shrink-0 font-medium text-sky-700 dark:text-sky-400">△ 놓침 (정답엔 있음)</span>
-                          )}
-                          {confused && (
-                            <span className="shrink-0 text-amber-600 dark:text-amber-400">
-                              {note.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'}
+                          {/* 보기 본문과 표시 라벨을 한 칸에 세로로 쌓는다. 라벨을 같은 줄에 두면 본문이 좁은 열로 눌려 깨진다.
+                              본문 span 은 글자만 담아야 형광펜 위치(글자 오프셋)가 어긋나지 않는다 */}
+                          <div className="flex-1 min-w-0">
+                            <span ref={fieldRef(`sub_${item.label}`)} className="block text-foreground leading-relaxed select-text">
+                              {renderHighlighted(item.text, `sub_${item.label}`, highlights, removeHighlight)}
                             </span>
-                          )}
+                            {(diff || confused) && (
+                              <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px]">
+                                {diff === 'wrongPick' && (
+                                  <span className="font-medium text-red-600 dark:text-red-400" title="내가 고른 조합엔 있는데 정답 조합엔 없는 보기">
+                                    ✗ 여기서 갈림
+                                  </span>
+                                )}
+                                {diff === 'missed' && (
+                                  <span className="font-medium text-sky-700 dark:text-sky-400" title="정답 조합엔 있는데 내가 고르지 않은 보기">
+                                    △ 놓침
+                                  </span>
+                                )}
+                                {confused && (
+                                  <span className="text-amber-600 dark:text-amber-400">
+                                    {note.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
                         {/* 선학습에서 이 보기에 남긴 메모(보기 라벨로 저장된다) */}
                         {choiceMemos[item.label] && (
