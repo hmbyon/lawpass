@@ -1,9 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Question } from '@/lib/types'
 import type { ExamType, Subject } from '@/lib/types'
 import { SUBJECT_UNITS } from '@/lib/units'
+import { getAppMode } from '@/lib/appMode'
+import { readFavoriteCases, writeFavoriteCases } from '@/lib/caseFavorites'
 import { FilterChips } from '@/components/filter-chips'
 import { SubItemList } from '@/components/quiz/sub-item-list'
 import { isAnswerLabel } from '@/lib/answers'
@@ -126,18 +128,35 @@ function CaseCard({
   allQuestions,
   openId,
   onOpen,
+  favorite,
+  onToggleFavorite,
 }: {
   group: CaseGroup
   // 출처에 파일명을 붙일지는 전체 문제집을 봐야 안다 (같은 회차의 다른 판본이 있는지)
   allQuestions: Question[]
   openId: string | null
   onOpen: (id: string | null) => void
+  favorite: boolean
+  onToggleFavorite: (key: string) => void
 }) {
   // 카드에서 바로 보여줄 조각. 판례 목록을 훑는 사람이 매번 문제를 펼쳐 보게 할 이유가 없다
   const preview = useMemo(() => previewMention(group), [group])
   return (
     <div className="bg-card border border-border rounded-xl p-3.5 space-y-2">
       <div className="flex items-start gap-2">
+        {/* 별을 누르면 즐겨찾기. 위쪽 "즐겨찾기만" 으로 모아 볼 수 있다 */}
+        <button
+          type="button"
+          onClick={() => onToggleFavorite(group.key)}
+          aria-pressed={favorite}
+          aria-label={favorite ? '즐겨찾기 해제' : '즐겨찾기에 추가'}
+          title={favorite ? '즐겨찾기 해제' : '즐겨찾기에 추가'}
+          className={`shrink-0 text-lg leading-none -mt-0.5 transition-colors ${
+            favorite ? 'text-yellow-500' : 'text-muted-foreground/50 hover:text-yellow-500'
+          }`}
+        >
+          {favorite ? '★' : '☆'}
+        </button>
         <p className="flex-1 text-sm text-foreground leading-relaxed">{group.summary || '요지 없음'}</p>
         <span className="shrink-0 text-xs font-semibold text-primary tabular-nums">{group.count}회 출제</span>
       </div>
@@ -200,6 +219,21 @@ export function CasesTab({ questions }: { questions: Question[] }) {
   const [examYears, setExamYears] = useState<string[]>([])
   const [sort, setSort] = useState<CaseSort>('count')
   const [query, setQuery] = useState('')
+  // 즐겨찾기. 저장소는 브라우저라 마운트 뒤에 읽는다(서버 렌더와 첫 화면을 맞추려는 것)
+  const [favs, setFavs] = useState<Set<string>>(() => new Set())
+  const [onlyFav, setOnlyFav] = useState(false)
+  useEffect(() => {
+    setFavs(readFavoriteCases(getAppMode()))
+  }, [])
+  function toggleFavorite(key: string) {
+    setFavs((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      writeFavoriteCases(getAppMode(), next)
+      return next
+    })
+  }
   const now = useMemo(() => new Date(), [])
 
   // 과목·단원·시험유형만 적용한 목록. 기간으로 몇 건이 빠졌는지 세려면 그 앞 단계가 필요하다
@@ -209,10 +243,17 @@ export function CasesTab({ questions }: { questions: Question[] }) {
   )
   // 검색은 필터 결과를 한 번 더 거른다. 단원 칩의 '있는 것'(availableUnits)은 scoped 로
   // 계산하므로, 타이핑하는 동안 칩이 사라지지는 않는다
-  const searched = useMemo(() => searchCases(scoped, query), [scoped, query])
+  const searchedAll = useMemo(() => searchCases(scoped, query), [scoped, query])
+  // "즐겨찾기만"을 켜면 즐겨찾은 판례만 남긴다. 선고 시기(최근 N년)는 적용하지 않는다 —
+  // 내가 골라 둔 판례가 기간 밖이라고 사라지면 즐겨찾기의 뜻이 없다
+  const searched = useMemo(
+    () => (onlyFav ? searchedAll.filter((g) => favs.has(g.key)) : searchedAll),
+    [searchedAll, onlyFav, favs]
+  )
+  const effectiveYears = onlyFav ? null : years
   const inRange = useMemo(
-    () => filterCases(searched, { years, subjects, units, examTypes, examMonths, examYears, now }),
-    [searched, years, subjects, units, examTypes, examMonths, examYears, now]
+    () => filterCases(searched, { years: effectiveYears, subjects, units, examTypes, examMonths, examYears, now }),
+    [searched, effectiveYears, subjects, units, examTypes, examMonths, examYears, now]
   )
   // 선고일을 모르는 판례는 기간과 무관하게 늘 따로 보여준다 (숨기면 재파싱할지 정할 수 없다)
   const dated = useMemo(() => sortCases(inRange.filter((g) => g.year !== null), sort), [inRange, sort])
@@ -330,6 +371,22 @@ export function CasesTab({ questions }: { questions: Question[] }) {
                   지우기
                 </button>
               )}
+            </div>
+
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setOnlyFav((v) => !v)}
+                aria-pressed={onlyFav}
+                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                  onlyFav
+                    ? 'border-yellow-500 bg-yellow-500/15 text-yellow-700 dark:text-yellow-400'
+                    : 'border-border text-muted-foreground hover:text-foreground hover:border-yellow-500/50'
+                }`}
+              >
+                {onlyFav ? '★' : '☆'} 즐겨찾기만 보기 ({favs.size})
+              </button>
+              {onlyFav && <span className="text-[11px] text-muted-foreground">선고 시기와 상관없이 모아 봐요</span>}
             </div>
 
             <div className="flex items-center justify-between gap-2">
@@ -522,14 +579,18 @@ export function CasesTab({ questions }: { questions: Question[] }) {
             판례 {digest.totalGroups}건 중 {dated.length + undated.length}건 표시 · 판례가 달린 문제{' '}
             {digest.questionsWithCases}개
             {/* 뺀 건수는 실제로 뺐을 때만 알린다 */}
-            {years !== null && hiddenByPeriod > 0 && ` · ${periodLabel(years)}보다 오래된 판례 ${hiddenByPeriod}건은 뺐습니다`}
+            {effectiveYears !== null && hiddenByPeriod > 0 && ` · ${periodLabel(effectiveYears)}보다 오래된 판례 ${hiddenByPeriod}건은 뺐습니다`}
           </p>
 
           <div className="space-y-2">
             {/* 선고일 미상 판례는 아래에 따로 나오므로, 그것까지 없을 때만 '없다'고 적는다 */}
             {dated.length === 0 && undated.length === 0 && (
               <p className="text-xs text-muted-foreground">
-                {query.trim() ? '검색 결과가 없습니다' : '고른 조건에 해당하는 판례가 없습니다'}
+                {query.trim()
+                  ? '검색 결과가 없습니다'
+                  : onlyFav && favs.size === 0
+                    ? '즐겨찾기한 판례가 없습니다. 판례 카드 왼쪽의 ☆를 눌러 추가하세요'
+                    : '고른 조건에 해당하는 판례가 없습니다'}
               </p>
             )}
             {bySubject
@@ -550,12 +611,14 @@ export function CasesTab({ questions }: { questions: Question[] }) {
                         allQuestions={questions}
                         openId={openId}
                         onOpen={setOpenId}
+                        favorite={favs.has(g.key)}
+                        onToggleFavorite={toggleFavorite}
                       />
                     ))}
                   </div>
                 ))
               : dated.map((g) => (
-                  <CaseCard key={g.key} group={g} allQuestions={questions} openId={openId} onOpen={setOpenId} />
+                  <CaseCard key={g.key} group={g} allQuestions={questions} openId={openId} onOpen={setOpenId} favorite={favs.has(g.key)} onToggleFavorite={toggleFavorite} />
                 ))}
           </div>
 
@@ -567,7 +630,7 @@ export function CasesTab({ questions }: { questions: Question[] }) {
                 <span className="text-[11px]"> — 해설에 선고일이 적혀 있지 않아 연도를 알 수 없습니다</span>
               </p>
               {undated.map((g) => (
-                <CaseCard key={g.key} group={g} allQuestions={questions} openId={openId} onOpen={setOpenId} />
+                <CaseCard key={g.key} group={g} allQuestions={questions} openId={openId} onOpen={setOpenId} favorite={favs.has(g.key)} onToggleFavorite={toggleFavorite} />
               ))}
             </div>
           )}
