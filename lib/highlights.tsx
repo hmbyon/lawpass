@@ -457,21 +457,92 @@ export function applyHighlightStyles(
 
   // 이어 붙은 조각이 같은 모양이면 합친다
   result.sort((a, b) => a.start - b.start)
+  return [...others, ...coalesceTouching(result)]
+}
+
+/** 시작 순으로 정렬된 같은 필드의 조각 중, 맞닿아 있고 스타일·색이 같은 것을 하나로 합친다 */
+function coalesceTouching(sorted: Highlight[]): Highlight[] {
   const same = (a: Highlight, b: Highlight) => {
     const sa = stylesOf(a)
     const sb = stylesOf(b)
     return sa.length === sb.length && sa.every((st, i) => st === sb[i] && colorOfStyle(a, st) === colorOfStyle(b, st))
   }
-  const coalesced: Highlight[] = []
-  for (const h of result) {
-    const last = coalesced[coalesced.length - 1]
+  const out: Highlight[] = []
+  for (const h of sorted) {
+    const last = out[out.length - 1]
     if (last && last.end === h.start && same(last, h)) {
-      coalesced[coalesced.length - 1] = { ...last, end: h.end }
+      out[out.length - 1] = { ...last, end: h.end }
     } else {
-      coalesced.push(h)
+      out.push(h)
     }
   }
-  return [...others, ...coalesced]
+  return out
+}
+
+/**
+ * 같은 스타일·같은 색으로 이어진 조각들(맞닿은 것만). 한 번 그은 밑줄이 중간에 다른 표시(형광펜 등)와 겹쳐
+ * 조각으로 나뉘어 있어도, 눈에는 한 줄로 보이는 그 전체다. fieldList 는 같은 필드의 조각을 시작 순으로 둔 것
+ */
+function runOfStyle(fieldList: Highlight[], from: Highlight, style: HighlightStyle): Highlight[] {
+  const color = colorOfStyle(from, style)
+  const has = (h: Highlight) => stylesOf(h).includes(style) && colorOfStyle(h, style) === color
+  const i = fieldList.indexOf(from)
+  let a = i
+  let b = i
+  while (a > 0 && fieldList[a - 1].end === fieldList[a].start && has(fieldList[a - 1])) a--
+  while (b < fieldList.length - 1 && fieldList[b].end === fieldList[b + 1].start && has(fieldList[b + 1])) b++
+  return fieldList.slice(a, b + 1)
+}
+
+function fieldListOf(highlights: Highlight[], field: string): Highlight[] {
+  return highlights.filter((h) => h.field === field && h.start < h.end).sort((a, b) => a.start - b.start)
+}
+
+/**
+ * 지우개로 누른 표시를 지운다. 누른 조각에 있는 스타일마다, 그 스타일이 이어진 구간 **전체**에서 뺀다.
+ * 예) 밑줄이 중간에 형광펜과 겹쳐 세 조각으로 나뉘어 있어도 밑줄을 누르면 밑줄 전체가 지워지고,
+ * 겹쳐 있던 형광펜은 남는다. 누른 조각에 스타일이 여럿이면 그 스타일들이 모두 지워진다(예전과 같다).
+ * 모르는 id 면 그대로 돌려준다
+ */
+export function removeHighlightRun(highlights: Highlight[], id: string): Highlight[] {
+  const target = highlights.find((h) => h.id === id)
+  if (!target) return highlights
+  const list = fieldListOf(highlights, target.field)
+  const pos = list.indexOf(target)
+  if (pos < 0) return highlights.filter((h) => h.id !== id)
+
+  // 지울 (조각 id, 스타일) 쌍
+  const strip = new Map<string, Set<HighlightStyle>>()
+  for (const st of stylesOf(target)) {
+    for (const seg of runOfStyle(list, target, st)) {
+      const set = strip.get(seg.id) ?? new Set<HighlightStyle>()
+      set.add(st)
+      strip.set(seg.id, set)
+    }
+  }
+
+  const others = highlights.filter((h) => h.field !== target.field || h.start >= h.end)
+  const kept: Highlight[] = []
+  for (const h of list) {
+    const gone = strip.get(h.id)
+    if (!gone) {
+      kept.push(h)
+      continue
+    }
+    const left = stylesOf(h).filter((st) => !gone.has(st))
+    if (left.length === 0) continue
+    const colors: Partial<Record<HighlightStyle, HighlightColor>> = {}
+    for (const st of left) colors[st] = colorOfStyle(h, st)
+    kept.push({ ...h, styles: left, style: undefined, colors, color: colors[left[0]] ?? h.color })
+  }
+  return [...others, ...coalesceTouching(kept)]
+}
+
+/** 지우개로 눌렀을 때 함께 지워지는 조각들을 묶는 이름표. 같은 이름표를 가진 조각이 한 덩어리다 */
+function runKeys(fieldList: Highlight[], h: Highlight): string {
+  return stylesOf(h)
+    .map((st) => `${h.field}:${st}:${runOfStyle(fieldList, h, st)[0].start}`)
+    .join(' ')
 }
 
 // 🧹 빨간색 지우개 커서 SVG
@@ -528,6 +599,20 @@ function eraserHoverClass(styles: readonly HighlightStyle[]): string {
     : 'hover:bg-red-500/30 hover:line-through hover:decoration-red-500 hover:decoration-2'
 }
 
+/**
+ * 마우스를 올린 조각과 함께 지워질 조각들에 data-erasing 을 달아 같이 붉게 보이게 한다(globals.css).
+ * 한 조각만 붉어지면 눌렀을 때 더 많이 지워지는 것을 알 수 없다. keys 가 빈 문자열이면 모두 푼다
+ */
+function markErasing(keys: string) {
+  if (typeof document === 'undefined') return
+  document.querySelectorAll('mark[data-erasing]').forEach((el) => el.removeAttribute('data-erasing'))
+  for (const key of keys.split(' ').filter(Boolean)) {
+    document.querySelectorAll('mark[data-hl-run]').forEach((el) => {
+      if ((el.getAttribute('data-hl-run') ?? '').split(' ').includes(key)) el.setAttribute('data-erasing', '')
+    })
+  }
+}
+
 export function renderHighlighted(
   text: string,
   field: string,
@@ -540,15 +625,22 @@ export function renderHighlighted(
     .sort((a, b) => a.start - b.start)
 
   if (fieldHighlights.length === 0) return applyBold(text, 0, bolds, field)
+  // 지우개가 지우는 덩어리(§ removeHighlightRun) 계산용. 렌더에 쓰는 것과 같은 목록이어야 한다
+  const runList = fieldListOf(highlights, field)
 
   const nodes: React.ReactNode[] = []
   let cursor = 0
   for (const h of fieldHighlights) {
     const styles = stylesOf(h)
+    const underlineInside = styles.includes('underline') && styles.includes('circle')
+    const content = applyBold(text.slice(h.start, h.end), h.start, bolds, field)
     if (h.start > cursor) nodes.push(applyBold(text.slice(cursor, h.start), cursor, bolds, field))
     nodes.push(
       <mark
         key={h.id}
+        data-hl-run={onRemove ? runKeys(runList, h) : undefined}
+        onMouseEnter={onRemove ? (e) => markErasing(e.currentTarget.dataset.hlRun ?? '') : undefined}
+        onMouseLeave={onRemove ? () => markErasing('') : undefined}
         onClick={(e) => {
           if (onRemove) {
             e.stopPropagation()
@@ -559,11 +651,22 @@ export function renderHighlighted(
         style={{
           cursor: onRemove ? `url("${ERASER_CURSOR_SVG}") 4 20, pointer` : 'default',
         }}
-        className={`${highlightClassName(styles, h.color, h.colors)} transition-all ${
+        className={`${highlightClassName(styles.filter((st) => !(underlineInside && st === 'underline')), h.color, h.colors)} transition-all ${
           onRemove ? eraserHoverClass(styles) : ''
         }`}
       >
-        {applyBold(text.slice(h.start, h.end), h.start, bolds, field)}
+        {underlineInside ? (
+          // 원과 함께 있는 밑줄은 원(둥근 테두리)에 가려져 끊겨 보이므로, 원 안쪽 글자를 감싼 span 에 따로 그린다.
+          // span 이 원의 좌우 여백(0.3em)과 테두리(2px)까지 덮어 이웃한 밑줄과 이어진다
+          <span
+            className={`${HIGHLIGHT_UNDERLINE_CLASSES[colorOfStyle(h, 'underline')]} box-decoration-clone`}
+            style={{ padding: '0 0.3em', margin: '0 calc(-0.3em - 2px)' }}
+          >
+            {content}
+          </span>
+        ) : (
+          content
+        )}
       </mark>
     )
     cursor = Math.max(cursor, h.end)

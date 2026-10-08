@@ -9,6 +9,7 @@ import {
   applyHighlightStyles,
   colorsForStyles,
   loadHighlights,
+  removeHighlightRun,
   saveHighlights,
   type Highlight,
   type HighlightColor,
@@ -174,7 +175,7 @@ export function HighlightEditor({ questionId, onChanged, className, children }: 
 
   const api: HighlightEditorApi = {
     highlights,
-    remove: (id) => commit(highlights.filter((h) => h.id !== id)),
+    remove: (id) => commit(removeHighlightRun(highlights, id)),
     fieldRef: (field) => (el) => {
       fieldRefs.current[field] = el
     },

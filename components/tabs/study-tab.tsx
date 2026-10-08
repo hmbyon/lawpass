@@ -20,6 +20,7 @@ import {
   saveHighlights,
   applyHighlightStyles,
   renderHighlighted,
+  removeHighlightRun,
 } from '@/lib/highlights'
 import type { BoldRange } from '@/lib/highlights'
 import { PassageTable } from '@/components/passage-table'
@@ -866,7 +867,7 @@ function StudyBulkPreview({
   }
 
   function removeHighlight(id: string) {
-    const next = highlights.filter((h) => h.id !== id)
+    const next = removeHighlightRun(highlights, id)
     setHighlights(next)
     saveHighlights(q.id, next)
     // 형광펜은 더 이상 북마크를 켜지 않으므로 끄지도 않는다.
