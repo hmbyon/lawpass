@@ -13,7 +13,6 @@ import {
   HighlightColor,
   HighlightStyle,
   Highlight,
-  HIGHLIGHT_SWATCH_CLASSES,
   colorsForStyles,
   HIGHLIGHT_COLOR_LABELS,
   loadHighlights,
@@ -26,6 +25,7 @@ import { PassageTable } from '@/components/passage-table'
 import { QuestionImages } from '@/components/question-images'
 import { DrawLayer, useDrawBoard } from '@/components/quiz/draw-layer'
 import PenAnnotateLayer, { type PenGesture } from '@/components/pen-annotate-layer'
+import { STYLE_LABELS, StyleSwatch } from '@/components/highlight-editor'
 import { DrawingPad, useDockedPad } from '@/components/drawing-pad'
 
 type StudyPhase = 'filter' | 'preview' | 'quiz'
@@ -500,42 +500,6 @@ function parseSubExplanations(explanation: string | null): Record<string, string
   return result
 }
 
-const STYLE_LABELS: Record<HighlightStyle, string> = {
-  fill: '형광펜',
-  underline: '밑줄',
-  strike: '취소선',
-  circle: '원',
-  cross: 'X표시',
-}
-
-/** 색 버튼 안에 그리는 미리보기. 고른 스타일이 어떻게 보일지 그 자리에서 알려준다 */
-function StyleSwatch({ style, color }: { style: HighlightStyle; color: HighlightColor }) {
-  const paint = HIGHLIGHT_SWATCH_CLASSES[color]
-  if (style === 'fill') return <span className={`block w-full h-full rounded-full ${paint}`} />
-  if (style === 'circle') {
-    // 가운데를 카드 색으로 덮어 고리로 만든다 — 테두리 색 맵을 따로 두지 않아도 된다
-    return (
-      <span className={`flex w-full h-full items-center justify-center rounded-full ${paint}`}>
-        <span className="block w-3 h-3 rounded-full bg-card" />
-      </span>
-    )
-  }
-  if (style === 'cross') {
-    return (
-      <span className="relative block w-full h-full">
-        <span className={`absolute left-1/2 top-1/2 block h-0.5 w-4 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-full ${paint}`} />
-        <span className={`absolute left-1/2 top-1/2 block h-0.5 w-4 -translate-x-1/2 -translate-y-1/2 -rotate-45 rounded-full ${paint}`} />
-      </span>
-    )
-  }
-  // 밑줄과 취소선은 선의 높이만 다르다
-  return (
-    <span className={`flex w-full h-full justify-center ${style === 'underline' ? 'items-end pb-1' : 'items-center'}`}>
-      <span className={`block h-1 w-4 rounded-full ${paint}`} />
-    </span>
-  )
-}
-
 // 팝업과 선택 영역 사이 간격. 위치 계산과 높이 보정이 같은 값을 봐야 한다
 const POPUP_GAP = 8
 
@@ -651,7 +615,10 @@ function StudyBulkPreview({
   const [penGesture, setPenGesture] = useState(true)
   useEffect(() => {
     try {
-      if (localStorage.getItem('lawpass_pen_gesture') === '0') setPenGesture(false)
+      const saved = localStorage.getItem('lawpass_pen_gesture')
+      // 고른 적이 없으면: 터치 기기(아이패드)는 켜고, 터치가 없는 컴퓨터는 끈다.
+      // 마우스로 끌어 글자를 골라 형광펜을 치던 방식이 이 기능 때문에 막히지 않게 하려는 것이다
+      if (saved === '0' || (saved === null && navigator.maxTouchPoints === 0)) setPenGesture(false)
     } catch {}
   }, [])
   function togglePenGesture() {
@@ -951,7 +918,7 @@ function StudyBulkPreview({
             type="button"
             onClick={togglePenGesture}
             aria-pressed={penGesture}
-            title="펜슬로 본문에 바로 밑줄(—)·원(○)·X 를 그으면 알아보고 표시로 남깁니다"
+            title="펜슬(또는 마우스를 누른 채)로 본문에 밑줄(—)·원(○)·X 를 그으면 알아보고 표시로 남깁니다. 켜 두면 마우스로 끌어서 글자를 고르는 건 안 돼요"
             className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all ${
               penGesture
                 ? 'bg-primary/15 text-primary border-primary/40'

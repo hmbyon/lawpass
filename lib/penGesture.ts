@@ -97,7 +97,7 @@ export function recognizeStroke(pts: P[]): Recognized | null {
   const straight = chord / len
 
   // 밑줄: 곧고, 가로로 길고, 기울기가 작다. 손떨림을 감안해 높이는 폭의 22%(또는 10px)까지 본다
-  if (straight >= 0.8 && w >= 24 && h <= Math.max(10, 0.22 * w)) {
+  if (straight >= 0.75 && w >= 24 && h <= Math.max(10, 0.22 * w)) {
     return { kind: 'underline', bbox, pts }
   }
 
@@ -111,7 +111,7 @@ export function recognizeStroke(pts: P[]): Recognized | null {
   // 글자 줄은 가로로 긴 단어 위에 X 를 치므로 획이 꽤 납작하다(폭 60 에 높이 20 이면 17°).
   // 25° 부터로 잡았을 때는 그런 X 가 통째로 버려졌다. 납작한 대각선 한 획은 짝이 없으면 아무 일도
   // 하지 않으므로(isCross 가 맞은편 획과 만나는지 본다) 문턱을 낮춰도 잘못 칠할 일이 적다
-  if (straight >= 0.8 && len >= 20) {
+  if (straight >= 0.75 && len >= 20) {
     const dx = last.x - first.x
     const dy = last.y - first.y
     const deg = (Math.atan2(Math.abs(dy), Math.abs(dx)) * 180) / Math.PI
@@ -158,4 +158,16 @@ export function isCross(a: Recognized, b: Recognized): boolean {
 
 export function unionBBox(a: BBox, b: BBox): BBox {
   return { x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0), x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1) }
+}
+
+/** 알아보지 못한 획이 어떻게 읽혔는지. 화면 안내에 붙여 왜 안 됐는지 보이게 한다 */
+export function describeStroke(pts: P[]): string {
+  const b = bboxOf(pts)
+  const smooth = decimate(pts, 5)
+  const len = pathLength(smooth)
+  const first = pts[0]
+  const last = pts[pts.length - 1]
+  const chord = Math.hypot(last.x - first.x, last.y - first.y)
+  const straight = len > 0 ? Math.round((chord / len) * 100) : 0
+  return `점 ${pts.length} · 길이 ${Math.round(len)} · 곧음 ${straight}% · ${Math.round(b.x1 - b.x0)}×${Math.round(b.y1 - b.y0)} · 회전 ${totalTurning(pts).toFixed(1)}`
 }

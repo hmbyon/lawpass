@@ -9,7 +9,8 @@ import { StarRating } from '@/components/star-rating'
 import { FilterChips } from '@/components/filter-chips'
 import { SORT_OPTIONS, sortNotes, type SortOption } from '@/lib/noteSort'
 import { getAppMode } from '@/lib/appMode'
-import { loadHighlights, renderHighlighted, saveHighlights } from '@/lib/highlights'
+import { loadHighlights, renderHighlighted } from '@/lib/highlights'
+import { HighlightEditor } from '@/components/highlight-editor'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const RISKS = ['★1', '★2', '★3', '★4', '★5']
@@ -34,7 +35,6 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
     updateWrongNoteMemoInclusion(note.id, next)
     onMemoSaved()
   }
-  const [highlights, setHighlights] = useState(() => loadHighlights(note.question.id))
   // 선지 메모는 오답노트와 따로 저장된다. 옛 메모(note.choiceMemos)도 이 안에 합쳐져 온다
   const [choiceMemos] = useState(() => getChoiceMemosFor(note.questionId))
 
@@ -42,13 +42,6 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
     updateWrongNoteMemo(note.id, memo)
     setMemoSaved(true)
     setTimeout(() => setMemoSaved(false), 1500)
-    onMemoSaved()
-  }
-
-  function removeHighlight(id: string) {
-    const next = highlights.filter((h) => h.id !== id)
-    setHighlights(next)
-    saveHighlights(note.question.id, next)
     onMemoSaved()
   }
 
@@ -77,10 +70,14 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
         </div>
 
         <div className="p-4 space-y-4 text-sm">
+          {/* 지문과 선지에 형광펜·펜 자동표시를 쓴다. 표시는 문제 id 로 저장돼 선학습과 같이 쓰인다 */}
+          <HighlightEditor questionId={note.question.id} onChanged={onMemoSaved} className="space-y-4">
+            {({ highlights, remove: removeHighlight, fieldRef }) => (
+              <>
           {/* 문제 지문 */}
           <div className="bg-muted/40 border border-border/60 rounded-lg p-3">
             <p className="text-xs text-muted-foreground mb-1">문제 지문</p>
-            <p className="text-foreground leading-relaxed text-xs whitespace-pre-wrap">
+            <p ref={fieldRef('passage')} className="text-foreground leading-relaxed text-xs whitespace-pre-wrap select-text">
               {renderHighlighted(note.question.passage, 'passage', highlights, removeHighlight)}
             </p>
           </div>
@@ -98,7 +95,7 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
                     }`}
                 >
                   <span className="font-semibold shrink-0">{c.label}</span>
-                  <span className="flex-1">
+                  <span ref={fieldRef(`choice_${c.label}`)} className="flex-1 select-text">
                     {renderHighlighted(c.text, `choice_${c.label}`, highlights, removeHighlight)}
                   </span>
                   {c.label === note.question.answer && <span className="ml-auto shrink-0">✓ 정답</span>}
@@ -112,6 +109,9 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
               </div>
             ))}
           </div>
+              </>
+            )}
+          </HighlightEditor>
 
           {/* 해설 */}
           {note.question.explanation && (
