@@ -147,9 +147,9 @@ export const HIGHLIGHT_CROSS_CLASSES: Record<HighlightColor, string> = {
 //
 // 세로 여백이 타원이 글자를 얼마나 품는지를 정한다. 타원은 네 귀퉁이를 잘라내므로
 // 여백이 작을수록 글자 윗변의 양끝이 밖으로 나온다. 키우면 더 품지만 위아래 줄과 멀어져 헐렁해 보인다.
-// 글자 상자 자체가 글자보다 위아래로 넉넉해서 0.25em 은 헐렁했다 — 지금은 0.1em 이다
+// 글자 상자 자체가 글자보다 위아래로 넉넉해서 0.25em 은 헐렁했다 — 지금은 0.05em, 좌우는 0.3em 이다
 const SHAPE_DEFAULT = 'rounded-sm'
-const SHAPE_CIRCLE = 'rounded-[50%] px-[0.5em] py-[0.1em] box-decoration-clone'
+const SHAPE_CIRCLE = 'rounded-[50%] px-[0.3em] py-[0.05em] box-decoration-clone'
 
 // 형광펜(fill)은 배경이라 장식 목록에 없다
 const DECORATION_CLASSES: Record<Exclude<HighlightStyle, 'fill'>, Record<HighlightColor, string>> = {
