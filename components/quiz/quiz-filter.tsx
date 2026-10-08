@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { FilterChips } from '@/components/filter-chips'
 import { getAppMode } from '@/lib/appMode'
 import { getSourceLabel } from '@/lib/sourceLabels'
+import { getSolvedCounts } from '@/lib/store'
 import { examMonthOf, examMonthLabel, examMonthValue, EXAM_MONTH_OPTIONS, type ExamMonthLabel } from '@/lib/questionSource'
 import type { Question, Subject, ExamType } from '@/lib/types'
 
@@ -85,6 +86,8 @@ export function QuizFilter({ questions: incomingQuestions, mode, onStart }: Quiz
   const [count, setCount] = useState<number>(20)
   const [useTimer, setUseTimer] = useState(mode === 'cbt')
   const [allQuestions, setAllQuestions] = useState(false)
+  // 풀어 본 문제(채점된 적 있는 문제)를 빼고 안 푼 문제만 낸다. 회독이 풀어 본 문제에만 쌓이는 걸 막으려는 것이다
+  const [onlyUnsolved, setOnlyUnsolved] = useState(false)
 
   const activeSubjects: string[] = isGeneral ? generalSubjects : subjects
 
@@ -182,7 +185,7 @@ export function QuizFilter({ questions: incomingQuestions, mode, onStart }: Quiz
   const allGeneralUnitsSelected = generalAvailableUnits.length > 0 && generalAvailableUnits.every((u) => units.includes(u))
   const allLawUnitsSelected = availableUnits.length > 0 && availableUnits.every((u) => units.includes(u))
 
-  const filtered = useMemo(() => {
+  const filteredAll = useMemo(() => {
     return questions.filter((q) => {
       if (activeSubjects.length && !activeSubjects.includes(q.subject)) return false
       if (examTypes.length && !examTypes.includes(q.examType)) return false
@@ -197,6 +200,17 @@ export function QuizFilter({ questions: incomingQuestions, mode, onStart }: Quiz
       return true
     })
   }, [questions, activeSubjects, examTypes, examMonths, years, units])
+
+  // 안 푼 문제 = 이 기기에서 채점된 기록(solvedCounts)이 없는 문제. 필터를 바꿔도 다시 읽는다
+  const solvedCounts = useMemo(() => getSolvedCounts(), [filteredAll])
+  const unsolvedCount = useMemo(
+    () => filteredAll.filter((q) => !(solvedCounts[q.id] > 0)).length,
+    [filteredAll, solvedCounts]
+  )
+  const filtered = useMemo(
+    () => (onlyUnsolved ? filteredAll.filter((q) => !(solvedCounts[q.id] > 0)) : filteredAll),
+    [filteredAll, onlyUnsolved, solvedCounts]
+  )
 
   // 범위(단원)는 과목 선택 시 자동으로 채우지 않음: UNITS는 사람이 고른 후보 목록일 뿐이라
   // 실제 PDF에서 추출된 q.unit 값과 문자열이 정확히 일치하지 않는 경우가 있고, 자동으로
@@ -495,6 +509,30 @@ export function QuizFilter({ questions: incomingQuestions, mode, onStart }: Quiz
           </div>
         )
       )}
+
+      {/* 풀이 기록 */}
+      <div className="bg-card border border-border rounded-xl p-4">
+        <label className="flex items-center justify-between gap-2 cursor-pointer">
+          <span className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={onlyUnsolved}
+              onChange={(e) => setOnlyUnsolved(e.target.checked)}
+              className="accent-[oklch(0.65_0.2_290)] w-3.5 h-3.5"
+            />
+            <span className="text-sm text-foreground">안 푼 문제만 풀기</span>
+          </span>
+          <span className="text-xs text-muted-foreground">
+            지금 조건에서 안 푼 문제 <span className="text-foreground font-medium">{unsolvedCount}</span>
+            /{filteredAll.length}문제
+          </span>
+        </label>
+        {onlyUnsolved && (
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            한 번이라도 채점한 문제는 빠지고, 한 번도 안 푼 문제만 나와요.
+          </p>
+        )}
+      </div>
 
       {/* 문항 수 */}
       <div className="bg-card border border-border rounded-xl p-4 space-y-3">
