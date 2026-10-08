@@ -630,12 +630,37 @@ export function renderHighlighted(
 
   const nodes: React.ReactNode[] = []
   let cursor = 0
+  // 동그라미 하나가 형광펜 등 다른 표시와 겹쳐 여러 조각으로 나뉘어 있으면, 조각마다 원을 그리지 않고
+  // 맞닿은 조각 전체를 감싸는 원 하나를 그린다. (조각마다 그리면 "법원의 허가"를 한 번에 쳤는데
+  // 형광펜이 칠해진 "법원"과 "의 허가"에 각각 작은 원이 생겨 잘려 보였다)
+  // 조각이 하나뿐인 원은 예전 그대로 그 조각 자체가 원이 된다
+  let group: { key: string; color: HighlightColor; items: React.ReactNode[] } | null = null
+  const flushGroup = () => {
+    if (!group) return
+    nodes.push(
+      <span
+        key={`${field}_circle_${group.key}`}
+        className={`${SHAPE_CIRCLE} ${HIGHLIGHT_CIRCLE_CLASSES[group.color]}`}
+      >
+        {group.items}
+      </span>
+    )
+    group = null
+  }
   for (const h of fieldHighlights) {
     const styles = stylesOf(h)
-    const underlineInside = styles.includes('underline') && styles.includes('circle')
+    const circleRun = styles.includes('circle') ? runOfStyle(runList, h, 'circle') : null
+    const joined = circleRun !== null && circleRun.length > 1
+    // 합쳐진 원 안의 조각은 원을 빼고 나머지 스타일만 입는다. 남는 스타일이 없으면 투명하게 둔다
+    // (highlightClassName 은 빈 목록을 형광펜으로 되돌리므로 따로 처리한다)
+    const ownStyles = joined ? styles.filter((st) => st !== 'circle') : styles
+    const underlineInside = !joined && styles.includes('underline') && styles.includes('circle')
     const content = applyBold(text.slice(h.start, h.end), h.start, bolds, field)
-    if (h.start > cursor) nodes.push(applyBold(text.slice(cursor, h.start), cursor, bolds, field))
-    nodes.push(
+    if (h.start > cursor) {
+      flushGroup()
+      nodes.push(applyBold(text.slice(cursor, h.start), cursor, bolds, field))
+    }
+    const mark = (
       <mark
         key={h.id}
         data-hl-run={onRemove ? runKeys(runList, h) : undefined}
@@ -651,9 +676,11 @@ export function renderHighlighted(
         style={{
           cursor: onRemove ? `url("${ERASER_CURSOR_SVG}") 4 20, pointer` : 'default',
         }}
-        className={`${highlightClassName(styles.filter((st) => !(underlineInside && st === 'underline')), h.color, h.colors)} transition-all ${
-          onRemove ? eraserHoverClass(styles) : ''
-        }`}
+        className={`${
+          ownStyles.length === 0
+            ? 'bg-transparent'
+            : highlightClassName(ownStyles.filter((st) => !(underlineInside && st === 'underline')), h.color, h.colors)
+        } transition-all ${onRemove ? eraserHoverClass(styles) : ''}`}
       >
         {underlineInside ? (
           // 원과 함께 있는 밑줄은 원(둥근 테두리)에 가려져 끊겨 보이므로, 원 안쪽 글자를 감싼 span 에 따로 그린다.
@@ -669,8 +696,18 @@ export function renderHighlighted(
         )}
       </mark>
     )
+    if (joined) {
+      const key = circleRun![0].id
+      if (group && group.key !== key) flushGroup()
+      if (!group) group = { key, color: colorOfStyle(h, 'circle'), items: [] }
+      group.items.push(mark)
+    } else {
+      flushGroup()
+      nodes.push(mark)
+    }
     cursor = Math.max(cursor, h.end)
   }
+  flushGroup()
   if (cursor < text.length) nodes.push(applyBold(text.slice(cursor), cursor, bolds, field))
   return nodes
 }
