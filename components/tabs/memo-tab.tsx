@@ -356,6 +356,9 @@ function MemoCard({ note, onMemoSaved, isGeneral }: { note: WrongNote; onMemoSav
           {note.isBookmarked && note.wrongCount === 0 && (
             <span className="text-xs text-yellow-400">📌 북마크</span>
           )}
+          {note.flaggedCorrect && note.wrongCount === 0 && (
+            <span className="text-xs text-amber-400">🤔 맞혔지만 {note.status}</span>
+          )}
           {!isGeneral && note.dominantCause && <CauseBadge cause={note.dominantCause} />}
           {note.wrongCount > 0 && <StarRating value={getRiskLevel(note)} />}
         </div>

@@ -68,7 +68,10 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
             {note.isBookmarked && note.wrongCount === 0 && (
               <span className="text-xs text-yellow-400">📌 북마크</span>
             )}
-            {note.wrongCount > 0 && <StarRating value={getRiskLevel(note)} />}
+            {note.flaggedCorrect && note.wrongCount === 0 && (
+              <span className="text-xs text-amber-400">🤔 맞혔지만 {note.status}</span>
+            )}
+                        {note.wrongCount > 0 && <StarRating value={getRiskLevel(note)} />}
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xl leading-none">×</button>
         </div>
@@ -439,6 +442,9 @@ export function WrongTab({
                       {!isGeneral && note.dominantCause && <CauseBadge cause={note.dominantCause} />}
                       {note.isBookmarked && note.wrongCount === 0 && (
                         <span className="text-xs text-yellow-400">📌 북마크</span>
+                      )}
+                      {note.flaggedCorrect && note.wrongCount === 0 && (
+                        <span className="text-xs text-amber-400">🤔 맞혔지만 {note.status}</span>
                       )}
                       {note.wrongCount > 0 && <StarRating value={getRiskLevel(note)} />}
                     </div>

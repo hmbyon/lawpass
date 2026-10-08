@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { Question, QuestionStatus, WrongNote, CauseType } from '@/lib/types'
 import { analyzeWrongAnswer, mapWithConcurrency } from '@/lib/gemini'
-import { addWrongNote, addCorrectNote, saveSession, clearSavedSession, getRiskLevel } from '@/lib/store'
+import { addWrongNote, addCorrectNote, addFlaggedCorrectNote, saveSession, clearSavedSession, getRiskLevel } from '@/lib/store'
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
 import { PassageTable } from '@/components/passage-table'
@@ -123,7 +123,12 @@ export function QuizEngine({
     )
 
     for (const item of correctItems) {
-      addCorrectNote(item.question.id)
+      // 맞혔어도 헷갈림/찍음으로 표시했다면 다시 볼 문제라서 오답노트에 남긴다
+      if (item.status) {
+        addFlaggedCorrectNote(item.question, item.userAnswer!, item.status, mode === 'study')
+      } else {
+        addCorrectNote(item.question.id)
+      }
     }
 
     if (wrongItems.length === 0) {

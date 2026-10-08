@@ -1012,8 +1012,8 @@ export function removeBookmark(questionId: string): void {
   const notes = getWrongNotes()
   const idx = notes.findIndex((n) => n.questionId === questionId)
   if (idx >= 0) {
-    if (notes[idx].wrongCount === 0) {
-      // 순수 북마크(틀린 적 없음)면 삭제
+    if (notes[idx].wrongCount === 0 && !notes[idx].flaggedCorrect) {
+      // 순수 북마크(틀린 적 없음)면 삭제. '맞혔지만 헷갈림/찍음'으로 들어온 노트는 북마크만 해제한다
       notes.splice(idx, 1)
     } else {
       // 오답 기록 있으면 북마크만 해제
@@ -1043,6 +1043,53 @@ function calcDominantCause(history: import('./types').ErrorAnalysis[], isStudyMo
   }
   return (['study', 'A', 'B', 'C'] as import('./types').CauseType[])
     .reduce((a, b) => (counts[a] >= counts[b] ? a : b))
+}
+
+/**
+ * 맞혔지만 헷갈림/찍음으로 표시한 문제를 오답노트에 넣는다.
+ *
+ * 틀린 것이 아니므로 wrongCount 는 올리지 않는다 (위험도·오답 통계에 틀린 문제처럼 섞이지 않게).
+ * 이미 노트가 있으면 푼 횟수만 올린다 — 틀린 기록이 있는 노트의 답·표시는 그대로 두고,
+ * 북마크만 있던(틀린 적 없는) 노트에는 이번 표시를 남긴다
+ */
+export function addFlaggedCorrectNote(
+  question: import('./types').Question,
+  userAnswer: string,
+  status: import('./types').QuestionStatus,
+  isStudyMode: boolean,
+): void {
+  const notes = getWrongNotes()
+  const idx = notes.findIndex((n) => n.questionId === question.id)
+  if (idx >= 0) {
+    const prev = notes[idx]
+    const totalCount = (prev.totalCount ?? prev.wrongCount ?? 0) + 1
+    const wrongCount = prev.wrongCount ?? 0
+    if (wrongCount > 0) {
+      const 위험도 = calcRisk(wrongCount, totalCount)
+      notes[idx] = { ...prev, totalCount, analysis: prev.analysis ? { ...prev.analysis, 위험도 } : null }
+    } else {
+      notes[idx] = { ...prev, totalCount, userAnswer, status, flaggedCorrect: true }
+    }
+    saveWrongNotes(notes)
+    return
+  }
+  notes.push({
+    id: `flagged_${question.id}_${Date.now()}`,
+    questionId: question.id,
+    question,
+    userAnswer,
+    status,
+    isStudyMode,
+    analysis: null,
+    analysisHistory: [],
+    dominantCause: null,
+    createdAt: Date.now(),
+    wrongCount: 0,
+    totalCount: 1,
+    isBookmarked: false,
+    flaggedCorrect: true,
+  })
+  saveWrongNotes(notes)
 }
 
 // 정답 시 totalCount만 증가, 위험도 재계산
