@@ -3,6 +3,7 @@
 import type { Question, QuestionDrawing, Subject, TableBlock, WrongNote } from './types'
 import { getAppMode } from './appMode'
 import { normalizePassage, isSameQuestionText } from './passageMatch'
+import { isMultiAnswer, NO_ANSWER } from './answers'
 
 // apiKey는 개인 인증정보라 모드 공통으로 유지, 나머지는 모드별 접미사(_law/_general)로 분리
 const BASE_KEYS = {
@@ -570,6 +571,12 @@ export function addQuestions(
     ])
     found.explanations = Array.from(expl)
     found.explanation = Array.from(expl)[0] ?? null
+    // 정답은 앱에서 사람이 고치는 화면이 없다. 교재가 판례 변경 등으로 정답을 정정한 문제(복수정답 '②,④',
+    // 정답없음)는 다시 가져온 JSON 의 값을 따른다. 그 외에는 덮지 않는다 — AI 재파싱이 멀쩡한 정답을
+    // 다른 값으로 바꿔 버리는 일을 막으려는 것이다
+    if (q.answer && q.answer !== found.answer && (isMultiAnswer(q.answer) || q.answer.trim() === NO_ANSWER)) {
+      found.answer = q.answer
+    }
     // 항목별 필드는 기존 값이 없을 때만 채운다 (재파싱으로 뒤늦게 추출된 경우 보강)
     found.subChoiceAnswers ??= q.subChoiceAnswers
     found.choiceIsCorrectStatement ??= q.choiceIsCorrectStatement
