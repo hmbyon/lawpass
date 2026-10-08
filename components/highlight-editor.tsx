@@ -82,11 +82,11 @@ export function StyleSwatch({ style, color }: { style: HighlightStyle; color: Hi
     )
   }
   if (style === 'wave') {
-    // 물결: 선 대신 작은 사인 곡선
+    // 물결: 본문 물결 밑줄과 같은 모양(16×10 곡선, 진폭 약 2.8px)
     return (
-      <span className="flex w-full h-full items-end justify-center pb-1">
-        <svg width="18" height="6" viewBox="0 0 18 6" aria-hidden className="overflow-visible">
-          <path d="M0 3 Q2.25 0 4.5 3 T9 3 T13.5 3 T18 3" fill="none" stroke={HIGHLIGHT_COLOR_HEX[color]} strokeWidth="1.8" strokeLinecap="round" />
+      <span className="flex w-full h-full items-end justify-center pb-0.5">
+        <svg width="20" height="10" viewBox="0 0 20 10" aria-hidden className="overflow-visible">
+          <path d="M0 5 Q2.5 -0.5 5 5 T10 5 T15 5 T20 5" fill="none" stroke={HIGHLIGHT_COLOR_HEX[color]} strokeWidth="2" strokeLinecap="round" />
         </svg>
       </span>
     )

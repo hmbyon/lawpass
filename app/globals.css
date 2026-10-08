@@ -203,18 +203,33 @@ html.pen-writing * {
   -webkit-touch-callout: none;
 }
 
-/* 물결 밑줄(lib/highlights.tsx HIGHLIGHT_WAVE_CLASSES). 색은 Tailwind decoration-* 이 정한다 */
+/* 물결 밑줄(lib/highlights.tsx HIGHLIGHT_WAVE_CLASSES).
+   브라우저 기본 물결(text-decoration: wavy)은 진폭이 두께에 묶여 있어 잔물결이 되고, 직선 밑줄과 구별이 안 됐다.
+   그래서 16×10px 사인 곡선(진폭 약 2.8px, 선 두께 2px)을 가로로 반복해 깐다. 직선 밑줄과 같은 배경 방식이라
+   취소선(text-decoration)과도 겹치지 않고 함께 켜진다. 색은 아래 색별 클래스가 정한다 */
 .hl-wave {
-  text-decoration-line: underline;
-  text-decoration-style: wavy;
-  text-decoration-thickness: 1.5px;
-  text-underline-offset: 0.2em;
-  text-decoration-skip-ink: none;
+  background-repeat: repeat-x;
+  background-position: 0 100%;
+  background-size: 16px 10px;
+  /* 곡선이 글자 밑동을 파고들지 않도록 배경 영역만 아래로 늘린다. 인라인이라 줄 간격은 그대로다 */
+  padding-bottom: 5px;
 }
-/* 취소선과 함께 켜졌을 때: 두 줄 모두 그린다 */
-.hl-wave.line-through {
-  text-decoration-line: underline line-through;
-}
+.hl-wave-yellow { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='10' viewBox='0 0 16 10'%3E%3Cpath d='M0 5Q4 -0.5 8 5T16 5' fill='none' stroke='%23eab308' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); }
+.dark .hl-wave-yellow { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='10' viewBox='0 0 16 10'%3E%3Cpath d='M0 5Q4 -0.5 8 5T16 5' fill='none' stroke='%23facc15' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); }
+.hl-wave-green { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='10' viewBox='0 0 16 10'%3E%3Cpath d='M0 5Q4 -0.5 8 5T16 5' fill='none' stroke='%2310b981' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); }
+.dark .hl-wave-green { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='10' viewBox='0 0 16 10'%3E%3Cpath d='M0 5Q4 -0.5 8 5T16 5' fill='none' stroke='%2334d399' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); }
+.hl-wave-pink { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='10' viewBox='0 0 16 10'%3E%3Cpath d='M0 5Q4 -0.5 8 5T16 5' fill='none' stroke='%23ec4899' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); }
+.dark .hl-wave-pink { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='10' viewBox='0 0 16 10'%3E%3Cpath d='M0 5Q4 -0.5 8 5T16 5' fill='none' stroke='%23f472b6' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); }
+.hl-wave-blue { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='10' viewBox='0 0 16 10'%3E%3Cpath d='M0 5Q4 -0.5 8 5T16 5' fill='none' stroke='%233b82f6' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); }
+.dark .hl-wave-blue { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='10' viewBox='0 0 16 10'%3E%3Cpath d='M0 5Q4 -0.5 8 5T16 5' fill='none' stroke='%2360a5fa' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); }
+.hl-wave-purple { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='10' viewBox='0 0 16 10'%3E%3Cpath d='M0 5Q4 -0.5 8 5T16 5' fill='none' stroke='%23a855f7' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); }
+.dark .hl-wave-purple { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='10' viewBox='0 0 16 10'%3E%3Cpath d='M0 5Q4 -0.5 8 5T16 5' fill='none' stroke='%23c084fc' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); }
+.hl-wave-orange { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='10' viewBox='0 0 16 10'%3E%3Cpath d='M0 5Q4 -0.5 8 5T16 5' fill='none' stroke='%23f97316' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); }
+.dark .hl-wave-orange { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='10' viewBox='0 0 16 10'%3E%3Cpath d='M0 5Q4 -0.5 8 5T16 5' fill='none' stroke='%23fb923c' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); }
+.hl-wave-red { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='10' viewBox='0 0 16 10'%3E%3Cpath d='M0 5Q4 -0.5 8 5T16 5' fill='none' stroke='%23ef4444' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); }
+.dark .hl-wave-red { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='10' viewBox='0 0 16 10'%3E%3Cpath d='M0 5Q4 -0.5 8 5T16 5' fill='none' stroke='%23f87171' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); }
+.hl-wave-gray { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='10' viewBox='0 0 16 10'%3E%3Cpath d='M0 5Q4 -0.5 8 5T16 5' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); }
+.dark .hl-wave-gray { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='10' viewBox='0 0 16 10'%3E%3Cpath d='M0 5Q4 -0.5 8 5T16 5' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E"); }
 
 /* 지우개로 누르면 함께 지워질 형광펜·밑줄 조각들(lib/highlights.tsx markErasing) */
 mark[data-erasing] {
