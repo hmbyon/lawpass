@@ -221,7 +221,7 @@ export function PdfTab({
 
   // JSON 처리 상태
   const [jsonText, setJsonText] = useState('')
-  const [jsonDisplayName, setJsonDisplayName] = useState('JSON 직접 입력')
+  const [jsonDisplayName, setJsonDisplayName] = useState('')
   const [jsonStatus, setJsonStatus] = useState<'idle' | 'parsing' | 'done' | 'error'>('idle')
   // 문제가 여럿이면 전부 보여야 한 번에 고칠 수 있다. 첫 오류에서 멈추면 고치고 다시 넣기를 반복한다
   const [jsonErrors, setJsonErrors] = useState<string[]>([])
@@ -418,6 +418,11 @@ export function PdfTab({
       setJsonErrors(['JSON 텍스트를 입력해주세요.'])
       return
     }
+    // 이름이 비면 서로 다른 JSON 이 한 문제집으로 뭉친다. 그래서 이름을 정해야 넣을 수 있다
+    if (!jsonDisplayName.trim()) {
+      setJsonErrors(['저장될 문제집 이름을 입력해주세요.'])
+      return
+    }
     setJsonStatus('parsing')
     // 과목·시험 구분은 문제마다 JSON 에 적힌 것을 쓴다. 화면에서 고른 값은 그것이 없을 때만
     // 채움값이 된다 — 그래서 고르지 않아도 넣을 수 있다
@@ -432,7 +437,7 @@ export function PdfTab({
       setJsonErrors(errors)
       return
     }
-    const sourceName = jsonDisplayName.trim() || 'JSON 입력 문제집'
+    const sourceName = jsonDisplayName.trim()
     const result = addQuestions(questions, sourceName)
     setSummary({ added: result.added, merged: result.merged, skipped: [] })
     showReview([sourceName], true, true)
@@ -449,9 +454,11 @@ export function PdfTab({
     setJsonText(await file.text())
     setJsonStatus('idle')
     setJsonErrors([])
-    // 이름을 아직 안 정했으면 파일명을 문제집 이름으로 쓴다
-    if (jsonDisplayName === 'JSON 직접 입력' || !jsonDisplayName.trim()) {
-      setJsonDisplayName(file.name.replace(/\.json$/i, ''))
+    // 이름을 아직 안 정했으면 파일명을 문제집 이름으로 쓴다. merged.json 처럼 어느 문제집인지 알 수 없는
+    // 이름은 쓰지 않는다 — 직접 정하게 비워 둔다
+    const base = file.name.replace(/\.json$/i, '')
+    if (!jsonDisplayName.trim() && !/^(merged|questions|data|export)$/i.test(base)) {
+      setJsonDisplayName(base)
     }
   }
 
@@ -1645,7 +1652,7 @@ export function PdfTab({
         {isAdmin && uploadMode === 'json' && (
           <div className="space-y-3">
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">저장될 문제집 이름</label>
+              <label className="text-xs text-muted-foreground">저장될 문제집 이름 (필수)</label>
               <input
                 type="text"
                 value={jsonDisplayName}
@@ -1702,6 +1709,11 @@ export function PdfTab({
                 </ul>
               </div>
             )}
+            {jsonText.trim() && !jsonDisplayName.trim() && (
+              <p className="text-[11px] text-amber-500">
+                문제집 이름을 입력하면 등록할 수 있어요. 이미 있는 같은 문제는 새로 늘지 않고 합쳐져요.
+              </p>
+            )}
             <p className="text-[11px] text-muted-foreground">
               과목·시험 구분은 문제마다 JSON 에 적힌 값을 씁니다. 값이 없는 문제만 위에서 하나씩 고른 값으로 채우고, 적힌 값이 허용 밖이면 채우지 않고 오류로 알립니다.
               id·addedAt 은 넣지 않아도 됩니다 (저장할 때 만듭니다).
@@ -1710,7 +1722,7 @@ export function PdfTab({
             <button
               type="button"
               onClick={handleJsonImport}
-              disabled={!jsonText.trim() || jsonStatus === 'parsing'}
+              disabled={!jsonText.trim() || !jsonDisplayName.trim() || jsonStatus === 'parsing'}
               className="w-full py-2.5 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
             >
               JSON 데이터 등록하기
