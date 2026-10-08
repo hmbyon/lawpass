@@ -108,7 +108,7 @@ function applyStyle(ctx: CanvasRenderingContext2D, stroke: { erase: boolean; wid
 }
 
 /** 저장된 획 하나를 지금 화면 크기에 맞춰 그린다 */
-function paintStroke(ctx: CanvasRenderingContext2D, stroke: DrawingStroke, w: number) {
+export function paintStroke(ctx: CanvasRenderingContext2D, stroke: DrawingStroke, w: number) {
   const p = stroke.points
   if (p.length < 2) return
   applyStyle(ctx, stroke, w)

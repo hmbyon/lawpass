@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import type { Question, ExplanationBlock } from '@/lib/types'
+import type { Question } from '@/lib/types'
+import { parseBoldMarks, toExplanationBlocks } from '@/components/quiz/explanation-blocks'
 import { QuizFilter } from '@/components/quiz/quiz-filter'
 import { QuizEngine } from '@/components/quiz/quiz-engine'
 import {
@@ -22,7 +23,6 @@ import {
   renderHighlighted,
   removeHighlightRun,
 } from '@/lib/highlights'
-import type { BoldRange } from '@/lib/highlights'
 import { PassageTable } from '@/components/passage-table'
 import { QuestionImages } from '@/components/question-images'
 import { resolveSubChoices, SUB_LABEL_CHARS, SUB_LABEL_MAP, OX_CHAR_CLASS } from '@/lib/subChoices'
@@ -356,9 +356,6 @@ function getTextOffset(container: Node, node: Node, offset: number): number {
   return range.toString().length
 }
 
-// 원본에서 밑줄로 강조돼 있던 구간을 AI가 **텍스트** 형태로 표시해 준다.
-// 형광펜 오프셋은 화면에 렌더된 텍스트 기준이므로, ** 마크를 제거한 문자열과
-// 그 문자열 기준 볼드 범위를 함께 돌려줘야 두 기능이 어긋나지 않는다
 // 발문의 부정어. "옳지 않은 것은?" 유형이면 정답 선지의 문장이 '틀린 서술'이다
 const NEGATIVE_STEM = /(옳지\s*않은|적절하지\s*않은|타당하지\s*않은|바르지\s*않은|올바르지\s*않은|틀린|잘못된|아닌\s*것)/
 const POSITIVE_STEM = /(옳은|적절한|타당한|바른|올바른)\s*것/
@@ -375,32 +372,6 @@ function deriveChoiceTruth(q: Question): Record<string, boolean> | undefined {
   )
 }
 
-function parseBoldMarks(raw: string): { text: string; bolds: BoldRange[] } {
-  const regex = /\*\*([\s\S]+?)\*\*/g
-  const bolds: BoldRange[] = []
-  let text = ''
-  let last = 0
-  let match: RegExpExecArray | null
-  while ((match = regex.exec(raw))) {
-    text += raw.slice(last, match.index)
-    const start = text.length
-    text += match[1]
-    bolds.push({ start, end: text.length })
-    last = match.index + match[0].length
-  }
-  text += raw.slice(last)
-  return { text, bolds }
-}
-
-// 해설은 블록 배열이 표준이지만, 블록 구조 도입 이전 데이터와 정규식 폴백 결과는 문자열이다
-function toExplanationBlocks(raw: string | ExplanationBlock[] | undefined): ExplanationBlock[] {
-  if (!raw) return []
-  if (typeof raw === 'string') {
-    const content = raw.trim()
-    return content ? [{ type: 'text', content }] : []
-  }
-  return raw.filter((b) => b?.content?.trim())
-}
 
 function parseSubExplanations(explanation: string | null): Record<string, string> {
   if (!explanation) return {}

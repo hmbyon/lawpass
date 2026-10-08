@@ -13,6 +13,10 @@ import { loadHighlights, renderHighlighted } from '@/lib/highlights'
 import { HighlightEditor } from '@/components/highlight-editor'
 import { SubItemList } from '@/components/quiz/sub-item-list'
 import { confusedKind } from '@/lib/subChoices'
+import {
+  ExplanationBox, choiceExplanationParts, subItemExplanationParts, hasExplanationParts,
+} from '@/components/quiz/explanation-blocks'
+import { DrawingPreview } from '@/components/drawing-preview'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const RISKS = ['★1', '★2', '★3', '★4', '★5']
@@ -26,6 +30,12 @@ interface DetailModalProps {
 
 function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps) {
   const a = note.analysis
+  const isCombination = (note.question.subItems?.length ?? 0) > 0
+  const subItemsWithExplanation = (note.question.subItems ?? []).filter((it) => hasExplanationParts(subItemExplanationParts(it)))
+  // 선지별·보기별 해설이 하나라도 있으면 선학습처럼 각 자리에서 보여 주므로, 합쳐 둔 해설 블록은 겹치게 되어 숨긴다
+  const hasPerItemExplanation =
+    subItemsWithExplanation.length > 0 ||
+    (!isCombination && note.question.choices.some((c) => hasExplanationParts(choiceExplanationParts(note.question, c.label))))
   const [memo, setMemo] = useState(note.memo ?? '')
   const [memoSaved, setMemoSaved] = useState(false)
   const [inMemoList, setInMemoList] = useState(note.manuallyAddedToMemo ?? false)
@@ -117,20 +127,54 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
                     📌 {choiceMemos[c.label]}
                   </div>
                 )}
+                {/* 선학습과 같은 자리·같은 필드 키라, 거기서 해설에 칠한 형광펜·펜 표시가 그대로 보인다.
+                    조합형(ㄱㄴㄷ) 문제의 ①~⑤는 조합 결과일 뿐이라 선학습처럼 선지 해설을 붙이지 않는다 */}
+                {!isCombination && (
+                  <ExplanationBox
+                    parts={choiceExplanationParts(note.question, c.label)}
+                    highlights={highlights}
+                    onRemove={removeHighlight}
+                    fieldRef={fieldRef}
+                  />
+                )}
               </div>
             ))}
           </div>
+
+          {/* ㄱㄴㄷ 보기 항목별 해설 (subItems 구조 데이터) */}
+          {isCombination && subItemsWithExplanation.length > 0 && (
+            <div className="space-y-2">
+              {subItemsWithExplanation.map((item) => (
+                <div key={item.label}>
+                  <p className="text-xs text-muted-foreground">
+                    <span className="font-semibold text-primary">{item.label}.</span>{' '}
+                    <span className={item.isCorrect ? 'text-blue-400 font-bold' : 'text-red-400 font-bold'}>{item.isCorrect ? 'O' : 'X'}</span>
+                  </p>
+                  <ExplanationBox
+                    parts={subItemExplanationParts(item)}
+                    highlights={highlights}
+                    onRemove={removeHighlight}
+                    fieldRef={fieldRef}
+                    className="ml-3 mt-0.5"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
               </>
             )}
           </HighlightEditor>
 
           {/* 해설 */}
-          {note.question.explanation && (
+          {note.question.explanation && !hasPerItemExplanation && (
             <div className="bg-muted/40 border border-border/60 rounded-lg p-3">
               <p className="text-xs text-muted-foreground mb-1 font-medium">해설</p>
               <p className="text-foreground text-xs leading-relaxed whitespace-pre-wrap break-words">{note.question.explanation}</p>
             </div>
           )}
+
+          {/* 선학습 그림판에 그린 그림 (읽기 전용) */}
+          <DrawingPreview questionId={note.question.id} />
 
           <div className="text-xs text-muted-foreground border-t border-border pt-2">
             내 답: <span className="text-red-400 font-medium">{note.userAnswer}</span>{' '}
