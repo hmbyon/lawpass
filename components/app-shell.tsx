@@ -5,7 +5,8 @@ import type { User } from 'firebase/auth'
 import type { Question, WrongNote } from '@/lib/types'
 import { getQuestions, getPoolQuestions, getWrongNotes, clearAll , isInMemoList, hasPendingSync } from '@/lib/store'
 import { logout } from '@/lib/firebaseServices/auth'
-import { pullFromFirebase, pushToFirebase, fetchAdminQuestions, ADMIN_UID } from '@/lib/firebaseServices/sync'
+import { pullFromFirebase, pushToFirebase, syncHighlights, fetchAdminQuestions, ADMIN_UID } from '@/lib/firebaseServices/sync'
+import { HIGHLIGHTS_CHANGED_EVENT } from '@/lib/highlights'
 import { recordUserDirectory } from '@/lib/firebaseServices/userDirectory'
 import { isAccountSwitch, rememberUid, unsyncedModes, clearAccountData } from '@/lib/accountSwitch'
 import { getAppMode, setAppMode, type AppMode } from '@/lib/appMode'
@@ -216,6 +217,9 @@ export function AppShell({ user }: Props) {
       // pull이 성공한 뒤에만 올린다 (불러오기 실패 상태에서 올리면 빈 로컬로 원격을 덮어쓴다)
       if (hasPendingSync()) await pushToFirebase(user.uid)
       setSyncError(null)
+      // 형광펜·밑줄 표시. 문제 목록과 따로 맞추고, 실패해도 나머지 동기화를 실패로 만들지 않는다
+      // (표시는 이 기기에 그대로 있다). 화면이 다시 그려지기 전에 끝내야 받은 표시가 바로 보인다
+      await syncHighlights(user.uid).catch((e) => console.error('표시 동기화 실패', e))
     } catch (e) {
       // 실패해도 로컬 데이터는 그대로다 (pullFromFirebase가 로컬을 건드리기 전에 던진다)
       console.error('Firebase 동기화 실패 (오프라인?)', e)
@@ -231,6 +235,23 @@ export function AppShell({ user }: Props) {
   useEffect(() => {
     loadFromFirebase()
   }, [loadFromFirebase])
+
+  // 표시를 칠 때마다 올리면 요청이 쏟아지므로, 잠잠해진 뒤 한 번만 맞춘다
+  useEffect(() => {
+    let timer: number | null = null
+    const onChanged = () => {
+      if (timer !== null) window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        timer = null
+        syncHighlights(user.uid).catch((e) => console.error('표시 동기화 실패', e))
+      }, 3000)
+    }
+    window.addEventListener(HIGHLIGHTS_CHANGED_EVENT, onChanged)
+    return () => {
+      window.removeEventListener(HIGHLIGHTS_CHANGED_EVENT, onChanged)
+      if (timer !== null) window.clearTimeout(timer)
+    }
+  }, [user.uid])
 
   // 이메일→uid 대응표에 내 계정을 남긴다. 관리자가 이메일로 문제집 권한을 줄 때
   // uid를 찾는 유일한 수단이다 (docs/shared-pool-design.md §1.4).

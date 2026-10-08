@@ -218,9 +218,110 @@ export function saveHighlights(questionId: string, highlights: Highlight[]) {
   if (typeof window === 'undefined') return
   try {
     localStorage.setItem(highlightsKey(questionId), JSON.stringify(highlights))
+    // 기기 사이에서 어느 쪽이 최신인지 가리는 기준. 모두 지운 것(빈 배열)도 '지웠다'는 기록으로 남는다
+    localStorage.setItem(highlightsStampKey(questionId), String(Date.now()))
   } catch (e) {
     console.error('[highlights] 저장 실패', e)
+    return
   }
+  // 클라우드 동기화가 듣는다(app-shell). 이 파일은 동기화를 모른다
+  window.dispatchEvent(new Event(HIGHLIGHTS_CHANGED_EVENT))
+}
+
+export const HIGHLIGHTS_CHANGED_EVENT = 'lawpass:highlights-changed'
+
+// 저장 시각. 접두어가 'lawpass' 로 시작해야 계정을 바꿀 때 함께 지워진다
+export function highlightsStampKey(questionId: string) {
+  return `lawpass_hlstamp_${questionId}`
+}
+
+/** 한 문제의 표시 묶음. 기기 사이에서 문제 단위로 주고받는다 */
+export interface HighlightRecord {
+  id: string // 문제 id
+  highlights: Highlight[]
+  updatedAt: number
+}
+
+/**
+ * 이 기기에 있는 모든 문제의 표시.
+ *
+ * 저장 시각이 없는 옛 표시(이 기능 전에 쳤거나 올린 적 없는 것)는 지금 시각을 찍어 준다 —
+ * 그래야 처음 동기화할 때 다른 기기로 퍼지고, 시각 없는 쪽이 늘 지는 일이 없다
+ */
+export function listHighlightRecords(): HighlightRecord[] {
+  if (typeof window === 'undefined') return []
+  const out: HighlightRecord[] = []
+  const prefix = 'lawpass_highlights_'
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (!key.startsWith(prefix)) continue
+      const id = key.slice(prefix.length)
+      let highlights: Highlight[]
+      try {
+        highlights = JSON.parse(localStorage.getItem(key) ?? '[]') as Highlight[]
+      } catch {
+        continue
+      }
+      let stamp = Number(localStorage.getItem(highlightsStampKey(id)))
+      if (!Number.isFinite(stamp) || stamp <= 0) {
+        if (highlights.length === 0) continue // 시각도 내용도 없으면 보낼 것이 없다
+        stamp = Date.now()
+        localStorage.setItem(highlightsStampKey(id), String(stamp))
+      }
+      out.push({ id, highlights, updatedAt: stamp })
+    }
+  } catch (e) {
+    console.error('[highlights] 목록 읽기 실패', e)
+  }
+  return out
+}
+
+/** 다른 기기에서 받은 표시를 이 기기에 쓴다. 동기화 이벤트는 내지 않는다(받은 것을 다시 올릴 이유가 없다) */
+export function writeHighlightRecords(records: HighlightRecord[]) {
+  if (typeof window === 'undefined') return
+  for (const r of records) {
+    try {
+      localStorage.setItem(highlightsKey(r.id), JSON.stringify(r.highlights))
+      localStorage.setItem(highlightsStampKey(r.id), String(r.updatedAt))
+    } catch (e) {
+      console.error('[highlights] 받은 표시 저장 실패', e)
+    }
+  }
+}
+
+/**
+ * 문제마다 저장 시각이 더 늦은 쪽을 남긴다. 같으면 이 기기 것.
+ * fromRemote: 이 기기에 새로 써야 할 것(원격이 이긴 것), toRemote: 원격에 올려야 하는지
+ */
+export function mergeHighlightRecords(
+  local: HighlightRecord[],
+  remote: HighlightRecord[] | null
+): { merged: HighlightRecord[]; fromRemote: HighlightRecord[]; toRemote: boolean } {
+  const theirs = new Map((remote ?? []).map((r) => [r.id, r]))
+  const mine = new Map(local.map((r) => [r.id, r]))
+  const merged: HighlightRecord[] = []
+  const fromRemote: HighlightRecord[] = []
+  let toRemote = false
+
+  for (const r of local) {
+    const t = theirs.get(r.id)
+    if (!t) {
+      merged.push(r)
+      toRemote = true
+    } else if (t.updatedAt > r.updatedAt) {
+      merged.push(t)
+      fromRemote.push(t)
+    } else {
+      merged.push(r)
+      if (r.updatedAt > t.updatedAt) toRemote = true
+    }
+  }
+  for (const t of remote ?? []) {
+    if (mine.has(t.id)) continue
+    merged.push(t)
+    fromRemote.push(t)
+  }
+  return { merged, fromRemote, toRemote }
 }
 
 /** 같은 필드에서 [start,end) 와 겹치는 하이라이트를 뺀다. keepId 는 남긴다 */

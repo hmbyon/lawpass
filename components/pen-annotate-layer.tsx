@@ -278,7 +278,7 @@ export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture, onIn
       if (!target || !host.contains(target) || interactive(target)) return
       // 이미 잡혀 있던 글자 선택이 남아 있으면 그림을 그은 뒤에 형광펜 팝업이 뜬다
       if (mouse) window.getSelection()?.removeAllRanges()
-      const trace: Trace = { pts: [{ x: e.clientX, y: e.clientY }], endedAt: null }
+      const trace: Trace = { pts: [{ x: e.clientX, y: e.clientY, t: e.timeStamp }], endedAt: null }
       cur = { id: e.pointerId, pts: trace.pts, t0: performance.now(), target, trace, mouse }
       traces.push(trace)
       window.addEventListener('pointermove', onMove)
@@ -289,7 +289,7 @@ export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture, onIn
     function onMove(e: PointerEvent) {
       if (!cur || e.pointerId !== cur.id) return
       const list = e.getCoalescedEvents?.() ?? []
-      for (const ev of list.length ? list : [e]) cur.pts.push({ x: ev.clientX, y: ev.clientY })
+      for (const ev of list.length ? list : [e]) cur.pts.push({ x: ev.clientX, y: ev.clientY, t: ev.timeStamp })
       schedule()
     }
     function stop() {
@@ -318,7 +318,11 @@ export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture, onIn
         ;(c.target as HTMLElement).click?.()
         return
       }
-      handle(c.pts, c.t0)
+      // 점을 시간 순으로 바로잡는다. 묶여 오는 이벤트(coalesced)가 거꾸로 오거나 겹쳐 오면
+      // 경로가 앞뒤로 오가며 길이가 몇 배로 잡힌다. 같은 자리 점도 덜어 낸다
+      const ordered = [...c.pts].sort((a, b) => (a.t ?? 0) - (b.t ?? 0))
+      const clean = ordered.filter((p, i) => i === 0 || p.x !== ordered[i - 1].x || p.y !== ordered[i - 1].y)
+      handle(clean, c.t0)
     }
     function onCancel(e: PointerEvent) {
       if (!cur || e.pointerId !== cur.id) return

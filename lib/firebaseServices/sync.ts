@@ -11,6 +11,10 @@ import {
 } from '@/lib/store'
 import { getAppMode } from '@/lib/appMode'
 import { mergeDrawings } from '@/lib/drawingMerge'
+import {
+  listHighlightRecords, mergeHighlightRecords, writeHighlightRecords,
+  type HighlightRecord,
+} from '@/lib/highlights'
 import type { Question, WrongNote } from '@/lib/types'
 
 // Firestore 문서 하나의 한도는 1MiB다. 문제 목록은 지문·선지별 해설 원문까지 담아
@@ -36,7 +40,7 @@ function syncLog(...args: unknown[]) {
   console.log('[sync]', ...args)
 }
 
-type ListName = 'questions' | 'wrongNotes' | 'studySessions' | 'quizSession'
+type ListName = 'questions' | 'wrongNotes' | 'studySessions' | 'quizSession' | 'highlights'
 
 export function byteLength(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).length
@@ -245,6 +249,27 @@ async function runPush(userId: string) {
   }
   clearPendingSync()
   syncLog('push 완료 — 동기화됨')
+}
+
+/**
+ * 형광펜·밑줄 표시를 기기 사이에 맞춘다 (받고, 합치고, 필요하면 올린다).
+ *
+ * 문제 목록과 따로 다룬다. 표시는 문제마다 이 기기 저장소에만 있어서, 아이패드에서 친 표시가
+ * 컴퓨터에는 없었다. 문제 id 마다 저장 시각을 비교해 최신 쪽을 남기고, 한쪽에만 있는 문제는 양쪽에 둔다.
+ * 읽기에 실패하면 던진다 — 모르는 채로 올리면 다른 기기의 표시를 덮을 수 있다
+ */
+export function syncHighlights(userId: string): Promise<void> {
+  return enqueue(async () => {
+    const mode = getAppMode()
+    const remote = await readList<HighlightRecord>(userId, mode, 'highlights')
+    const local = listHighlightRecords()
+    const { merged, fromRemote, toRemote } = mergeHighlightRecords(local, remote)
+    if (fromRemote.length > 0) writeHighlightRecords(fromRemote)
+    // 원격 문서가 아직 없고 올릴 것도 없으면 만들지 않는다
+    if ((remote === null && merged.length === 0) || (!toRemote && remote !== null)) return
+    await writeList<HighlightRecord>(userId, mode, 'highlights', merged)
+    syncLog('표시 동기화', { 이기기: local.length, 받음: fromRemote.length, 합계: merged.length })
+  })
 }
 
 // Firebase의 임시저장(studySessions) / 진행중인 퀴즈(quizSession) 문서 삭제
