@@ -203,6 +203,19 @@ html.pen-writing * {
   -webkit-touch-callout: none;
 }
 
+/* 물결 밑줄(lib/highlights.tsx HIGHLIGHT_WAVE_CLASSES). 색은 Tailwind decoration-* 이 정한다 */
+.hl-wave {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.2em;
+  text-decoration-skip-ink: none;
+}
+/* 취소선과 함께 켜졌을 때: 두 줄 모두 그린다 */
+.hl-wave.line-through {
+  text-decoration-line: underline line-through;
+}
+
 /* 지우개로 누르면 함께 지워질 형광펜·밑줄 조각들(lib/highlights.tsx markErasing) */
 mark[data-erasing] {
   background-color: rgb(239 68 68 / 0.3);

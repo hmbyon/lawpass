@@ -1223,6 +1223,7 @@ function StudyBulkPreview({
               [
                 ['fill', '배경'],
                 ['underline', '밑줄'],
+                ['wave', '물결'],
                 ['strike', '취소선'],
                 ['circle', '원'],
                 ['cross', 'X표시'],

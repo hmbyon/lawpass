@@ -52,7 +52,7 @@ const CROSS_WINDOW_MS = 2500
 const TAP_MOVE_PX = 6
 const TAP_MS = 400
 
-const KIND_LABEL = { underline: '밑줄', circle: '원', cross: 'X' } as const
+const KIND_LABEL = { underline: '밑줄', wave: '물결', circle: '원', cross: 'X' } as const
 
 interface CharBox {
   idx: number
@@ -225,7 +225,7 @@ export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture, onBr
     }
 
     // ── 모양 → 글자 범위 ──────────────────────────────
-    function locate(kind: 'underline' | 'circle' | 'cross', bb: BBox, my: number): PenGesture | null {
+    function locate(kind: 'underline' | 'wave' | 'circle' | 'cross', bb: BBox, my: number): PenGesture | null {
       let best: PenGesture | null = null
       let bestCount = 0
       for (const [field, el] of Object.entries(getFieldElsRef.current())) {
@@ -234,7 +234,7 @@ export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture, onBr
         if (r.right < bb.x0 - 20 || r.left > bb.x1 + 20 || r.bottom < bb.y0 - 40 || r.top > bb.y1 + 40) continue
         const boxes = charBoxes(el, bb)
         let picked: CharBox[]
-        if (kind === 'underline') picked = underlineChars(boxes, bb, my)
+        if (kind === 'underline' || kind === 'wave') picked = underlineChars(boxes, bb, my)
         else if (kind === 'circle') picked = boxes.filter((c) => insideEllipse(c, bb))
         else picked = boxes.filter((c) => insideBox(c, bb))
         const span = trimmed(picked)
@@ -286,7 +286,7 @@ export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture, onBr
 
     // ── 획 알아보기 ───────────────────────────────────
     let pending: { rec: Recognized; at: number } | null = null
-    function commit(kind: 'underline' | 'circle' | 'cross', bb: BBox, my: number) {
+    function commit(kind: 'underline' | 'wave' | 'circle' | 'cross', bb: BBox, my: number) {
       const g = locate(kind, bb, my)
       if (g) onGestureRef.current(g)
       else onInfoRef.current?.(`${KIND_LABEL[kind]}(으)로 읽었지만 겹치는 글자를 못 찾았어요`)
@@ -305,10 +305,10 @@ export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture, onBr
         const spot = locateBracket(rec.bbox)
         if (spot) onBracketRef.current?.({ ...spot, bracket: rec.bracket })
         else onInfoRef.current?.(`괄호 ${rec.bracket} 로 읽었지만 글자 사이를 못 찾았어요 — 글자 사이에 가깝게 그어 주세요`)
-      } else if (rec.kind === 'underline') {
+      } else if (rec.kind === 'underline' || rec.kind === 'wave') {
         pending = null
         const my = rec.pts.reduce((s, p) => s + p.y, 0) / rec.pts.length
-        commit('underline', rec.bbox, my)
+        commit(rec.kind, rec.bbox, my)
       } else if (rec.kind === 'circle') {
         pending = null
         commit('circle', rec.bbox, 0)

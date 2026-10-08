@@ -55,6 +55,7 @@ export function PenColorPicker({ value, onChange }: { value: HighlightColor; onC
 export const STYLE_LABELS: Record<HighlightStyle, string> = {
   fill: '형광펜',
   underline: '밑줄',
+  wave: '물결',
   strike: '취소선',
   circle: '원',
   cross: 'X표시',
@@ -77,6 +78,16 @@ export function StyleSwatch({ style, color }: { style: HighlightStyle; color: Hi
       <span className="relative block w-full h-full">
         <span className={`absolute left-1/2 top-1/2 block h-0.5 w-4 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-full ${paint}`} />
         <span className={`absolute left-1/2 top-1/2 block h-0.5 w-4 -translate-x-1/2 -translate-y-1/2 -rotate-45 rounded-full ${paint}`} />
+      </span>
+    )
+  }
+  if (style === 'wave') {
+    // 물결: 선 대신 작은 사인 곡선
+    return (
+      <span className="flex w-full h-full items-end justify-center pb-1">
+        <svg width="18" height="6" viewBox="0 0 18 6" aria-hidden className="overflow-visible">
+          <path d="M0 3 Q2.25 0 4.5 3 T9 3 T13.5 3 T18 3" fill="none" stroke={HIGHLIGHT_COLOR_HEX[color]} strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
       </span>
     )
   }
@@ -359,6 +370,7 @@ export function HighlightEditor({ questionId, onChanged, className, children }: 
               [
                 ['fill', '배경'],
                 ['underline', '밑줄'],
+                ['wave', '물결'],
                 ['strike', '취소선'],
                 ['circle', '원'],
                 ['cross', 'X표시'],

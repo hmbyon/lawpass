@@ -20,7 +20,7 @@ export interface BBox {
   y1: number
 }
 
-export type StrokeKind = 'underline' | 'circle' | 'diag-up' | 'diag-down' | 'bracket'
+export type StrokeKind = 'underline' | 'wave' | 'circle' | 'diag-up' | 'diag-down' | 'bracket'
 
 /** 글자 사이에 끼우는 괄호 네 가지 */
 export type BracketChar = '[' | ']' | '<' | '>'
@@ -84,7 +84,7 @@ export function totalTurning(pts: P[]): number {
   return sum
 }
 
-interface Axis {
+export interface Axis {
   cx: number
   cy: number
   ux: number
@@ -150,6 +150,7 @@ const LINEAR_RATIO = 0.22
 /**
  * 한 획이 무엇인지. 알 수 없으면 null.
  *  - underline: 거의 곧은 가로선
+ *  - wave: 가로로 나아가며 위아래로 세 번 이상 꺾이는 물결선
  *  - circle: 처음과 끝이 만나는, 한 바퀴쯤 도는 고리
  *  - diag-up / diag-down: X 의 한 획이 될 수 있는 곧은 대각선 (두 획이 모여야 의미가 있다)
  *
@@ -174,6 +175,8 @@ export function recognizeStroke(pts: P[]): Recognized | null {
   }
   // 톡 찍거나 짧게 긋는 것은 표시가 아니다
   if (extent < 20 && Math.max(w, h) < 24) return null
+  // 물결 밑줄: 가로로 길고, 위아래로 몇 번 오르내리며 앞으로 나아가는 획. 곧은 밑줄·동그라미보다 먼저 본다
+  if (isWave(pts, bbox, ax)) return { kind: 'wave', bbox, pts }
   const linear = ax.major > 0 && ax.minor / ax.major <= LINEAR_RATIO
 
   // 동그라미: 선이 아니고, 시작과 끝이 가깝고(둘레의 22% 이내), 방향이 한 바퀴 가까이 돈다
@@ -212,6 +215,78 @@ export function recognizeStroke(pts: P[]): Recognized | null {
     }
   }
   return null
+}
+
+/**
+ * 물결선인가. 곧은 밑줄과 가르는 기준은 '주축에서 위아래로 몇 번 되꺾이는가'다.
+ *  - 주축(PCA)에서 벗어난 거리(residual)가 문턱(θ) 이상 움직일 때만 방향이 바뀐 것으로 센다(히스테리시스).
+ *    손떨림은 θ 아래라 세지 않는다. 기울어진 곧은 선도 주축을 기준으로 재므로 기울기는 상관없다
+ *  - 방향 바뀜이 3번 이상(한 주기 반 이상)이고, 꺾임 사이 흔들림 폭의 중앙값이 θ 의 1.5배 이상이어야 한다
+ *  - 가로로 나아가야 한다: 주축과 20° 이내, 처음~끝이 길이의 60% 이상 벌어짐, 뒷걸음 거리는 길이의 35% 이하.
+ *    그래서 앞뒤로 비비는 낙서나 점이 뒤섞인 곧은 밑줄(꺾임은 많아도 앞으로 안 나아감)은 물결이 아니다
+ */
+export function isWave(pts: P[], bbox: BBox, ax: Axis): boolean {
+  const extent = ax.t1 - ax.t0
+  const w = bbox.x1 - bbox.x0
+  const h = bbox.y1 - bbox.y0
+  if (extent < 45 || w < 45) return false
+  const deg = (Math.atan2(Math.abs(ax.uy), Math.abs(ax.ux)) * 180) / Math.PI
+  if (deg > 20 || h > 0.5 * w) return false
+  const k = decimate(pts, 3)
+  if (k.length < 8) return false
+  const first = k[0]
+  const last = k[k.length - 1]
+  const tOf = (p: P) => (p.x - ax.cx) * ax.ux + (p.y - ax.cy) * ax.uy
+  const rOf = (p: P) => -(p.x - ax.cx) * ax.uy + (p.y - ax.cy) * ax.ux
+  const t = k.map(tOf)
+  const r = k.map(rOf)
+  // 앞으로 나아가는 방향(처음→끝)으로 뒷걸음한 거리
+  const sign = tOf(last) >= tOf(first) ? 1 : -1
+  if (Math.abs(t[t.length - 1] - t[0]) < 0.6 * extent) return false
+  let back = 0
+  for (let i = 1; i < t.length; i++) {
+    const d = (t[i] - t[i - 1]) * sign
+    if (d < 0) back -= d
+  }
+  if (back > 0.35 * extent) return false
+  // 위아래 되꺾임 세기
+  const theta = Math.max(3, Math.min(0.02 * extent, 4.5))
+  let dir = 0
+  let ext = r[0]
+  const exts: number[] = []
+  for (let i = 1; i < r.length; i++) {
+    const v = r[i]
+    if (dir === 0) {
+      if (Math.abs(v - ext) >= theta) {
+        exts.push(ext)
+        dir = v > ext ? 1 : -1
+        ext = v
+      }
+    } else if (dir === 1) {
+      if (v > ext) ext = v
+      else if (ext - v >= theta) {
+        exts.push(ext)
+        dir = -1
+        ext = v
+      }
+    } else {
+      if (v < ext) ext = v
+      else if (v - ext >= theta) {
+        exts.push(ext)
+        dir = 1
+        ext = v
+      }
+    }
+  }
+  if (dir !== 0) exts.push(ext)
+  // exts 는 처음 점, 중간 꺾임 점들, 마지막 극값. 꺾임 횟수 = 꺾임 점 수
+  const reversals = exts.length - 2
+  if (reversals < 3) return false
+  const swings: number[] = []
+  for (let i = 1; i < exts.length; i++) swings.push(Math.abs(exts[i] - exts[i - 1]))
+  swings.sort((a, b) => a - b)
+  const median = swings[Math.floor(swings.length / 2)]
+  return median >= 1.5 * theta
 }
 
 /** 점들을 허용 오차 안에서 꺾이는 점만 남겨 줄인다(Douglas-Peucker) */

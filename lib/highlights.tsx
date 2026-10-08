@@ -4,9 +4,9 @@ import type { BracketChar } from './penGesture'
 export type HighlightColor = 'yellow' | 'green' | 'pink' | 'blue' | 'purple' | 'orange' | 'red' | 'gray'
 
 // 'fill' = 배경 칠하기(기존 형광펜), 'underline' = 밑줄만,
-// 'strike' = 취소선, 'circle' = 동그라미, 'cross' = X표시
+// 'wave' = 물결 밑줄, 'strike' = 취소선, 'circle' = 동그라미, 'cross' = X표시
 // 옛 데이터에는 이 필드가 없으므로 undefined는 'fill'로 취급한다
-export type HighlightStyle = 'fill' | 'underline' | 'strike' | 'circle' | 'cross'
+export type HighlightStyle = 'fill' | 'underline' | 'wave' | 'strike' | 'circle' | 'cross'
 
 export const HIGHLIGHT_COLORS: HighlightColor[] = ['yellow', 'green', 'pink', 'blue', 'purple', 'orange', 'red']
 
@@ -93,6 +93,20 @@ export const HIGHLIGHT_UNDERLINE_CLASSES: Record<HighlightColor, string> = {
   gray: `bg-[linear-gradient(#6b7280,#6b7280)] dark:bg-[linear-gradient(#9ca3af,#9ca3af)] ${UL}`,
 }
 
+// 물결 밑줄: 물결은 그라디언트로 그릴 수 없어 text-decoration(wavy)을 쓴다. 두께·위치는 globals.css 의 .hl-wave.
+// 취소선과 같은 속성(text-decoration-line)을 쓰지만, 둘이 함께 있을 때를 위해 .hl-wave.line-through 규칙을 따로 뒀다.
+// 지우개 hover(hover:line-through)는 이 선 위에 붉은 줄을 덮어 신호로 쓴다
+export const HIGHLIGHT_WAVE_CLASSES: Record<HighlightColor, string> = {
+  yellow: 'hl-wave decoration-yellow-500 dark:decoration-yellow-400',
+  green: 'hl-wave decoration-emerald-500 dark:decoration-emerald-400',
+  pink: 'hl-wave decoration-pink-500 dark:decoration-pink-400',
+  blue: 'hl-wave decoration-blue-500 dark:decoration-blue-400',
+  purple: 'hl-wave decoration-purple-500 dark:decoration-purple-400',
+  orange: 'hl-wave decoration-orange-500 dark:decoration-orange-400',
+  red: 'hl-wave decoration-red-500 dark:decoration-red-400',
+  gray: 'hl-wave decoration-gray-500 dark:decoration-gray-400',
+}
+
 // 취소선: 밑줄과 달리 text-decoration 을 그대로 쓴다. 지우개 hover 가 line-through 를
 // 신호로 쓰고 있어 겹치는데, 그건 renderHighlighted 에서 이 스타일만 다른 신호로 바꾼다
 export const HIGHLIGHT_STRIKE_CLASSES: Record<HighlightColor, string> = {
@@ -158,13 +172,14 @@ const SHAPE_CIRCLE = 'rounded-[50%] px-[0.3em] py-[0.05em] box-decoration-clone'
 // 형광펜(fill)은 배경이라 장식 목록에 없다
 const DECORATION_CLASSES: Record<Exclude<HighlightStyle, 'fill'>, Record<HighlightColor, string>> = {
   underline: HIGHLIGHT_UNDERLINE_CLASSES,
+  wave: HIGHLIGHT_WAVE_CLASSES,
   strike: HIGHLIGHT_STRIKE_CLASSES,
   circle: HIGHLIGHT_CIRCLE_CLASSES,
   cross: HIGHLIGHT_CROSS_CLASSES,
 }
 
 // 저장·표시 순서. 누른 순서와 무관하게 같은 조합은 같은 배열이 된다
-const STYLE_ORDER: HighlightStyle[] = ['fill', 'underline', 'strike', 'circle', 'cross']
+const STYLE_ORDER: HighlightStyle[] = ['fill', 'underline', 'wave', 'strike', 'circle', 'cross']
 
 /** 모르는 값을 걸러 순서대로 정리한다. 남는 것이 없으면 옛 기본값인 형광펜이다 */
 function normalizeStyles(styles: readonly (HighlightStyle | undefined)[]): HighlightStyle[] {
