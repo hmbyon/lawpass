@@ -50,3 +50,35 @@ export function isValidAnswerValue(answer: unknown): answer is string {
   const parts = trimmed.split(/[\s,，、·/]+/).filter(Boolean)
   return parts.length > 0 && parts.every((p) => (CHOICE_LABELS as readonly string[]).includes(p))
 }
+
+// ── 수험생이 고른 답 ─────────────────────────────────────────────
+// 복수정답 문제(answer 가 '②,④')는 정답 선지를 모두 골라야 맞은 것으로 채점한다.
+// 시험에서는 하나만 골라도 인정되지만, 이 앱은 선지마다 정답 여부를 아는 연습이 목적이라
+// 하나만 고르면 틀린 것으로 본다. 고른 답도 정답과 같은 표기('②,④')로 저장한다
+
+/** 수험생이 고른 선지들. '②,④' → ['②','④'], 하나면 그 하나 */
+export function selectedLabels(userAnswer: string | null | undefined): string[] {
+  if (!userAnswer) return []
+  return userAnswer.split(/[\s,，、·/]+/).filter(Boolean)
+}
+
+/** 고른 답이 정답과 정확히 같은 집합인가. 정답 없음 문제는 어떤 답이든 오답이다 */
+export function isCorrectSelection(answer: string | undefined | null, userAnswer: string | null | undefined): boolean {
+  // 정답이 '정답없음'인 문제는 수험생이 '정답 없음'을 골라야 맞다. 반대로 정답이 있는 문제에서 '정답 없음'을 고르면 오답이다
+  if (answer?.trim() === NO_ANSWER) return userAnswer?.trim() === NO_ANSWER
+  const correct = answerLabels(answer)
+  const picked = selectedLabels(userAnswer)
+  if (correct.length === 0 || picked.length === 0) return false
+  return correct.length === picked.length && correct.every((l) => picked.includes(l))
+}
+
+/** 선지를 눌렀을 때 새 답. 단일 정답 문제는 그 선지로 바꾸고, 복수정답 문제는 켜고 끈다 */
+export function toggleSelection(current: string | null | undefined, label: string, multi: boolean): string | null {
+  if (!multi) return label
+  // '정답 없음'을 골라 둔 상태에서 선지를 누르면 정답 없음은 풀리고 그 선지부터 새로 고른다
+  const set = new Set(current?.trim() === NO_ANSWER ? [] : selectedLabels(current))
+  if (set.has(label)) set.delete(label)
+  else set.add(label)
+  const ordered = CHOICE_LABELS.filter((l) => set.has(l))
+  return ordered.length > 0 ? ordered.join(',') : null
+}

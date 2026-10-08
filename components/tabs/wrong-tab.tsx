@@ -17,7 +17,7 @@ import {
   ExplanationBox, choiceExplanationParts, subItemExplanationParts, hasExplanationParts,
 } from '@/components/quiz/explanation-blocks'
 import { DrawingPreview } from '@/components/drawing-preview'
-import { isAnswerLabel, formatAnswer } from '@/lib/answers'
+import { isAnswerLabel, formatAnswer, isMultiAnswer, selectedLabels } from '@/lib/answers'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const RISKS = ['★1', '★2', '★3', '★4', '★5']
@@ -106,7 +106,7 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
                 <div
                   className={`flex gap-2 p-2 rounded-lg text-xs border ${isAnswerLabel(note.question.answer, c.label)
                       ? 'border-emerald-500 bg-emerald-100 text-emerald-900 dark:border-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300'
-                      : c.label === note.userAnswer
+                      : selectedLabels(note.userAnswer).includes(c.label)
                         ? 'border-red-500 bg-red-100 text-red-900 dark:border-red-600 dark:bg-red-900/20 dark:text-red-300'
                         : 'border-border text-muted-foreground'
                     }`}
@@ -120,8 +120,12 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
                       {note.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'}
                     </span>
                   )}
-                  {isAnswerLabel(note.question.answer, c.label) && <span className="ml-auto shrink-0">✓ 정답</span>}
-                  {c.label === note.userAnswer && !isAnswerLabel(note.question.answer, c.label) && <span className="ml-auto shrink-0">✗ 내 답</span>}
+                  {isAnswerLabel(note.question.answer, c.label) && (
+                    <span className="ml-auto shrink-0">
+                      ✓ 정답{isMultiAnswer(note.question.answer) && !selectedLabels(note.userAnswer).includes(c.label) ? ' · 놓침' : ''}
+                    </span>
+                  )}
+                  {selectedLabels(note.userAnswer).includes(c.label) && !isAnswerLabel(note.question.answer, c.label) && <span className="ml-auto shrink-0">✗ 내 답</span>}
                 </div>
                 {choiceMemos[c.label] && (
                   <div className="ml-2 mt-0.5 px-2 py-1 bg-yellow-100 text-yellow-900 border-l-2 border-yellow-500/50 rounded-r text-xs dark:bg-yellow-900/20 dark:text-yellow-300">
@@ -178,7 +182,7 @@ function DetailModal({ note, onClose, onMemoSaved, isGeneral }: DetailModalProps
           <DrawingPreview questionId={note.question.id} />
 
           <div className="text-xs text-muted-foreground border-t border-border pt-2">
-            내 답: <span className="text-red-400 font-medium">{note.userAnswer}</span>{' '}
+            내 답: <span className="text-red-400 font-medium">{formatAnswer(note.userAnswer)}</span>{' '}
             정답: <span className="text-emerald-400 font-medium">{formatAnswer(note.question.answer)}</span>
             {note.status && <span className="ml-2 text-yellow-400">({note.status})</span>}
             {note.confusedWith && note.confusedWith.length > 0 && (

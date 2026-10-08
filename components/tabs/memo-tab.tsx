@@ -9,7 +9,7 @@ import { CauseBadge } from '@/components/cause-badge'
 import { FilterChips } from '@/components/filter-chips'
 import { SORT_OPTIONS, sortNotes, type SortOption } from '@/lib/noteSort'
 import { getAppMode } from '@/lib/appMode'
-import { isAnswerLabel } from '@/lib/answers'
+import { isAnswerLabel, selectedLabels } from '@/lib/answers'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const RISKS = ['★1', '★2', '★3', '★4', '★5']
@@ -377,7 +377,7 @@ function MemoCard({ note, onMemoSaved, isGeneral }: { note: WrongNote; onMemoSav
                 className={`flex gap-2 p-2 rounded-lg text-xs border ${
                   isAnswerLabel(note.question.answer, c.label)
                     ? 'border-emerald-500 bg-emerald-100 text-emerald-900 dark:border-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300'
-                    : c.label === note.userAnswer
+                    : selectedLabels(note.userAnswer).includes(c.label)
                       ? 'border-red-500 bg-red-100 text-red-900 dark:border-red-600 dark:bg-red-900/20 dark:text-red-300'
                       : 'border-border text-muted-foreground'
                 }`}
