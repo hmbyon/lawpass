@@ -1081,7 +1081,9 @@ export function addFlaggedCorrectNote(
       const 위험도 = calcRisk(wrongCount, totalCount)
       notes[idx] = { ...prev, totalCount, analysis: prev.analysis ? { ...prev.analysis, 위험도 } : null }
     } else {
-      notes[idx] = { ...prev, totalCount, userAnswer, status, flaggedCorrect: true, confusedWith: confusedWith.length > 0 ? confusedWith : undefined }
+      // 순수 북마크였다가 처음 표시한 문제는 1회, 이미 표시돼 있던 문제는 한 번 더 쌓는다(옛 노트는 횟수가 없어 1회로 본다)
+      const flaggedCount = prev.flaggedCorrect ? (prev.flaggedCount ?? 1) + 1 : 1
+      notes[idx] = { ...prev, totalCount, userAnswer, status, flaggedCorrect: true, flaggedCount, confusedWith: confusedWith.length > 0 ? confusedWith : undefined }
     }
     saveWrongNotes(notes)
     return
@@ -1101,6 +1103,7 @@ export function addFlaggedCorrectNote(
     totalCount: 1,
     isBookmarked: false,
     flaggedCorrect: true,
+    flaggedCount: 1,
     ...(confusedWith.length > 0 ? { confusedWith } : {}),
   })
   saveWrongNotes(notes)
@@ -1131,13 +1134,17 @@ export const DEFAULT_RISK = 2
 // 위험도가 analysis 안에만 저장되는 탓에 AI 분석 실패 시 별점이 사라지던 문제 대응.
 export function getRiskLevel(note: WrongNote): number {
   const stored = Number(note.analysis?.위험도)
-  if (Number.isFinite(stored) && stored >= 1 && stored <= 5) return Math.round(stored)
+  const storedLevel = Number.isFinite(stored) && stored >= 1 && stored <= 5 ? Math.round(stored) : 0
+  // 틀린 적 없이 헷갈림/찍음으로만 쌓인 문제는 표시한 횟수만큼 별이 올라간다(1회 ★1 … 5회 이상 ★5)
+  if ((note.wrongCount ?? 0) === 0 && note.flaggedCorrect) {
+    return Math.max(storedLevel, Math.min(5, Math.max(1, note.flaggedCount ?? 1)))
+  }
+  if (storedLevel > 0) return storedLevel
 
   const wrongCount = note.wrongCount ?? 0
   const totalCount = note.totalCount ?? 0
-  // 틀린 적은 없지만 헷갈림/찍음으로 표시해 들어온 문제는 별 1개로 쌓는다(암기장 자동 편입 기준 3에는 못 미친다).
-  // 순수 북마크는 별점 없음
-  if (wrongCount === 0) return note.flaggedCorrect ? 1 : 0
+  // 순수 북마크(틀린 적도, 헷갈림 표시도 없음)는 별점 없음
+  if (wrongCount === 0) return 0
   if (totalCount <= 1) return DEFAULT_RISK // 오답 1회뿐이라 오답률 계산 불가
   return calcRisk(wrongCount, totalCount)
 }

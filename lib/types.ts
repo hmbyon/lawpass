@@ -255,6 +255,8 @@ export interface WrongNote {
   // 맞혔지만 헷갈림/찍음으로 표시해서 들어온 노트(틀린 적은 없다: wrongCount 0).
   // 틀린 문제와 섞여 보이지 않게 목록에서 라벨로 구분한다
   flaggedCorrect?: boolean
+  // 맞혔지만 헷갈림/찍음으로 표시한 횟수(틀린 적 없는 노트의 별점 = 이 횟수, 최대 5). 옛 노트는 없으면 1회로 본다
+  flaggedCount?: number
   // 헷갈림/찍음으로 표시할 때 어느 선지와 헷갈렸는지 (예: ['①','③']). 옛 노트에는 없다
   confusedWith?: string[]
   manuallyAddedToMemo?: boolean // 자동 조건과 무관하게 사용자가 직접 D-1 암기장에 넣은 문제
