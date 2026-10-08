@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DrawingStroke } from '@/lib/types'
+import { useStrokeHistory } from '@/components/quiz/use-stroke-history'
 import { getQuestionDrawing, saveQuestionDrawing } from '@/lib/store'
 import { hitsStroke } from '@/lib/strokeHit'
 
@@ -172,6 +173,8 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
   const [folded, setFolded] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveFailed, setSaveFailed] = useState(false)
+  // 획을 긋거나 지운 것, 전체 지우기까지 한 걸음씩 되돌린다 (그림판은 문제마다 새로 마운트되므로 문제를 넘기면 기록도 비워진다)
+  const { canUndo, undo } = useStrokeHistory(strokes, setStrokes, questionId)
   // 띄운 창의 자리와 폭. 높이는 4:3 이라 폭이 정한다 — 폭 하나만 붙들면 된다
   const [win, setWin] = useState<{ x: number; y: number; w: number } | null>(null)
   // 붙박이 패널의 폭은 부모가 쥔다(props). null 이면 화면에 맞춘 기본 폭(아래 클래스의 clamp)을 쓴다.
@@ -662,6 +665,14 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
         }`}
       >
         ✂️ 획 지우개
+      </button>
+      <button
+        onClick={undo}
+        disabled={!canUndo}
+        title="방금 한 것(그린 획·지운 것·전체 지우기)을 한 걸음 되돌립니다"
+        className="rounded-lg bg-muted px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-muted/70 disabled:opacity-40"
+      >
+        ↩ 되돌리기
       </button>
       <button
         onClick={() => setStrokes([])}

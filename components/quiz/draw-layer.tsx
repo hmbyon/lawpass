@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { hitsStroke } from '@/lib/strokeHit'
+import { useStrokeHistory } from '@/components/quiz/use-stroke-history'
 
 /**
  * 문제 위에 직접 그리는 필기 레이어.
@@ -133,6 +134,13 @@ export function DrawLayer({ board, questionId, className, children, keepHint, ..
   const wiping = useRef(false)
 
   const strokes = board.byQuestion[questionId] ?? EMPTY
+
+  // 획을 긋거나 지운 것, 전체 지우기까지 한 걸음씩 되돌린다 (문제를 넘기면 그 기록은 비운다)
+  const setStrokesOfThis = useCallback(
+    (next: DrawStroke[]) => board.setByQuestion((m) => ({ ...m, [questionId]: next })),
+    [board, questionId]
+  )
+  const { canUndo, undo } = useStrokeHistory(strokes, setStrokesOfThis, questionId)
 
   // 문제마다 지문 길이가 달라 카드 높이가 바뀐다. 캔버스도 따라가야 그림이 어긋나지 않는다
   useEffect(() => {
@@ -314,6 +322,14 @@ export function DrawLayer({ board, questionId, className, children, keepHint, ..
                 }`}
               >
                 ✂️ 획 지우개
+              </button>
+              <button
+                onClick={undo}
+                disabled={!canUndo}
+                title="방금 한 것(그린 획·지운 것·전체 지우기)을 한 걸음 되돌립니다"
+                className="rounded-full bg-muted px-2.5 py-1 text-xs text-foreground transition-colors hover:opacity-80 disabled:opacity-40"
+              >
+                ↩ 되돌리기
               </button>
               <button
                 onClick={() => board.setByQuestion((m) => ({ ...m, [questionId]: [] }))}
