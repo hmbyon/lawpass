@@ -613,6 +613,25 @@ function markErasing(keys: string) {
   }
 }
 
+// X표시를 위에 얹는 층에 쓰는 그라디언트. 색값은 HIGHLIGHT_CROSS_CLASSES 와 같다(Tailwind 500)
+const CROSS_HEX: Record<HighlightColor, string> = {
+  yellow: '#eab308',
+  green: '#10b981',
+  pink: '#ec4899',
+  blue: '#3b82f6',
+  purple: '#a855f7',
+  orange: '#f97316',
+  red: '#ef4444',
+  gray: '#6b7280',
+}
+function crossGradient(color: HighlightColor): string {
+  const c = CROSS_HEX[color]
+  return (
+    `linear-gradient(to top right, transparent 47%, ${c} 47%, ${c} 53%, transparent 53%), ` +
+    `linear-gradient(to bottom right, transparent 47%, ${c} 47%, ${c} 53%, transparent 53%)`
+  )
+}
+
 export function renderHighlighted(
   text: string,
   field: string,
@@ -634,26 +653,45 @@ export function renderHighlighted(
   // 맞닿은 조각 전체를 감싸는 원 하나를 그린다. (조각마다 그리면 "법원의 허가"를 한 번에 쳤는데
   // 형광펜이 칠해진 "법원"과 "의 허가"에 각각 작은 원이 생겨 잘려 보였다)
   // 조각이 하나뿐인 원은 예전 그대로 그 조각 자체가 원이 된다
-  let group: { key: string; color: HighlightColor; items: React.ReactNode[] } | null = null
+  let group: { kind: 'circle' | 'cross'; key: string; color: HighlightColor; items: React.ReactNode[] } | null = null
   const flushGroup = () => {
     if (!group) return
-    nodes.push(
-      <span
-        key={`${field}_circle_${group.key}`}
-        className={`${SHAPE_CIRCLE} ${HIGHLIGHT_CIRCLE_CLASSES[group.color]}`}
-      >
-        {group.items}
-      </span>
-    )
+    if (group.kind === 'circle') {
+      nodes.push(
+        <span
+          key={`${field}_circle_${group.key}`}
+          className={`${SHAPE_CIRCLE} ${HIGHLIGHT_CIRCLE_CLASSES[group.color]}`}
+        >
+          {group.items}
+        </span>
+      )
+    } else {
+      // X표시도 같다. 조각마다 그라디언트를 칠하면 조각마다 ×가 하나씩 생기므로, 이어진 조각 전체에
+      // 덮어씌우는 × 하나를 따로 둔다. 조각의 형광펜 배경(자식)이 부모 배경을 덮기 때문에 배경이 아니라
+      // 위에 얹는 층으로 그리고, 클릭은 아래 글자로 통과시킨다
+      nodes.push(
+        <span key={`${field}_cross_${group.key}`} className="relative">
+          {group.items}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-0"
+            style={{ backgroundImage: crossGradient(group.color) }}
+          />
+        </span>
+      )
+    }
     group = null
   }
   for (const h of fieldHighlights) {
     const styles = stylesOf(h)
     const circleRun = styles.includes('circle') ? runOfStyle(runList, h, 'circle') : null
     const joined = circleRun !== null && circleRun.length > 1
-    // 합쳐진 원 안의 조각은 원을 빼고 나머지 스타일만 입는다. 남는 스타일이 없으면 투명하게 둔다
+    // 원과 X가 함께 이어져 있으면 원만 합친다. 둘을 한꺼번에 감싸는 규칙은 두지 않았다
+    const crossRun = !joined && styles.includes('cross') ? runOfStyle(runList, h, 'cross') : null
+    const joinedCross = crossRun !== null && crossRun.length > 1
+    // 합쳐진 원·X 안의 조각은 그 모양을 빼고 나머지 스타일만 입는다. 남는 스타일이 없으면 투명하게 둔다
     // (highlightClassName 은 빈 목록을 형광펜으로 되돌리므로 따로 처리한다)
-    const ownStyles = joined ? styles.filter((st) => st !== 'circle') : styles
+    const ownStyles = styles.filter((st) => !(joined && st === 'circle') && !(joinedCross && st === 'cross'))
     const underlineInside = !joined && styles.includes('underline') && styles.includes('circle')
     const content = applyBold(text.slice(h.start, h.end), h.start, bolds, field)
     if (h.start > cursor) {
@@ -696,10 +734,11 @@ export function renderHighlighted(
         )}
       </mark>
     )
-    if (joined) {
-      const key = circleRun![0].id
-      if (group && group.key !== key) flushGroup()
-      if (!group) group = { key, color: colorOfStyle(h, 'circle'), items: [] }
+    if (joined || joinedCross) {
+      const kind = joined ? 'circle' : 'cross'
+      const key = (joined ? circleRun! : crossRun!)[0].id
+      if (group && (group.kind !== kind || group.key !== key)) flushGroup()
+      if (!group) group = { kind, key, color: colorOfStyle(h, kind), items: [] }
       group.items.push(mark)
     } else {
       flushGroup()
