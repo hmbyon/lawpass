@@ -21,9 +21,11 @@ const SUBJECT_ORDER = ['민법', '민사소송법', '상법', '형법', '형사�
 interface Props {
   questions: Question[]
   wrongNotes: WrongNote[]
+  /** 처음 동기화가 끝나기 전. 이때는 문제가 비어 있어도 '없다'고 안내하지 않는다 */
+  loading?: boolean
 }
 
-export function DashboardTab({ questions, wrongNotes }: Props) {
+export function DashboardTab({ questions, wrongNotes, loading = false }: Props) {
   const [appMode] = useState(() => getAppMode())
   // 이름 수정은 localStorage에만 쓰므로 리렌더를 강제로 일으켜야 바로 반영된다
   const [labelVersion, setLabelVersion] = useState(0)
@@ -80,6 +82,15 @@ export function DashboardTab({ questions, wrongNotes }: Props) {
     if (next === null) return
     setSourceLabel(appMode, sourceFile, next)
     setLabelVersion((v) => v + 1)
+  }
+
+  // 처음 동기화가 끝나기 전에는 문제가 비어 보이는 것이 당연하다. 그때 "문제가 없습니다"를 띄우면 잘못 안내가 된다
+  if (questions.length === 0 && loading) {
+    return (
+      <div className="bg-card border border-border rounded-xl p-6 text-center">
+        <p className="text-sm text-muted-foreground animate-pulse">문제를 불러오는 중...</p>
+      </div>
+    )
   }
 
   if (questions.length === 0) {

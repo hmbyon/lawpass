@@ -187,7 +187,7 @@ export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture, onIn
           continue
         }
         ctx.globalAlpha = 1 - age / FADE_MS
-        ctx.strokeStyle = '#ef4444'
+        ctx.strokeStyle = '#6b7280'
         ctx.lineWidth = 2.5
         ctx.lineCap = 'round'
         ctx.lineJoin = 'round'

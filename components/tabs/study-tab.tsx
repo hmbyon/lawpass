@@ -629,8 +629,8 @@ function StudyBulkPreview({
       return !on
     })
   }
-  // 펜슬 제스처에 쓰는 색은 가장 최근에 팝업에서 고른 색. 처음에는 빨강(밑줄·원·X 모두 고를 수 있는 색)이다
-  const lastColorRef = useRef<HighlightColor>('red')
+  // 펜슬 제스처에 쓰는 색은 가장 최근에 팝업에서 고른 색. 처음에는 회색(밑줄·원·X 모두 고를 수 있는 색)이다
+  const lastColorRef = useRef<HighlightColor>('gray')
   // 이벤트 안에서 최신 하이라이트를 읽기 위한 거울
   const highlightsRef = useRef<Highlight[]>(highlights)
   highlightsRef.current = highlights

@@ -20,6 +20,9 @@ const BASE_KEYS = {
   // 선지 메모. 오답노트(WrongNote)와 따로 둔다 — 메모만 써도 오답노트에 항목이 생기면 안 된다.
   // 형태: { [questionId]: { [선지 라벨]: 메모 } }
   choiceMemos: 'lawpass_choice_memos',
+  // 내 문제도 공유받은 문제집 문항도 아닌 문제(관리자 계정이 올려 둔 공유 문제)에 그린 그림.
+  // 그런 문제는 내 저장소 어디에도 없어 그림을 붙일 자리가 없었다. 형태: { [questionId]: QuestionDrawing }
+  foreignDrawings: 'lawpass_foreign_drawings',
 } as const
 
 const MODE_SCOPED_BASE_KEYS: string[] = [
@@ -1255,12 +1258,27 @@ export function getQuestionDrawing(questionId: string): QuestionDrawing | null {
   const mine = getQuestions().find((q) => q.id === questionId)
   if (mine) return mine.drawing ?? null
   const shared = getPoolQuestions().find((q) => q.id === questionId)
-  return shared?.drawing ?? null
+  if (shared) return shared.drawing ?? null
+  return getForeignDrawings()[questionId] ?? null
+}
+
+// ── 내 저장소에 없는 문제(관리자 공유 문제)의 그림 ──
+// 문제 본문은 매번 서버에서 받아오고, 그림만 여기 따로 둔다. 기기 간에는 syncForeignDrawings 가 맞춘다
+export function getForeignDrawings(): Record<string, QuestionDrawing> {
+  return safeGet<Record<string, QuestionDrawing>>(modeKey(BASE_KEYS.foreignDrawings), {})
+}
+
+export const FOREIGN_DRAWINGS_CHANGED_EVENT = 'lawpass:foreign-drawings-changed'
+
+export function saveForeignDrawings(map: Record<string, QuestionDrawing>) {
+  safeSet(modeKey(BASE_KEYS.foreignDrawings), map)
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(FOREIGN_DRAWINGS_CHANGED_EVENT))
 }
 
 /**
- * 그림을 문제에 붙여 저장한다. 이 문제를 저장소에서 찾지 못해 아무것도 저장하지 못했으면 false.
- * (예전에는 그때도 조용히 넘어가서, 저장했다고 믿은 그림이 새로고침하면 없어졌다)
+ * 그림을 문제에 붙여 저장한다. 내 문제·공유받은 문제집에 없으면 따로 보관하는 곳에 둔다.
+ * (예전에는 그런 문제에 그린 그림이 조용히 버려져, 저장했다고 믿은 그림이 새로고침하면 없어졌다)
+ * 반환값은 저장했는지 여부(지금은 저장소 쓰기 자체가 던지지 않는 한 항상 true)
  */
 export function saveQuestionDrawing(questionId: string, drawing: QuestionDrawing | null): boolean {
   const now = Date.now()
@@ -1281,10 +1299,18 @@ export function saveQuestionDrawing(questionId: string, drawing: QuestionDrawing
   // 여기 그린 그림은 이 기기에만 남는다
   const shared = getPoolQuestions()
   const found = shared.find((q) => q.id === questionId)
-  if (!found) return false
-  if (next.strokes.length === 0 && !found.drawing) return true
-  found.drawing = next
-  savePoolQuestions(shared)
+  if (found) {
+    if (next.strokes.length === 0 && !found.drawing) return true
+    found.drawing = next
+    savePoolQuestions(shared)
+    return true
+  }
+
+  // 어느 쪽에도 없는 문제(관리자 공유 문제). 그림만 따로 보관한다
+  const foreign = getForeignDrawings()
+  if (next.strokes.length === 0 && !foreign[questionId]) return true
+  foreign[questionId] = next
+  saveForeignDrawings(foreign)
   return true
 }
 

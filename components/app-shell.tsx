@@ -3,9 +3,9 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { User } from 'firebase/auth'
 import type { Question, WrongNote } from '@/lib/types'
-import { getQuestions, getPoolQuestions, getWrongNotes, clearAll , isInMemoList, hasPendingSync } from '@/lib/store'
+import { FOREIGN_DRAWINGS_CHANGED_EVENT, getQuestions, getPoolQuestions, getWrongNotes, clearAll , isInMemoList, hasPendingSync } from '@/lib/store'
 import { logout } from '@/lib/firebaseServices/auth'
-import { pullFromFirebase, pushToFirebase, syncHighlights, fetchAdminQuestions, ADMIN_UID } from '@/lib/firebaseServices/sync'
+import { pullFromFirebase, pushToFirebase, syncHighlights, syncForeignDrawings, fetchAdminQuestions, ADMIN_UID } from '@/lib/firebaseServices/sync'
 import { HIGHLIGHTS_CHANGED_EVENT } from '@/lib/highlights'
 import { recordUserDirectory } from '@/lib/firebaseServices/userDirectory'
 import { isAccountSwitch, rememberUid, unsyncedModes, clearAccountData } from '@/lib/accountSwitch'
@@ -220,6 +220,8 @@ export function AppShell({ user }: Props) {
       // 형광펜·밑줄 표시. 문제 목록과 따로 맞추고, 실패해도 나머지 동기화를 실패로 만들지 않는다
       // (표시는 이 기기에 그대로 있다). 화면이 다시 그려지기 전에 끝내야 받은 표시가 바로 보인다
       await syncHighlights(user.uid).catch((e) => console.error('표시 동기화 실패', e))
+      // 관리자 공유 문제에 그린 그림도 같은 방식으로 맞춘다
+      await syncForeignDrawings(user.uid).catch((e) => console.error('공유 문제 그림 동기화 실패', e))
     } catch (e) {
       // 실패해도 로컬 데이터는 그대로다 (pullFromFirebase가 로컬을 건드리기 전에 던진다)
       console.error('Firebase 동기화 실패 (오프라인?)', e)
@@ -244,11 +246,14 @@ export function AppShell({ user }: Props) {
       timer = window.setTimeout(() => {
         timer = null
         syncHighlights(user.uid).catch((e) => console.error('표시 동기화 실패', e))
+        syncForeignDrawings(user.uid).catch((e) => console.error('공유 문제 그림 동기화 실패', e))
       }, 3000)
     }
     window.addEventListener(HIGHLIGHTS_CHANGED_EVENT, onChanged)
+    window.addEventListener(FOREIGN_DRAWINGS_CHANGED_EVENT, onChanged)
     return () => {
       window.removeEventListener(HIGHLIGHTS_CHANGED_EVENT, onChanged)
+      window.removeEventListener(FOREIGN_DRAWINGS_CHANGED_EVENT, onChanged)
       if (timer !== null) window.clearTimeout(timer)
     }
   }, [user.uid])
@@ -516,7 +521,7 @@ export function AppShell({ user }: Props) {
           (isAdmin ? (
             <PdfTab syncedAt={syncedAt} onQuestionsAdded={refreshAndSync} isAdmin={isAdmin} />
           ) : (
-            <DashboardTab key={syncedAt} questions={[...questions, ...poolQuestions, ...adminQuestions]} wrongNotes={wrongNotes} />
+            <DashboardTab key={syncedAt} questions={[...questions, ...poolQuestions, ...adminQuestions]} wrongNotes={wrongNotes} loading={syncedAt === 0} />
           ))}
         {/* 공유받은 문제를 합쳐 넘긴다. 합치는 것은 화면에 보여줄 배열뿐이고,
             문항에 붙은 poolId 가 그대로 따라가 오답노트·학습 세션 사본에도 출처가 남는다.

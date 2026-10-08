@@ -99,7 +99,7 @@ export function HighlightEditor({ questionId, onChanged, className, children }: 
   const popupRef = useRef<HTMLDivElement>(null)
   const popupHeightRef = useRef(88)
   const [style, setStyle] = useState<HighlightStyle>('fill')
-  const lastColorRef = useRef<HighlightColor>('red')
+  const lastColorRef = useRef<HighlightColor>('gray')
 
   const [penOn, setPenOn] = useState(true)
   const [toast, setToast] = useState<{ label: string; prev: Highlight[] | null } | null>(null)

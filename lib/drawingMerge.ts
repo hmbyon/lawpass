@@ -32,3 +32,37 @@ export function mergeDrawings(base: Question[], other: Question[] | null): Quest
   })
   return changed ? out : base
 }
+
+/** 내 저장소에 없는 문제의 그림 한 건. 기기 간 동기화 단위 */
+export interface ForeignDrawingRecord {
+  id: string
+  drawing: QuestionDrawing
+}
+
+/**
+ * 그림 기록을 문제 id 마다 저장 시각이 더 늦은 쪽으로 맞춘다. 시각이 같으면 내 것을 둔다.
+ * fromRemote: 원격이 이겨서 로컬에 써야 하는 것, toRemote: 원격에 올려야 할 것이 있는지
+ */
+export function mergeForeignDrawings(
+  local: ForeignDrawingRecord[],
+  remote: ForeignDrawingRecord[] | null
+): { merged: ForeignDrawingRecord[]; fromRemote: ForeignDrawingRecord[]; toRemote: boolean } {
+  const byId = new Map<string, ForeignDrawingRecord>()
+  for (const r of local) byId.set(r.id, r)
+  const fromRemote: ForeignDrawingRecord[] = []
+  const remoteIds = new Set<string>()
+  for (const r of remote ?? []) {
+    remoteIds.add(r.id)
+    const mine = byId.get(r.id)
+    if (!mine || stamp(r.drawing) > stamp(mine.drawing)) {
+      byId.set(r.id, r)
+      fromRemote.push(r)
+    }
+  }
+  const merged = [...byId.values()]
+  const toRemote = merged.some((r) => {
+    const theirs = (remote ?? []).find((x) => x.id === r.id)
+    return !theirs || stamp(r.drawing) > stamp(theirs.drawing)
+  })
+  return { merged, fromRemote, toRemote }
+}

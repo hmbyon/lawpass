@@ -1,6 +1,6 @@
 import { db } from '@/lib/firebase'
 import { doc, setDoc, getDoc, getDocs, deleteDoc, collection } from 'firebase/firestore'
-import {
+import { getForeignDrawings, saveForeignDrawings,
   getQuestions, saveQuestions,
   getWrongNotes, saveWrongNotes,
   getApiKey, setApiKey,
@@ -10,7 +10,7 @@ import {
   type SavedSession, type SavedStudySession,
 } from '@/lib/store'
 import { getAppMode } from '@/lib/appMode'
-import { mergeDrawings } from '@/lib/drawingMerge'
+import { mergeDrawings, mergeForeignDrawings, type ForeignDrawingRecord } from '@/lib/drawingMerge'
 import {
   listHighlightRecords, mergeHighlightRecords, writeHighlightRecords,
   type HighlightRecord,
@@ -40,7 +40,7 @@ function syncLog(...args: unknown[]) {
   console.log('[sync]', ...args)
 }
 
-type ListName = 'questions' | 'wrongNotes' | 'studySessions' | 'quizSession' | 'highlights'
+type ListName = 'questions' | 'wrongNotes' | 'studySessions' | 'quizSession' | 'highlights' | 'foreignDrawings'
 
 export function byteLength(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).length
@@ -269,6 +269,28 @@ export function syncHighlights(userId: string): Promise<void> {
     if ((remote === null && merged.length === 0) || (!toRemote && remote !== null)) return
     await writeList<HighlightRecord>(userId, mode, 'highlights', merged)
     syncLog('표시 동기화', { 이기기: local.length, 받음: fromRemote.length, 합계: merged.length })
+  })
+}
+
+/**
+ * 내 저장소에 없는 문제(관리자 공유 문제)에 그린 그림을 기기 간에 맞춘다. 표시(syncHighlights)와 같은 방식.
+ * 읽기에 실패하면 던진다 — 모르는 채로 올리면 다른 기기의 그림을 덮을 수 있다
+ */
+export function syncForeignDrawings(userId: string): Promise<void> {
+  return enqueue(async () => {
+    const mode = getAppMode()
+    const remote = await readList<ForeignDrawingRecord>(userId, mode, 'foreignDrawings')
+    const map = getForeignDrawings()
+    const local: ForeignDrawingRecord[] = Object.entries(map).map(([id, drawing]) => ({ id, drawing }))
+    const { merged, fromRemote, toRemote } = mergeForeignDrawings(local, remote)
+    if (fromRemote.length > 0) {
+      const next = { ...map }
+      for (const r of fromRemote) next[r.id] = r.drawing
+      saveForeignDrawings(next)
+    }
+    if ((remote === null && merged.length === 0) || (!toRemote && remote !== null)) return
+    await writeList<ForeignDrawingRecord>(userId, mode, 'foreignDrawings', merged)
+    syncLog('공유 문제 그림 동기화', { 이기기: local.length, 받음: fromRemote.length, 합계: merged.length })
   })
 }
 
