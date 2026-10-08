@@ -96,9 +96,11 @@ export function NoteQuestionView({ note, onChanged }: { note: WrongNote; onChang
                     const subItem = subItemByLabel.get(item.label)
                     const ox = subItem ? subItem.isCorrect : q.subChoiceAnswers?.[item.label]
                     const parts = subParts(item.label)
+                    // ㄱㄴㄷㄹ 보기가 있는 문제에서 헷갈렸다고 고른 것은 선지 번호가 아니라 이 보기다
+                    const confused = note.confusedWith?.includes(item.label) ?? false
                     return (
                       <div key={item.label}>
-                        <div className="flex gap-2 items-start text-xs">
+                        <div className={`flex gap-2 items-start text-xs ${confused ? 'rounded-md bg-amber-100 px-1.5 py-1 ring-1 ring-amber-400/60 dark:bg-amber-900/20' : ''}`}>
                           {ox !== undefined && (
                             <span className={`shrink-0 font-bold ${ox ? 'text-blue-400' : 'text-red-400'}`}>{ox ? 'O' : 'X'}</span>
                           )}
@@ -106,6 +108,11 @@ export function NoteQuestionView({ note, onChanged }: { note: WrongNote; onChang
                           <span ref={fieldRef(`sub_${item.label}`)} className="flex-1 text-foreground leading-relaxed select-text">
                             {renderHighlighted(item.text, `sub_${item.label}`, highlights, removeHighlight)}
                           </span>
+                          {confused && (
+                            <span className="shrink-0 text-amber-600 dark:text-amber-400">
+                              {note.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'}
+                            </span>
+                          )}
                         </div>
                         {/* 선학습에서 이 보기에 남긴 메모(보기 라벨로 저장된다) */}
                         {choiceMemos[item.label] && (
