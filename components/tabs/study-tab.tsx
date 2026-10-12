@@ -96,13 +96,25 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
     return true
   }
 
-  function handlePartialQuiz(upToIndex: number, visited: number[]) {
+  function handlePartialQuiz(upToIndex: number, visited: number[], askFirst = false) {
     const session = buildSession(visited)
     // 현재 위치까지 중, 아직 안 푼 문제만
     const targets = unquizzedLearnedIndices(session).filter((i) => i <= upToIndex)
-    if (!startQuizFor(session, targets)) {
+    if (targets.length === 0) {
       alert('이 구간은 이미 모두 풀었습니다.')
+      return
     }
+    if (askFirst) {
+      // 안내 문구는 실제로 출제될 문제 기준으로 만든다. 앞에서 이미 푼 문제는 빠지므로
+      // "1~현재번호"로 쓰면 실제 출제 수와 어긋난다
+      const quizzed = new Set(session.quizzedIndices)
+      const left = session.allQuestions.filter((_, i) => !quizzed.has(i) && !targets.includes(i)).length
+      const msg =
+        `${formatNumberRanges(targets.map((i) => i + 1))}번 ${targets.length}문제를 지금 풀고` +
+        (left > 0 ? `, 나머지 ${left}문제는 나중에 이어서 할까요?` : ' 할까요?')
+      if (!confirm(msg)) return
+    }
+    startQuizFor(session, targets)
   }
 
   function handleSaveAndExit(upToIndex: number, visited: number[]) {
@@ -232,6 +244,7 @@ export function StudyTab({ questions, onDone, onSync }: { questions: Question[];
         questions={allQuestions}
         startFrom={previewFrom}
         initialVisited={previewVisited}
+        quizzedIndices={activeSession?.quizzedIndices ?? []}
         onPartialQuiz={handlePartialQuiz}
         onSaveAndExit={handleSaveAndExit}
         onBack={() => setPhase('filter')}
@@ -365,6 +378,7 @@ function StudyBulkPreview({
   questions,
   startFrom,
   initialVisited = [],
+  quizzedIndices = [],
   onPartialQuiz,
   onSaveAndExit,
   onBack,
@@ -373,7 +387,9 @@ function StudyBulkPreview({
   questions: Question[]
   startFrom: number
   initialVisited?: number[]
-  onPartialQuiz: (upToIndex: number, visited: number[]) => void
+  /** 이미 푼 문제 번호(0부터). 버튼의 문제 수를 실제 출제 수로 맞추는 데 쓴다 */
+  quizzedIndices?: number[]
+  onPartialQuiz: (upToIndex: number, visited: number[], askFirst?: boolean) => void
   onSaveAndExit: (upToIndex: number, visited: number[]) => void
   onBack: () => void
   onDone: () => void
@@ -387,6 +403,8 @@ function StudyBulkPreview({
   }, [current])
 
   const visitedList = () => Array.from(visited).sort((a, b) => a - b)
+  // '여기까지 풀기'로 실제 출제될 문제 수: 현재까지 본 것 중 아직 안 푼 문제
+  const partialCount = Array.from(visited).filter((i) => i <= current && !quizzedIndices.includes(i)).length
   const [bookmarked, setBookmarked] = useState<Set<string>>(() => {
     const notes = getWrongNotes()
     return new Set(
@@ -1261,12 +1279,11 @@ function StudyBulkPreview({
       <div className="flex gap-2">
         <button
           onClick={() => {
-            if (!confirm(`1~${current + 1}번 문제를 지금 풀고, 나머지 ${questions.length - current - 1}문제는 나중에 이어서 할까요?`)) return
-            onPartialQuiz(current, visitedList())
+            onPartialQuiz(current, visitedList(), true)
           }}
           className="flex-1 py-2 border border-primary/40 text-primary rounded-lg text-xs hover:bg-primary/10 transition-colors"
         >
-          ▶ 여기까지({current + 1}문제) 풀기
+          ▶ 여기까지({partialCount}문제) 풀기
         </button>
         <button
           onClick={() => {
@@ -1307,4 +1324,17 @@ function StudyBulkPreview({
       )}
     </div>
   )
+}
+
+// [6,7,9,10,11] → "6~7, 9~11"
+function formatNumberRanges(nums: number[]): string {
+  const sorted = [...nums].sort((a, b) => a - b)
+  const parts: string[] = []
+  for (let i = 0; i < sorted.length; ) {
+    let j = i
+    while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j++
+    parts.push(j > i ? `${sorted[i]}~${sorted[j]}` : `${sorted[i]}`)
+    i = j + 1
+  }
+  return parts.join(', ')
 }
