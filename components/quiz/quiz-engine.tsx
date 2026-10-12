@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { Question, QuestionStatus, WrongNote, CauseType } from '@/lib/types'
 import { analyzeWrongAnswer, mapWithConcurrency } from '@/lib/gemini'
-import { addWrongNote, addCorrectNote, addFlaggedCorrectNote, recordSolved, saveSession, clearSavedSession, getRiskLevel } from '@/lib/store'
+import { addWrongNote, addCorrectNote, addFlaggedCorrectNote, recordSolved, saveSession, clearSavedSession, getRiskLevel, getWrongNotes } from '@/lib/store'
 import { CauseBadge } from '@/components/cause-badge'
 import { StarRating } from '@/components/star-rating'
 import { PassageTable } from '@/components/passage-table'
@@ -602,7 +602,9 @@ function ResultsView({
   onFinish: () => void
 }) {
   const [openId, setOpenId] = useState<string | null>(null)
-  const openNote = results.wrong.find((n) => n.id === openId) ?? null
+  // 맞혔지만 표시한 문제는 오답노트에 따로 저장돼 있다 — 눌렀을 때 저장소에서 그 노트를 찾아 같은 상세 창을 띄운다
+  const [openFlagged, setOpenFlagged] = useState<WrongNote | null>(null)
+  const openNote = results.wrong.find((n) => n.id === openId) ?? openFlagged
   const [isGeneral] = useState(() => getAppMode() === 'general')
   const total = items.filter((i) => i.userAnswer !== null).length
   const pct = total > 0 ? Math.round((results.correct / total) * 100) : 0
@@ -657,7 +659,7 @@ function ResultsView({
       {openNote && (
         <WrongNoteDetailModal
           note={openNote}
-          onClose={() => setOpenId(null)}
+          onClose={() => { setOpenId(null); setOpenFlagged(null) }}
           onMemoSaved={() => {}}
           isGeneral={isGeneral}
           analysisError={analysisErrors[openNote.question.id] ? explainAnalysisError(analysisErrors[openNote.question.id]) : undefined}
@@ -668,22 +670,33 @@ function ResultsView({
         <div className="space-y-2">
           <h3 className="text-sm font-semibold text-foreground px-1">맞혔지만 표시한 문제</h3>
           {flaggedCorrect.map((it) => (
-            <div key={it.question.id} className="bg-card border border-border rounded-xl p-4 space-y-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-muted-foreground">{it.question.subject}</span>
-                <span className="text-xs text-amber-500">
-                  {it.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'}
-                </span>
-              </div>
-              <p className="text-sm text-foreground line-clamp-2">{it.question.passage.slice(0, 80)}...</p>
-              <p className="text-xs text-muted-foreground">
-                내 답(정답): {formatAnswer(it.userAnswer)}
-                {it.confusedWith.length > 0 && (
-                  <span className="ml-2 text-amber-500">
-                    같이 헷갈린 {confusedKind(it.question, it.confusedWith)} {it.confusedWith.join(' ')}
-                  </span>
-                )}
-              </p>
+            <div key={it.question.id} className="bg-card border border-border rounded-xl overflow-hidden">
+              <button
+                onClick={() => {
+                  const note = getWrongNotes().find((n) => n.questionId === it.question.id)
+                  if (note) setOpenFlagged(note)
+                }}
+                className="w-full p-4 text-left flex items-start justify-between gap-3 hover:bg-muted/30 transition-colors"
+              >
+                <div className="space-y-1 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-muted-foreground">{it.question.subject}</span>
+                    <span className="text-xs text-amber-500">
+                      {it.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'}
+                    </span>
+                  </div>
+                  <p className="text-sm text-foreground line-clamp-2">{it.question.passage.slice(0, 80)}...</p>
+                  <p className="text-xs text-muted-foreground">
+                    내 답(정답): {formatAnswer(it.userAnswer)}
+                    {it.confusedWith.length > 0 && (
+                      <span className="ml-2 text-amber-500">
+                        같이 헷갈린 {confusedKind(it.question, it.confusedWith)} {it.confusedWith.join(' ')}
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <span className="text-muted-foreground text-sm shrink-0">▶</span>
+              </button>
             </div>
           ))}
         </div>
