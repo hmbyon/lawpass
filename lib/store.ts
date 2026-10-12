@@ -1314,6 +1314,19 @@ export function getChoiceMemosFor(questionId: string): Record<string, string> {
   return result
 }
 
+/** 여러 문제의 선지 메모를 한 번에(문제 id → 라벨 → 메모). 저장소를 한 번만 읽는다. 옛 메모는 넘겨 준 노트에서 가져온다 */
+export function getChoiceMemosMap(notes: WrongNote[]): Record<string, Record<string, string>> {
+  const store = getChoiceMemoStore()
+  const out: Record<string, Record<string, string>> = {}
+  for (const n of notes) {
+    const merged = { ...(n.choiceMemos ?? {}), ...(store[n.questionId] ?? {}) }
+    const result: Record<string, string> = {}
+    for (const [label, memo] of Object.entries(merged)) if (memo.trim()) result[label] = memo
+    out[n.questionId] = result
+  }
+  return out
+}
+
 /** 선지 메모를 새 저장소에만 적는다. WrongNote 와 북마크는 건드리지 않는다. 빈 문자열이면 지운다 */
 export function saveChoiceMemoFor(questionId: string, label: string, memo: string) {
   const store = getChoiceMemoStore()

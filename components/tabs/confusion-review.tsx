@@ -5,7 +5,8 @@ import type { Subject, WrongNote } from '@/lib/types'
 import { FilterChips } from '@/components/filter-chips'
 import { WrongNoteDetailModal } from '@/components/wrong-note-detail'
 import { confusionPoints, type ConfusionPoint } from '@/lib/confusionPoints'
-import { dismissConfusion, dismissConfusionPoint } from '@/lib/store'
+import { dismissConfusion, dismissConfusionPoint, getChoiceMemosMap, saveChoiceMemoFor } from '@/lib/store'
+import { ChoiceMemoButton, ChoiceMemoPanel, type ChoiceMemoState } from '@/components/choice-memo'
 import { parseSubExplanations, resolveSubChoices } from '@/lib/subChoices'
 import { choiceExplanationParts, parseBoldMarks, subItemExplanationParts } from '@/components/quiz/explanation-blocks'
 
@@ -57,6 +58,41 @@ export function ConfusionReview({
   const [openId, setOpenId] = useState<string | null>(null)
   const [selectMode, setSelectMode] = useState(false)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
+
+  // 선지·보기별 메모(선학습과 같은 저장소). 한 줄 옆 🖊️ 로 여기서도 쓰고 고칠 수 있다
+  const [memoVersion, setMemoVersion] = useState(0)
+  const [memoOpen, setMemoOpen] = useState<{ qid: string; label: string } | null>(null)
+  const [memoText, setMemoText] = useState('')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const memoMap = useMemo(() => getChoiceMemosMap(notes), [notes, memoVersion])
+  function memoStateFor(qid: string): ChoiceMemoState {
+    const memos = memoMap[qid] ?? {}
+    return {
+      memos,
+      openLabel: memoOpen?.qid === qid ? memoOpen.label : null,
+      text: memoText,
+      setText: setMemoText,
+      toggle: (label: string) => {
+        if (memoOpen?.qid === qid && memoOpen.label === label) {
+          setMemoOpen(null)
+          setMemoText('')
+        } else {
+          setMemoOpen({ qid, label })
+          setMemoText(memos[label] ?? '')
+        }
+      },
+      close: () => {
+        setMemoOpen(null)
+        setMemoText('')
+      },
+      save: (label: string, memo: string) => {
+        saveChoiceMemoFor(qid, label, memo)
+        setMemoVersion((v) => v + 1)
+        setMemoOpen(null)
+        setMemoText('')
+      },
+    }
+  }
 
   const entries = useMemo<Entry[]>(
     () =>
@@ -202,6 +238,8 @@ export function ConfusionReview({
                   tabIndex={0}
                   onClick={() => (selectMode ? toggleChecked(note.id) : setOpenId(note.id))}
                   onKeyDown={(e) => {
+                    // 안에 든 메모 입력칸에서 친 Enter·띄어쓰기는 카드를 여는 키가 아니다
+                    if (e.target !== e.currentTarget) return
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
                       if (selectMode) toggleChecked(note.id)
@@ -236,6 +274,7 @@ export function ConfusionReview({
                               <span className="text-amber-600 dark:text-amber-400">{note.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'}</span>
                             )}
                           </span>
+                          <ChoiceMemoButton label={p.label} m={memoStateFor(note.questionId)} className="no-print" />
                           {/* 이 선지·보기만 목록에서 지운다(같은 문제의 다른 곳과 오답노트는 그대로) */}
                           {!selectMode && (
                             <button
@@ -254,6 +293,7 @@ export function ConfusionReview({
                             </button>
                           )}
                         </div>
+                        <ChoiceMemoPanel label={p.label} m={memoStateFor(note.questionId)} className="ml-5" />
                         {correction && (
                           <p className="ml-5 rounded-md border-l-2 border-emerald-500 bg-emerald-50 px-2 py-1 text-[11px] leading-relaxed text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-300">
                             <span className="font-semibold">✓ 옳은 문구 </span>

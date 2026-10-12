@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import type { WrongNote } from '@/lib/types'
-import { getChoiceMemosFor } from '@/lib/store'
+import { ChoiceMemoButton, ChoiceMemoPanel, useChoiceMemos } from '@/components/choice-memo'
 import { renderHighlighted } from '@/lib/highlights'
 import { HighlightEditor } from '@/components/highlight-editor'
 import { PassageTable } from '@/components/passage-table'
@@ -49,8 +49,9 @@ export function NoteQuestionView({ note, onChanged }: { note: WrongNote; onChang
   const hasPerItemExplanation =
     (subChoices?.items.some((item) => subParts(item.label) !== null) ?? false) ||
     (!isCombination && q.choices.some((c) => hasExplanationParts(choiceExplanationParts(q, c.label))))
-  // 선지 메모는 오답노트와 따로 저장된다. 옛 메모(note.choiceMemos)도 이 안에 합쳐져 온다
-  const [choiceMemos] = useState(() => getChoiceMemosFor(note.questionId))
+  // 선지 메모는 오답노트와 따로 저장된다(선학습과 같은 저장소). 옛 메모(note.choiceMemos)도 이 안에 합쳐져 온다.
+  // 여기서도 쓰고 고칠 수 있다
+  const memo = useChoiceMemos(note.questionId)
   const mine = selectedLabels(note.userAnswer)
   // 내가 고른 조합과 정답 조합이 갈린 보기(ㄱㄷㄹ 을 골랐는데 정답이 ㄱㄹ 이면 ㄷ)
   const diffs = useMemo(() => subItemDiffs(q, note.userAnswer), [q, note.userAnswer])
@@ -139,13 +140,10 @@ export function NoteQuestionView({ note, onChanged }: { note: WrongNote; onChang
                               </div>
                             )}
                           </div>
+                          <ChoiceMemoButton label={item.label} m={memo} />
                         </div>
-                        {/* 선학습에서 이 보기에 남긴 메모(보기 라벨로 저장된다) */}
-                        {choiceMemos[item.label] && (
-                          <div className="ml-3 mt-1 px-2 py-1 bg-yellow-100 text-yellow-900 border-l-2 border-yellow-500/50 rounded-r text-xs dark:bg-yellow-900/20 dark:text-yellow-300">
-                            📌 {choiceMemos[item.label]}
-                          </div>
-                        )}
+                        {/* 이 보기에 남긴 메모(선학습과 같은 저장소, 보기 라벨로 저장된다) */}
+                        <ChoiceMemoPanel label={item.label} m={memo} className="ml-3 mt-1" />
                         {parts && (
                           <ExplanationBox
                             parts={parts}
@@ -179,23 +177,23 @@ export function NoteQuestionView({ note, onChanged }: { note: WrongNote; onChang
                     <span ref={fieldRef(`choice_${c.label}`)} className="flex-1 select-text">
                       {renderHighlighted(c.text, `choice_${c.label}`, highlights, removeHighlight)}
                     </span>
-                    {note.confusedWith?.includes(c.label) && (
-                      <span className="ml-auto shrink-0 text-amber-600 dark:text-amber-400">
-                        {note.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'}
-                      </span>
-                    )}
-                    {isAnswerLabel(q.answer, c.label) && (
-                      <span className="ml-auto shrink-0">
-                        ✓ 정답{isMultiAnswer(q.answer) && !mine.includes(c.label) ? ' · 놓침' : ''}
-                      </span>
-                    )}
-                    {mine.includes(c.label) && !isAnswerLabel(q.answer, c.label) && <span className="ml-auto shrink-0">✗ 내 답</span>}
-                  </div>
-                  {choiceMemos[c.label] && (
-                    <div className="ml-2 mt-0.5 px-2 py-1 bg-yellow-100 text-yellow-900 border-l-2 border-yellow-500/50 rounded-r text-xs dark:bg-yellow-900/20 dark:text-yellow-300">
-                      📌 {choiceMemos[c.label]}
+                    {/* 표시는 오른쪽에 세로로 쌓는다(정답 → 헷갈림 → 내 답). 가로로 늘어놓으면 표시가 폭을 차지해
+                        선지 글이 왼쪽으로 몰리고 여백만 늘었다 */}
+                    <div className="ml-auto flex shrink-0 flex-col items-end gap-0.5">
+                      {isAnswerLabel(q.answer, c.label) && (
+                        <span>✓ 정답{isMultiAnswer(q.answer) && !mine.includes(c.label) ? ' · 놓침' : ''}</span>
+                      )}
+                      {note.confusedWith?.includes(c.label) && (
+                        <span className="text-amber-600 dark:text-amber-400">
+                          {note.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'}
+                        </span>
+                      )}
+                      {mine.includes(c.label) && !isAnswerLabel(q.answer, c.label) && <span>✗ 내 답</span>}
                     </div>
-                  )}
+                    {/* 조합형 문제의 ①~⑤ 는 선학습처럼 메모 버튼을 숨기되, 이미 쓴 메모가 있으면 고칠 수 있게 남긴다 */}
+                    {(!isCombination || memo.memos[c.label]) && <ChoiceMemoButton label={c.label} m={memo} />}
+                  </div>
+                  <ChoiceMemoPanel label={c.label} m={memo} className="ml-2 mt-0.5" />
                   {/* 선학습과 같은 자리·같은 필드 키라, 거기서 해설에 칠한 형광펜·펜 표시가 그대로 보인다.
                       조합형(ㄱㄴㄷ) 문제의 ①~⑤는 조합 결과일 뿐이라 선학습처럼 선지 해설을 붙이지 않는다 */}
                   {!isCombination && (
