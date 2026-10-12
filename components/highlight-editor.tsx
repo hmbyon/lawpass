@@ -43,10 +43,19 @@ export function PenColorPicker({ value, onChange }: { value: HighlightColor; onC
           aria-label={HIGHLIGHT_COLOR_LABELS[c]}
           title={HIGHLIGHT_COLOR_LABELS[c]}
           onClick={() => onChange(c)}
-          className={`h-5 w-5 rounded-full border border-black/10 transition-all ${HIGHLIGHT_SWATCH_CLASSES[c]} ${
-            value === c ? 'ring-2 ring-primary ring-offset-1 ring-offset-card scale-110' : 'opacity-60 hover:opacity-100'
+          // 고른 색 표시를 box-shadow(ring)·scale 이 아니라 레이아웃 안의 테두리로 그린다. 예전에는 ring-2 + scale-110 이 상자
+          // 바깥으로 번져서, 펜 자동표시를 끌 때 이 고르개가 사라진 자리에 고리 조각이 남는 일이 있었다(Safari 가 바깥으로
+          // 번진 그림자 영역을 다시 그리지 못한다). 테두리는 상자 안이라 요소가 빠지면 같이 지워진다
+          className={`flex h-6 w-6 items-center justify-center rounded-full border-2 ${
+            value === c ? 'border-primary' : 'border-transparent'
           }`}
-        />
+        >
+          <span
+            className={`block h-4 w-4 rounded-full border border-black/10 ${HIGHLIGHT_SWATCH_CLASSES[c]} ${
+              value === c ? '' : 'opacity-60'
+            }`}
+          />
+        </button>
       ))}
     </div>
   )
