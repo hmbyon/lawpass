@@ -41,7 +41,7 @@ export function useChoiceMemos(questionId: string) {
 
 export type ChoiceMemoState = ReturnType<typeof useChoiceMemos>
 
-/** 선지·보기 줄 옆에 두는 🖊️(메모 없음) / 📌(메모 있음) 버튼. 줄 전체를 누르는 동작과 겹치지 않게 전파를 막는다 */
+/** 선지·보기 줄 옆에 두는 🖊️ 버튼(메모가 있어도 펜 그대로, 색만 노랗게 바뀐다). 줄 전체를 누르는 동작과 겹치지 않게 전파를 막는다 */
 export function ChoiceMemoButton({ label, m, className = '' }: { label: string; m: ChoiceMemoState; className?: string }) {
   const has = Boolean(m.memos[label])
   return (
@@ -57,7 +57,7 @@ export function ChoiceMemoButton({ label, m, className = '' }: { label: string; 
         has ? 'text-yellow-500 hover:text-yellow-400' : 'text-muted-foreground hover:text-foreground'
       } ${className}`}
     >
-      {has ? '📌' : '🖊️'}
+      🖊️
     </button>
   )
 }
@@ -71,7 +71,7 @@ export function ChoiceMemoPanel({ label, m, className = '' }: { label: string; m
       {memo && !isOpen && (
         <div
           onClick={(e) => e.stopPropagation()}
-          className={`px-2 py-1 bg-yellow-100 text-yellow-900 border-l-2 border-yellow-500/50 rounded-r text-xs dark:bg-yellow-900/20 dark:text-yellow-300 ${className}`}
+          className={`px-2 py-1 bg-yellow-100 text-yellow-900 border-l-2 border-yellow-500/50 rounded-r text-xs whitespace-pre-wrap break-words dark:bg-yellow-900/20 dark:text-yellow-300 ${className}`}
         >
           📌 {memo}
         </div>

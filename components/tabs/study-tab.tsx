@@ -922,7 +922,7 @@ function StudyBulkPreview({
                           existingMemo ? 'text-yellow-400 hover:text-yellow-300' : 'text-muted-foreground hover:text-foreground'
                         }`}
                       >
-                        {existingMemo ? '📌' : '🖊️'}
+                        🖊️
                       </button>
                     </div>
                     <span
@@ -934,7 +934,7 @@ function StudyBulkPreview({
                   </div>
 
                   {existingMemo && !isOpen && (
-                    <div className="ml-3 mt-1 px-2 py-1 bg-yellow-100 text-yellow-900 border-l-2 border-yellow-500/50 rounded-r text-xs dark:bg-yellow-900/20 dark:text-yellow-300">
+                    <div className="ml-3 mt-1 px-2 py-1 bg-yellow-100 text-yellow-900 border-l-2 border-yellow-500/50 rounded-r text-xs whitespace-pre-wrap break-words dark:bg-yellow-900/20 dark:text-yellow-300">
                       {existingMemo}
                     </div>
                   )}
@@ -1062,7 +1062,7 @@ function StudyBulkPreview({
                           existingMemo ? 'text-yellow-400 hover:text-yellow-300' : 'text-muted-foreground hover:text-foreground'
                         }`}
                       >
-                        {existingMemo ? '📌' : '🖊️'}
+                        🖊️
                       </button>
                     )}
                   </div>
@@ -1075,7 +1075,7 @@ function StudyBulkPreview({
                 </div>
 
                 {existingMemo && !isOpen && (
-                  <div className="ml-3 mt-1 px-2 py-1 bg-yellow-100 text-yellow-900 border-l-2 border-yellow-500/50 rounded-r text-xs dark:bg-yellow-900/20 dark:text-yellow-300">
+                  <div className="ml-3 mt-1 px-2 py-1 bg-yellow-100 text-yellow-900 border-l-2 border-yellow-500/50 rounded-r text-xs whitespace-pre-wrap break-words dark:bg-yellow-900/20 dark:text-yellow-300">
                     {existingMemo}
                   </div>
                 )}
