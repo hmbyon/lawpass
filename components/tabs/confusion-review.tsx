@@ -5,7 +5,7 @@ import type { Subject, WrongNote } from '@/lib/types'
 import { FilterChips } from '@/components/filter-chips'
 import { WrongNoteDetailModal } from '@/components/wrong-note-detail'
 import { confusionPoints, type ConfusionPoint } from '@/lib/confusionPoints'
-import { dismissConfusion } from '@/lib/store'
+import { dismissConfusion, dismissConfusionPoint } from '@/lib/store'
 import { parseSubExplanations, resolveSubChoices } from '@/lib/subChoices'
 import { choiceExplanationParts, parseBoldMarks, subItemExplanationParts } from '@/components/quiz/explanation-blocks'
 
@@ -62,7 +62,11 @@ export function ConfusionReview({
     () =>
       notes
         .filter((n) => !n.confusionDismissed)
-        .map((note) => ({ note, points: confusionPoints(note) }))
+        .map((note) => {
+          // 선지·보기 하나만 지운 것은 뺀다. 남은 게 없으면 아래 filter 에서 문제째 사라진다
+          const gone = new Set(note.confusionDismissedKeys ?? [])
+          return { note, points: confusionPoints(note).filter((p) => !gone.has(p.key)) }
+        })
         .filter((e) => e.points.length > 0),
     [notes]
   )
@@ -193,13 +197,22 @@ export function ConfusionReview({
               </p>
               {items.map(({ note, points }) => (
                 <div key={note.id} className="relative break-inside-avoid">
-                <button
+                <div
+                  role="button"
+                  tabIndex={0}
                   onClick={() => (selectMode ? toggleChecked(note.id) : setOpenId(note.id))}
-                  className={`w-full text-left bg-card border rounded-xl px-3 py-2.5 space-y-1.5 hover:bg-muted/30 transition-colors ${
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      if (selectMode) toggleChecked(note.id)
+                      else setOpenId(note.id)
+                    }
+                  }}
+                  className={`w-full cursor-pointer text-left bg-card border rounded-xl px-3 py-2.5 space-y-1.5 hover:bg-muted/30 transition-colors ${
                     selectMode && checkedIds.has(note.id) ? 'border-primary ring-2 ring-primary' : 'border-border'
                   } ${selectMode && !checkedIds.has(note.id) ? 'opacity-70 hover:opacity-100' : ''}`}
                 >
-                  <p className="text-[11px] text-muted-foreground line-clamp-1 pr-6">
+                  <p className="text-[11px] text-muted-foreground line-clamp-1">
                     {selectMode && <span className="mr-1">{checkedIds.has(note.id) ? '☑' : '☐'}</span>}
                     {note.question.year > 0 ? `${note.question.year}년 ` : ''}
                     {stemOf(note)}
@@ -223,6 +236,23 @@ export function ConfusionReview({
                               <span className="text-amber-600 dark:text-amber-400">{note.status === '찍음' ? '🎲 찍음' : '🤔 헷갈림'}</span>
                             )}
                           </span>
+                          {/* 이 선지·보기만 목록에서 지운다(같은 문제의 다른 곳과 오답노트는 그대로) */}
+                          {!selectMode && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (!confirm(`${p.label}${p.kind === '보기' ? '.' : ''}을(를) 헷갈린 곳 목록에서 지울까요?\n같은 문제의 다른 곳과 오답노트는 그대로 남고, 다시 틀리거나 헷갈림으로 표시하면 목록에 다시 올라와요.`)) return
+                                dismissConfusionPoint(note.id, p.key)
+                                onNotesChanged()
+                              }}
+                              aria-label="헷갈린 곳 목록에서 이 선지 지우기"
+                              title="이 선지만 목록에서 지우기 (오답노트는 그대로)"
+                              className="no-print shrink-0 text-muted-foreground hover:text-foreground text-base leading-none px-1"
+                            >
+                              ×
+                            </button>
+                          )}
                         </div>
                         {correction && (
                           <p className="ml-5 rounded-md border-l-2 border-emerald-500 bg-emerald-50 px-2 py-1 text-[11px] leading-relaxed text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-300">
@@ -233,18 +263,7 @@ export function ConfusionReview({
                       </div>
                     )
                   })}
-                </button>
-                {/* 오른쪽 위 ✕: 이 문제만 목록에서 지운다(오답노트는 그대로) */}
-                {!selectMode && (
-                  <button
-                    onClick={() => removeFromList([note.id], '이 문제')}
-                    aria-label="헷갈린 곳 목록에서 지우기"
-                    title="목록에서 지우기 (오답노트는 그대로)"
-                    className="no-print absolute top-1.5 right-2 text-muted-foreground hover:text-foreground text-base leading-none px-1"
-                  >
-                    ×
-                  </button>
-                )}
+                </div>
                 </div>
               ))}
             </div>

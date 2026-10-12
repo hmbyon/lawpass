@@ -260,6 +260,9 @@ export interface WrongNote {
   // D-1 암기장 "헷갈린 곳" 목록에서 지운 문제. 오답노트의 문제 자체는 그대로 두고 그 목록에서만 가린다.
   // 다시 풀다가 틀리거나 헷갈림으로 표시하면 풀린다
   confusionDismissed?: boolean
+  // 같은 목록에서 선지·보기 하나씩만 지운 것(ConfusionPoint.key 들). 문제 전체를 지운 confusionDismissed 와 별개이고,
+  // 같은 조건(다시 틀림·헷갈림 표시)에서 함께 풀린다
+  confusionDismissedKeys?: string[]
   // 헷갈림/찍음으로 표시할 때 어느 선지와 헷갈렸는지 (예: ['①','③']). 옛 노트에는 없다
   confusedWith?: string[]
   manuallyAddedToMemo?: boolean // 자동 조건과 무관하게 사용자가 직접 D-1 암기장에 넣은 문제

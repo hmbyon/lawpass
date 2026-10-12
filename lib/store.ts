@@ -982,6 +982,7 @@ export function addWrongNote(note: WrongNote) {
       hiddenFields: prev.hiddenFields,
       isBookmarked: prev.isBookmarked,
       confusionDismissed: undefined, // 다시 틀렸으니 헷갈린 곳 목록에 다시 올린다
+      confusionDismissedKeys: undefined,
       memoExcluded: undefined, // 다시 틀렸으니 암기장 자동 편입도 다시 본다
       analysis: newAnalysis,
       analysisHistory,
@@ -1093,11 +1094,11 @@ export function addFlaggedCorrectNote(
     const wrongCount = prev.wrongCount ?? 0
     if (wrongCount > 0) {
       const 위험도 = calcRisk(wrongCount, totalCount)
-      notes[idx] = { ...prev, totalCount, analysis: prev.analysis ? { ...prev.analysis, 위험도 } : null, confusionDismissed: undefined }
+      notes[idx] = { ...prev, totalCount, analysis: prev.analysis ? { ...prev.analysis, 위험도 } : null, confusionDismissed: undefined, confusionDismissedKeys: undefined }
     } else {
       // 순수 북마크였다가 처음 표시한 문제는 1회, 이미 표시돼 있던 문제는 한 번 더 쌓는다(옛 노트는 횟수가 없어 1회로 본다)
       const flaggedCount = prev.flaggedCorrect ? (prev.flaggedCount ?? 1) + 1 : 1
-      notes[idx] = { ...prev, totalCount, userAnswer, status, flaggedCorrect: true, flaggedCount, confusionDismissed: undefined, confusedWith: confusedWith.length > 0 ? confusedWith : undefined }
+      notes[idx] = { ...prev, totalCount, userAnswer, status, flaggedCorrect: true, flaggedCount, confusionDismissed: undefined, confusionDismissedKeys: undefined, confusedWith: confusedWith.length > 0 ? confusedWith : undefined }
     }
     saveWrongNotes(notes)
     return
@@ -1150,6 +1151,17 @@ export function dismissConfusion(ids: string[]) {
     return { ...n, confusionDismissed: true }
   })
   if (changed) saveWrongNotes(next)
+}
+
+/** D-1 암기장 "헷갈린 곳" 목록에서 선지·보기 하나만 지운다. 같은 문제의 다른 선지와 오답노트는 그대로 남는다 */
+export function dismissConfusionPoint(noteId: string, key: string) {
+  const notes = getWrongNotes()
+  const idx = notes.findIndex((n) => n.id === noteId)
+  if (idx < 0) return
+  const prev = notes[idx].confusionDismissedKeys ?? []
+  if (prev.includes(key)) return
+  notes[idx] = { ...notes[idx], confusionDismissedKeys: [...prev, key] }
+  saveWrongNotes(notes)
 }
 
 // 정답 시 totalCount만 증가, 위험도 재계산
