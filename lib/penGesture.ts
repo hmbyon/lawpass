@@ -23,7 +23,7 @@ export interface BBox {
 export type StrokeKind = 'underline' | 'wave' | 'circle' | 'diag-up' | 'diag-down' | 'bracket'
 
 /** 글자 사이에 끼우는 괄호 네 가지 */
-export type BracketChar = '[' | ']' | '<' | '>' | '(' | ')'
+export type BracketChar = '[' | ']' | '<' | '>' | '(' | ')' | '/' | '/'
 
 export interface Recognized {
   kind: StrokeKind
@@ -353,6 +353,9 @@ export function recognizeBracket(pts: P[], bbox: BBox): BracketChar | null {
   if (round) return round
   const square = squareBracket(pts, bbox)
   if (square) return square
+  // / — 곧지만 세로에 가깝게 오른쪽으로 기울어진 짧은 선. ( ) 와는 배가 없다는 점으로, X 의 한 획과는 더 가파르고 짧다는 점으로 가른다
+  const slash = slashBracket(pts, bbox)
+  if (slash) return slash
   const base = decimate(pts, 3)
   for (const f of [0.08, 0.13, 0.2]) {
     const s = simplify(base, f * size)
@@ -438,6 +441,41 @@ export function roundBracket(pts: P[], bbox: BBox, why?: { reason?: string }): B
   const t = (r[peak].y - a.y) / (b.y - a.y)
   const chordX = a.x + (b.x - a.x) * t
   return r[peak].x < chordX ? '(' : ')'
+}
+
+/**
+ * / — 왼쪽 아래에서 오른쪽 위로(또는 반대로) 곧게 그은 짧은 선.
+ *  - 길이 16~56px: 글자 한 줄 안팎. 더 길면 대각선(X 의 한 획)이다
+ *  - 세로에서 12°~34° 기울었다. 12° 보다 서면 곧은 세로선이라 아무것도 아니고(손떨림이 섞인 ')' 와 겹치는 자리),
+ *    34° 보다 눕으면 X 의 한 획(대각선)으로 남긴다
+ *  - 곧다: 모든 점이 현에서 길이의 8% 이내이고, 지나온 길이가 현의 1.12배 이내(되짚지 않는다)
+ *  - 기울기 방향은 / 만 받는다(\ 는 X 의 한 획과 겹쳐 두지 않는다)
+ */
+export function slashBracket(pts: P[], bbox: BBox, why?: { reason?: string }): BracketChar | null {
+  const no = (reason: string): null => {
+    if (why) why.reason = reason
+    return null
+  }
+  const a = pts[0]
+  const b = pts[pts.length - 1]
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const chord = Math.hypot(dx, dy)
+  if (chord < 16 || chord > 56) return no('size')
+  // 화면 y 는 아래로 늘어난다. 왼쪽 아래 ↔ 오른쪽 위 방향이면 dx*dy < 0
+  if (dx * dy >= 0) return no('direction')
+  const lean = (Math.atan2(Math.abs(dx), Math.abs(dy)) * 180) / Math.PI
+  if (lean < 12 || lean > 34) return no('lean')
+  const path = pathLength(decimate(pts, 2))
+  if (path > 1.12 * chord) return no('detour')
+  let worst = 0
+  for (const p of pts) {
+    const d = Math.abs((p.x - a.x) * dy - (p.y - a.y) * dx) / chord
+    if (d > worst) worst = d
+  }
+  if (worst > 0.08 * chord + 1) return no('bend')
+  void bbox
+  return '/'
 }
 
 function angleBracket(s: P[], size: number): BracketChar | null {
