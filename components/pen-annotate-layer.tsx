@@ -95,6 +95,28 @@ function trimmed(boxes: CharBox[]): { start: number; end: number; count: number 
   return { start: solid[0].idx, end: solid[solid.length - 1].idx + 1, count: solid.length }
 }
 
+/** 각 줄의 맨 앞·맨 뒤 글자. 줄은 글자 아랫변이 같은 높이로 이어지는 묶음이다 */
+function lineEnds(boxes: CharBox[]): Set<CharBox> {
+  const ends = new Set<CharBox>()
+  let line: CharBox[] = []
+  const flush = () => {
+    if (line.length > 0) {
+      ends.add(line[0])
+      ends.add(line[line.length - 1])
+    }
+  }
+  for (const c of boxes) {
+    const lb = line.length > 0 ? line[line.length - 1].b : 0
+    if (line.length > 0 && Math.abs(c.b - lb) <= 0.5 * (c.b - c.t)) line.push(c)
+    else {
+      flush()
+      line = [c]
+    }
+  }
+  flush()
+  return ends
+}
+
 function underlineChars(boxes: CharBox[], bb: BBox, my: number): CharBox[] {
   // 줄로 묶는다
   const lines: CharBox[][] = []
@@ -131,21 +153,21 @@ function underlineChars(boxes: CharBox[], bb: BBox, my: number): CharBox[] {
   })
 }
 
-function insideEllipse(c: CharBox, bb: BBox): boolean {
+function insideEllipse(c: CharBox, bb: BBox, scale = 1.1): boolean {
   const cx = (bb.x0 + bb.x1) / 2
   const cy = (bb.y0 + bb.y1) / 2
-  const a = ((bb.x1 - bb.x0) / 2) * 1.1
-  const b = ((bb.y1 - bb.y0) / 2) * 1.1
+  const a = ((bb.x1 - bb.x0) / 2) * scale
+  const b = ((bb.y1 - bb.y0) / 2) * scale
   if (a <= 0 || b <= 0) return false
   const x = (c.l + c.r) / 2 - cx
   const y = (c.t + c.b) / 2 - cy
   return (x * x) / (a * a) + (y * y) / (b * b) <= 1
 }
 
-function insideBox(c: CharBox, bb: BBox): boolean {
+function insideBox(c: CharBox, bb: BBox, padX = 0): boolean {
   const x = (c.l + c.r) / 2
   const y = (c.t + c.b) / 2
-  return x >= bb.x0 && x <= bb.x1 && y >= bb.y0 && y <= bb.y1
+  return x >= bb.x0 - padX && x <= bb.x1 + padX && y >= bb.y0 && y <= bb.y1
 }
 
 export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture, onBracket, onInfo, color = '#6b7280' }: Props) {
@@ -240,8 +262,13 @@ export default function PenAnnotateLayer({ enabled, getFieldEls, onGesture, onBr
         const boxes = charBoxes(el, bb)
         let picked: CharBox[]
         if (kind === 'underline' || kind === 'wave') picked = underlineChars(boxes, bb, my)
-        else if (kind === 'circle') picked = boxes.filter((c) => insideEllipse(c, bb))
-        else picked = boxes.filter((c) => insideBox(c, bb))
+        else {
+          // 줄의 맨 앞·맨 뒤 글자는 손이 안쪽에서 시작·끝나서 중심이 선 밖에 남기 쉽다(둘째 줄 첫 글자가 빠지던 자리).
+          // 그 글자만 원은 타원을 30%, X 는 상자 좌우를 글자 폭의 절반만큼 더 넓게 본다
+          const ends = lineEnds(boxes)
+          if (kind === 'circle') picked = boxes.filter((c) => insideEllipse(c, bb, ends.has(c) ? 1.3 : 1.1))
+          else picked = boxes.filter((c) => insideBox(c, bb, ends.has(c) ? 0.5 * (c.r - c.l) : 0))
+        }
         const span = trimmed(picked)
         if (!span || span.count <= bestCount) continue
         bestCount = span.count
