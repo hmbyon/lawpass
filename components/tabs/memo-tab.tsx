@@ -250,9 +250,9 @@ function MemoCardList({
         Array.from(grouped.entries()).map(([subject, items]) => (
           <div key={subject} className="space-y-2">
             <div className="flex items-center gap-2">
-              <div className="h-px flex-1 bg-border" />
-              <span className="text-xs font-semibold text-primary px-2">{subject}</span>
-              <div className="h-px flex-1 bg-border" />
+              <div className="h-0.5 flex-1 bg-primary/30" />
+              <span className="text-xl font-bold text-primary px-3">{subject}</span>
+              <div className="h-0.5 flex-1 bg-primary/30" />
             </div>
             {items.map((note) => (
               <div

@@ -10,6 +10,14 @@ export const NO_UNIT = '단원 미지정'
 const keyOf = (subject: string, unit: string) => `${subject}|${unit}`
 const unitOf = (note: WrongNote) => note.question.unit?.trim() || NO_UNIT
 
+/** 단원 정렬 순서. 단원 칩이 나오는 순서(교재 순서)와 같게, 목록도 이 순서로 보여 준다 */
+export function unitRank(subject: string, unit: string): number {
+  if (unit === NO_UNIT) return 9999
+  const order = SUBJECT_UNITS[subject as keyof typeof SUBJECT_UNITS] ?? []
+  const i = order.findIndex((o) => o.replace(/\s+/g, '') === unit.replace(/\s+/g, ''))
+  return i < 0 ? 5000 : i
+}
+
 /**
  * 오답노트·D-1 암기장 카드 목록용 범위(단원) 필터.
  * 과목 칩을 눌러 고른 과목마다 단원 칩이 나오고, 단원을 하나라도 켜면 그 단원 문제만 보인다
@@ -23,13 +31,7 @@ export function useUnitFilter(notes: WrongNote[], subjects: string[]) {
     () =>
       subjects.map((subject) => {
         const found = new Set(notes.filter((n) => n.question.subject === subject).map(unitOf))
-        const order = SUBJECT_UNITS[subject as keyof typeof SUBJECT_UNITS] ?? []
-        const rank = (u: string) => {
-          if (u === NO_UNIT) return 9999
-          const i = order.findIndex((o) => o.replace(/\s+/g, '') === u.replace(/\s+/g, ''))
-          return i < 0 ? 5000 : i
-        }
-        const units = Array.from(found).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'ko'))
+        const units = Array.from(found).sort((a, b) => unitRank(subject, a) - unitRank(subject, b) || a.localeCompare(b, 'ko'))
         return { subject, units }
       }),
     [notes, subjects]

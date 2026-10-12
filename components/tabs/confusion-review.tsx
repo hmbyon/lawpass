@@ -9,7 +9,7 @@ import { dismissConfusion, dismissConfusionPoint, getChoiceMemosMap, saveChoiceM
 import { ChoiceMemoButton, ChoiceMemoPanel, type ChoiceMemoState } from '@/components/choice-memo'
 import { parseSubExplanations, resolveSubChoices } from '@/lib/subChoices'
 import { choiceExplanationParts, parseBoldMarks, subItemExplanationParts } from '@/components/quiz/explanation-blocks'
-import { UnitFilter, useUnitFilter } from '@/components/note-unit-filter'
+import { UnitFilter, useUnitFilter, unitRank } from '@/components/note-unit-filter'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const NO_UNIT = '단원 미지정'
@@ -130,7 +130,7 @@ export function ConfusionReview({
         byUnit.set(unit, [...(byUnit.get(unit) ?? []), e])
       }
       const units = Array.from(byUnit.entries())
-        .sort(([a], [b]) => (a === NO_UNIT ? 1 : b === NO_UNIT ? -1 : a.localeCompare(b, 'ko')))
+        .sort(([a], [b]) => unitRank(subject, a) - unitRank(subject, b) || a.localeCompare(b, 'ko'))
         .map(([unit, items]) => ({
           unit,
           items: [...items].sort((x, y) => y.note.question.year - x.note.question.year || x.note.question.no - y.note.question.no),
@@ -228,13 +228,13 @@ export function ConfusionReview({
       {grouped.map(({ subject, units }) => (
         <section key={subject} className="space-y-3">
           <div className="flex items-center gap-2">
-            <div className="h-px flex-1 bg-border" />
-            <span className="text-xs font-semibold text-primary px-2">{subject}</span>
-            <div className="h-px flex-1 bg-border" />
+            <div className="h-0.5 flex-1 bg-primary/30" />
+            <span className="text-xl font-bold text-primary px-3">{subject}</span>
+            <div className="h-0.5 flex-1 bg-primary/30" />
           </div>
           {units.map(({ unit, items }) => (
             <div key={unit} className="space-y-1.5">
-              <p className="text-xs font-semibold text-foreground px-1">
+              <p className="text-sm font-semibold text-foreground px-1">
                 {unit} <span className="font-normal text-muted-foreground">· {items.length}문제</span>
               </p>
               {items.map(({ note, points }) => (
