@@ -10,6 +10,7 @@ import { CauseBadge } from '@/components/cause-badge'
 import { FilterChips } from '@/components/filter-chips'
 import { SORT_OPTIONS, sortNotes, type SortOption } from '@/lib/noteSort'
 import { getAppMode } from '@/lib/appMode'
+import { UnitFilter, useUnitFilter } from '@/components/note-unit-filter'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const RISKS = ['★1', '★2', '★3', '★4', '★5']
@@ -90,6 +91,8 @@ function MemoCardList({
 
   const activeFilterSubjects: string[] = isGeneral ? filterGeneralSubjects : filterSubjects
 
+  const unitFilter = useUnitFilter(highNotes, activeFilterSubjects)
+
   const availableSubjects = useMemo(() => {
     return Array.from(new Set(highNotes.map((n) => n.question.subject as string))).sort((a, b) => a.localeCompare(b))
   }, [highNotes])
@@ -97,6 +100,7 @@ function MemoCardList({
   const filtered = useMemo(() => {
     const list = highNotes.filter((n) => {
       if (activeFilterSubjects.length && !activeFilterSubjects.includes(n.question.subject)) return false
+      if (!unitFilter.match(n)) return false
       if (filterRisks.length) {
         const levels = filterRisks.map((r) => Number(r.replace('★', '')))
         // 분석이 없는 노트도 별점이 있다 (틀린 횟수 기준)
@@ -105,7 +109,7 @@ function MemoCardList({
       return true
     })
     return sortNotes(list, sort)
-  }, [highNotes, activeFilterSubjects, filterRisks, sort])
+  }, [highNotes, activeFilterSubjects, filterRisks, sort, unitFilter.match])
 
   const grouped = useMemo(() => {
     const map = new Map<string, WrongNote[]>()
@@ -193,6 +197,7 @@ function MemoCardList({
         ) : (
           <FilterChips options={SUBJECTS} selected={filterSubjects} onChange={setFilterSubjects} />
         )}
+        <UnitFilter filter={unitFilter} />
         <FilterChips options={RISKS} selected={filterRisks} onChange={setFilterRisks} />
         <FilterChips
           options={[...SORT_OPTIONS]}

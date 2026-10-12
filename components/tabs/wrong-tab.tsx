@@ -10,6 +10,7 @@ import { SORT_OPTIONS, sortNotes, type SortOption } from '@/lib/noteSort'
 import { getAppMode } from '@/lib/appMode'
 import { loadHighlights, renderHighlighted } from '@/lib/highlights'
 import { WrongNoteDetailModal } from '@/components/wrong-note-detail'
+import { UnitFilter, useUnitFilter } from '@/components/note-unit-filter'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const RISKS = ['★1', '★2', '★3', '★4', '★5']
@@ -36,6 +37,8 @@ export function WrongTab({
 
   const activeSubjects: string[] = isGeneral ? generalSubjects : subjects
 
+  const unitFilter = useUnitFilter(notes, activeSubjects)
+
   const availableSubjects = useMemo(() => {
     return Array.from(new Set(notes.map((n) => n.question.subject as string))).sort((a, b) => a.localeCompare(b))
   }, [notes])
@@ -43,12 +46,13 @@ export function WrongTab({
   const filtered = useMemo(() => {
     let list = [...notes]
     if (activeSubjects.length) list = list.filter((n) => activeSubjects.includes(n.question.subject))
+    list = list.filter(unitFilter.match)
     if (risks.length) {
       const levels = risks.map((r) => Number(r.replace('★', '')))
       list = list.filter((n) => levels.includes(getRiskLevel(n)))
     }
     return sortNotes(list, sort)
-  }, [notes, activeSubjects, risks, sort])
+  }, [notes, activeSubjects, risks, sort, unitFilter.match])
 
   function del(id: string) {
     deleteWrongNote(id)
@@ -103,6 +107,7 @@ export function WrongTab({
         ) : (
           <FilterChips options={SUBJECTS} selected={subjects} onChange={setSubjects} />
         )}
+        <UnitFilter filter={unitFilter} />
         <FilterChips options={RISKS} selected={risks} onChange={setRisks} />
         <div className="flex items-center justify-between">
           <FilterChips options={[...SORT_OPTIONS]} selected={[sort]} onChange={(v) => setSort((v[0] as SortOption) ?? sort)} single />

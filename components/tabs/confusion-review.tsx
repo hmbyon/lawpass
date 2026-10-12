@@ -9,6 +9,7 @@ import { dismissConfusion, dismissConfusionPoint, getChoiceMemosMap, saveChoiceM
 import { ChoiceMemoButton, ChoiceMemoPanel, type ChoiceMemoState } from '@/components/choice-memo'
 import { parseSubExplanations, resolveSubChoices } from '@/lib/subChoices'
 import { choiceExplanationParts, parseBoldMarks, subItemExplanationParts } from '@/components/quiz/explanation-blocks'
+import { UnitFilter, useUnitFilter } from '@/components/note-unit-filter'
 
 const SUBJECTS: Subject[] = ['민법', '민사소송법', '상법', '형법', '형사소송법', '헌법', '행정법']
 const NO_UNIT = '단원 미지정'
@@ -111,13 +112,17 @@ export function ConfusionReview({
     [entries]
   )
   const subjectOrder: string[] = isGeneral ? [...availableSubjects].sort((a, b) => a.localeCompare(b)) : SUBJECTS
+  const unitFilter = useUnitFilter(
+    useMemo(() => entries.map((e) => e.note), [entries]),
+    filterSubjects
+  )
 
   // 과목 → 단원 → 문제(연도 최신순, 같은 해는 번호순)
   const grouped = useMemo(() => {
     const out: { subject: string; units: { unit: string; items: Entry[] }[] }[] = []
     for (const subject of subjectOrder) {
       if (filterSubjects.length && !filterSubjects.includes(subject)) continue
-      const inSubject = entries.filter((e) => e.note.question.subject === subject)
+      const inSubject = entries.filter((e) => e.note.question.subject === subject && unitFilter.match(e.note))
       if (inSubject.length === 0) continue
       const byUnit = new Map<string, Entry[]>()
       for (const e of inSubject) {
@@ -133,7 +138,7 @@ export function ConfusionReview({
       out.push({ subject, units })
     }
     return out
-  }, [entries, filterSubjects, subjectOrder])
+  }, [entries, filterSubjects, subjectOrder, unitFilter.match])
 
   const shown = grouped.flatMap((g) => g.units.flatMap((u) => u.items))
   const shownPoints = shown.reduce((n, e) => n + e.points.length, 0)
@@ -183,6 +188,7 @@ export function ConfusionReview({
 
       <div className="bg-card border border-border rounded-xl p-4 no-print">
         <FilterChips options={subjectOrder} selected={filterSubjects} onChange={setFilterSubjects} available={availableSubjects} />
+        <div className="mt-3"><UnitFilter filter={unitFilter} /></div>
         <div className="flex items-center justify-end gap-3 pt-3 mt-3 border-t border-border">
           <button
             onClick={() => {
