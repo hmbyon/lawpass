@@ -119,10 +119,15 @@ function underlineChars(boxes: CharBox[], bb: BBox, my: number): CharBox[] {
     }
   }
   if (!best) return []
+  // 글자는 선이 그 글자 폭의 절반 이상 덮을 때 고른다. 다만 줄의 맨 앞·맨 뒤 글자는 15% 만 덮어도 고른다 —
+  // 줄이 바뀐 구절의 둘째 줄 첫 글자는 손이 그 글자 오른쪽 절반쯤에서 긋기 시작하기 쉬워, 절반 기준으로는
+  // 번번이 한 글자가 빠졌다(줄 앞은 왼쪽에 이어 긋을 글자가 없어 선이 더 안쪽에서 시작한다)
+  const first = best[0]
+  const last = best[best.length - 1]
   return best.filter((c) => {
     const w = c.r - c.l
     const overlap = Math.min(c.r, bb.x1) - Math.max(c.l, bb.x0)
-    return overlap >= 0.5 * w
+    return overlap >= (c === first || c === last ? 0.15 : 0.5) * w
   })
 }
 
