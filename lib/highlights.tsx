@@ -168,6 +168,11 @@ export const HIGHLIGHT_CROSS_CLASSES: Record<HighlightColor, string> = {
 // 여백이 작을수록 글자 윗변의 양끝이 밖으로 나온다. 키우면 더 품지만 위아래 줄과 멀어져 헐렁해 보인다.
 // 글자 상자 자체가 글자보다 위아래로 넉넉해서 0.25em 은 헐렁했다 — 지금은 0.05em, 좌우는 0.3em 이다
 const SHAPE_DEFAULT = 'rounded-sm'
+// 형광펜 칠은 인라인 상자(글꼴의 ascent~descent)만큼만 칠해져서, 한글 획이 상자 위아래에 바짝 닿거나 기기·글꼴에 따라
+// 윗변·아랫변이 잘려 보였다. 세로로만 여백을 줘 칠을 키운다 — 세로 패딩은 줄 높이·글자 위치를 바꾸지 않는다(가로는 글자가 밀려서 안 준다).
+// 줄이 바뀌어도 줄마다 온전한 칠이 되게 box-decoration-clone 을 같이 쓴다.
+// 밑줄·물결은 선을 상자 아랫변에 붙여 그리므로(0.08em 위) 이 여백을 주지 않는다 — 선이 그만큼 아래로 내려간다
+const SHAPE_FILL = 'rounded-sm py-[0.14em] box-decoration-clone'
 const SHAPE_CIRCLE = 'rounded-[50%] px-[0.3em] py-[0.05em] box-decoration-clone'
 
 // 형광펜(fill)은 배경이라 장식 목록에 없다
@@ -217,7 +222,13 @@ export function highlightClassName(
   const colorOf = (style: HighlightStyle): HighlightColor => colors?.[style] ?? color
   // 밑줄은 아래 테두리라, 모서리가 둥글면 양끝이 위로 말려 올라간다. 밑줄이 있으면(원이 아닐 때)
   // 모서리를 각지게 둔다
-  const shape = s.includes('circle') ? SHAPE_CIRCLE : s.includes('underline') ? 'rounded-none' : SHAPE_DEFAULT
+  const shape = s.includes('circle')
+    ? SHAPE_CIRCLE
+    : s.includes('underline')
+      ? 'rounded-none'
+      : s.includes('fill') && !s.includes('wave')
+        ? SHAPE_FILL
+        : SHAPE_DEFAULT
   const background = s.includes('fill') ? HIGHLIGHT_CLASSES[colorOf('fill')] : 'bg-transparent'
   const decorations = s
     .filter((x): x is Exclude<HighlightStyle, 'fill'> => x !== 'fill')
