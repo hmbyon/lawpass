@@ -335,9 +335,9 @@ export function AppShell({ user }: Props) {
   }
 
   const badges = syncBadges({ syncing, syncError, pendingSync })
-  // 동기화 실패 상태에서는 ⚠️·☁️ 가 함께 떠 390px 헤더가 넘친다. 그때만 모바일에서 간격·여백을 줄이고
-  // 유형 알약을 ⇄ 하나로 접는다 (평상시·데스크톱 모양은 그대로)
-  const compactHeader = badges.error
+  // 동기화 실패(⚠️·☁️)나 동기화 중('동기화 중...') 상태에서는 390px 헤더가 넘친다. 그때만 모바일에서
+  // 간격·여백을 줄이고 유형 알약을 ⇄ 하나로 접는다 (평상시·데스크톱 모양은 그대로)
+  const compactHeader = badges.error || syncing
 
   if (switching) {
     return (
