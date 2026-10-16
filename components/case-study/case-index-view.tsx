@@ -46,13 +46,9 @@ function examTitle(kind: IndexProblem['kind'], exam: number | string): string {
   return `20${y}년 ${m}월 모의`
 }
 
-// 분류 제목에 과목이 접두어로 붙어 온 경우('민소 · 병합소송') 과목 구획 아래에서는 떼고 보인다. 표시용일 뿐 값은 그대로다
 // 진도별 제목 순번 — 표시 전용. 데이터·그룹 키·검색 문자열에는 넣지 않는다
 const ROMAN = ['Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ', 'Ⅵ', 'Ⅶ', 'Ⅷ', 'Ⅸ', 'Ⅹ']
-const GANADA = '가나다라마바사아자차카타파하'
 const romanMark = (i: number) => `${ROMAN[i] ?? i + 1}.`
-// 가~하 14개를 넘으면 (1)(2)… 로 잇는다
-const ganadaMark = (i: number) => (i < GANADA.length ? `${GANADA[i]}.` : `(${i - GANADA.length + 1})`)
 
 // 번호는 고정폭 칸에 두고 제목은 그 옆에서 줄바꿈한다 — 두 줄째가 번호 밑으로 파고들지 않게(내어쓰기)
 function Numbered({ mark, width, children }: { mark: string; width: string; children: ReactNode }) {
@@ -64,6 +60,7 @@ function Numbered({ mark, width, children }: { mark: string; width: string; chil
   )
 }
 
+// 분류 제목에 과목이 접두어로 붙어 온 경우('민소 · 병합소송') 과목 구획 아래에서는 떼고 보인다. 표시용일 뿐 값은 그대로다
 function categoryLabel(category: string, subject: string): string {
   const prefix = `${subject} · `
   return category.startsWith(prefix) ? category.slice(prefix.length) : category
@@ -192,7 +189,7 @@ export function CaseIndexView({ index, onOpen }: Props) {
                         </tr>
                       </thead>
                       <tbody className="max-sm:block max-sm:divide-y max-sm:divide-border">
-                        {ch.cards.map((c, ki) => {
+                        {ch.cards.map((c) => {
                           const bs = c.problems.filter((p) => p.kind === '변시')
                           const my = c.problems.filter((p) => p.kind === '모의')
                           const pages = c.pages && c.pages !== '—' ? c.pages : ''
@@ -209,7 +206,7 @@ export function CaseIndexView({ index, onOpen }: Props) {
                                   onClick={() => onOpen(c.id)}
                                   className="text-left text-[13px] leading-snug text-foreground hover:text-primary transition-colors"
                                 >
-                                  <Numbered mark={ganadaMark(ki)} width="w-7">{c.title}</Numbered>
+                                  {c.title}
                                 </button>
                               </td>
                               {[bs, my].map((list, i) => (
