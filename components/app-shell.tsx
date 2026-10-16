@@ -23,6 +23,8 @@ import { WrongTab } from '@/components/tabs/wrong-tab'
 import { MemoTab } from '@/components/tabs/memo-tab'
 import { CasesTab } from '@/components/tabs/cases-tab'
 import { OnboardingModal } from '@/components/onboarding-modal'
+import { getStudyKind, setStudyKind, type StudyKind } from '@/lib/studyKind'
+import { CaseStudyShell } from '@/components/case-study/case-study-shell'
 
 type Tab = 'pdf' | 'cbt' | 'study' | 'wrong' | 'memo' | 'cases'
 
@@ -50,6 +52,13 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'wrong', label: '오답노트', icon: '📝' },
   { id: 'memo', label: 'D-1 암기장', icon: '⭐' },
   { id: 'cases', label: '기출판례', icon: '⚖️' },
+]
+
+// 유형 스위치. 모바일에서는 앞 두 글자만 보여 헤더 한 줄에 들어가게 한다
+const STUDY_KINDS: { id: StudyKind; short: string; rest: string }[] = [
+  { id: 'objective', short: '객관', rest: '식' },
+  { id: 'caseStudy', short: '사례', rest: '형' },
+  { id: 'record', short: '기록', rest: '형' },
 ]
 
 interface Props {
@@ -86,6 +95,9 @@ export function AppShell({ user }: Props) {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [avatarError, setAvatarError] = useState(false)
   const [mode, setMode] = useState<AppMode>(() => getAppMode())
+  const [studyKind, setStudyKindState] = useState<StudyKind>(() => getStudyKind())
+  // ExamPass(일반수험)에는 사례형이 없다. 스위치도 그리지 않고 늘 객관식이다
+  const kind: StudyKind = mode === 'general' ? 'objective' : studyKind
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
   // 관리자 계정에서만 안읽은 피드백 수를 조회해 헤더 버튼에 표시한다
   const isAdmin = isAdminEmail(user.email)
@@ -346,6 +358,27 @@ export function AppShell({ user }: Props) {
             <span className="hidden sm:inline text-xs text-muted-foreground">
               {appBadge}
             </span>
+            {mode !== 'general' && (
+              <div className="flex items-center shrink-0 rounded-full border border-border p-0.5 text-[10px] sm:text-xs leading-none">
+                {STUDY_KINDS.map((k) => (
+                  <button
+                    key={k.id}
+                    // 기록형은 아직 화면이 없다
+                    disabled={k.id === 'record'}
+                    title={k.id === 'record' ? '준비 중' : undefined}
+                    onClick={() => {
+                      setStudyKind(k.id)
+                      setStudyKindState(k.id)
+                    }}
+                    className={`rounded-full px-1.5 sm:px-2 py-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                      kind === k.id ? 'bg-primary/15 text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {k.short}<span className="hidden sm:inline">{k.rest}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             {/* 모바일에서는 아이콘만 보여 한 줄에 나란히 들어가게 한다 */}
             <div className="flex items-center gap-1 sm:gap-2">
             <button
@@ -491,6 +524,9 @@ export function AppShell({ user }: Props) {
         </div>
       </header>
 
+      {/* 객관식은 기존 nav·main 그대로다. 사례형만 전용 탭 줄과 화면으로 갈아 끼운다.
+          동기화·인증·피드백 훅은 위에서 kind 와 무관하게 늘 돈다 */}
+      {kind === 'objective' ? (<>
       <nav className="sticky top-14 z-30 bg-background/90 backdrop-blur-sm border-b border-border no-print">
         <div className="max-w-3xl mx-auto px-2">
           <div className="flex overflow-x-auto scrollbar-hide">
@@ -545,6 +581,7 @@ export function AppShell({ user }: Props) {
         {/* 판례는 내 문제의 해설에서 뽑은 것만 센다. 공유받은 문제집은 이번 범위가 아니다 */}
         {tab === 'cases' && <CasesTab key={syncedAt} questions={[...questions, ...poolQuestions, ...adminQuestions]} />}
       </main>
+      </>) : <CaseStudyShell isAdmin={isAdmin} />}
 
       {showOnboarding && (
         <OnboardingModal
