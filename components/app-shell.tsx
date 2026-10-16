@@ -335,6 +335,9 @@ export function AppShell({ user }: Props) {
   }
 
   const badges = syncBadges({ syncing, syncError, pendingSync })
+  // 동기화 실패 상태에서는 ⚠️·☁️ 가 함께 떠 390px 헤더가 넘친다. 그때만 모바일에서 간격·여백을 줄이고
+  // 유형 알약을 ⇄ 하나로 접는다 (평상시·데스크톱 모양은 그대로)
+  const compactHeader = badges.error
 
   if (switching) {
     return (
@@ -349,7 +352,7 @@ export function AppShell({ user }: Props) {
     <div className="min-h-screen flex flex-col bg-background">
       <header className="sticky top-0 z-40 bg-background/90 backdrop-blur-sm border-b border-border">
         <div className="max-w-3xl mx-auto px-4 py-2 sm:py-0 sm:h-14 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
+          <div className={`flex items-center gap-2 ${compactHeader ? 'max-sm:gap-1' : ''}`}>
             <button
               onClick={handleLogoClick}
               className="text-primary text-lg font-bold tracking-tight hover:opacity-80 transition-opacity"
@@ -368,10 +371,10 @@ export function AppShell({ user }: Props) {
                   setStudyKind(next)
                   setStudyKindState(next)
                 }}
-                title="객관식 / 사례형 전환"
-                className="sm:hidden shrink-0 rounded-full border border-primary/40 bg-primary/10 text-primary text-[10px] font-semibold leading-none px-1 py-1"
+                title={`객관식 / 사례형 전환 (지금: ${kind === 'objective' ? '객관식' : '사례형'})`}
+                className={`sm:hidden shrink-0 rounded-full border border-primary/40 bg-primary/10 text-primary text-[10px] font-semibold leading-none py-1 ${compactHeader ? 'px-0.5' : 'px-1'}`}
               >
-                {kind === 'objective' ? '객관' : '사례'}⇄
+                {!compactHeader && (kind === 'objective' ? '객관' : '사례')}⇄
               </button>
             )}
             {mode !== 'general' && (
@@ -429,7 +432,7 @@ export function AppShell({ user }: Props) {
             </button>
             </div>
           </div>
-          <div className="flex items-center gap-2 sm:gap-3 text-xs text-muted-foreground shrink-0">
+          <div className={`flex items-center gap-2 sm:gap-3 text-xs text-muted-foreground shrink-0 ${compactHeader ? 'max-sm:gap-1' : ''}`}>
             {syncing && <span className="text-primary animate-pulse">동기화 중...</span>}
             {/* 실패(예외)와 미동기화(아직 안 올라감)는 다른 상태다. 예전에는 실패만 표시해서
                 push가 한 번도 안 돌아간 경우엔 아무 표시도 뜨지 않았다 */}
@@ -437,7 +440,7 @@ export function AppShell({ user }: Props) {
               <button
                 onClick={loadFromFirebase}
                 title={`${syncError} 눌러서 다시 시도합니다.`}
-                className="text-red-400 border border-red-500/40 bg-red-500/10 rounded-full px-2 py-0.5 hover:bg-red-500/20 transition-colors"
+                className="text-red-400 border border-red-500/40 bg-red-500/10 rounded-full px-2 max-sm:px-1 py-0.5 hover:bg-red-500/20 transition-colors"
               >
                 ⚠️<span className="hidden sm:inline"> 동기화 실패</span>
               </button>
@@ -450,7 +453,7 @@ export function AppShell({ user }: Props) {
                     ? '이 기기의 데이터를 클라우드에 올립니다. 불러오기가 실패한 상태에서도 올릴 수 있습니다.'
                     : '이 기기에만 저장된 변경이 있습니다. 눌러서 클라우드에 올립니다.'
                 }
-                className="text-amber-400 border border-amber-500/40 bg-amber-500/10 rounded-full px-2 py-0.5 hover:bg-amber-500/20 transition-colors"
+                className={`text-amber-400 border border-amber-500/40 bg-amber-500/10 rounded-full px-2 py-0.5 hover:bg-amber-500/20 transition-colors ${compactHeader ? 'max-sm:px-1' : ''}`}
               >
                 ☁️<span className="hidden sm:inline"> {badges.push === 'force' ? '이 기기 것 올리기' : '미동기화'}</span>
               </button>
