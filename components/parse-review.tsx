@@ -36,23 +36,32 @@ import {
  * 표가 빠졌거나 오탈자가 섞인 쪽이 더 길 수도 있다. 그래서 추천은 그대로 두고(기본 선택),
  * 고르는 일과 다듬는 일은 사람에게 넘긴다
  */
+function yearLabel(q: Question): string {
+  return q.year === UNKNOWN_YEAR ? '연도 미상' : `${q.year}년`
+}
+
 function SimilarPairCard({
   pair,
   canEdit,
   onMerge,
   onIgnore,
+  onDelete,
 }: {
   pair: SimilarPair
   // 관리자가 아니면 두 지문의 차이만 보여주고, 고르기·다듬기·합치기·다른 문제는 그리지 않는다
   canEdit: boolean
   onMerge: (edit: MergeEdit) => void
   onIgnore: () => void
+  // 자세히 보기로 펼친 문제 상세가 요구하는 삭제 핸들러 (QuestionDetail 과 같은 것)
+  onDelete: (q: Question) => void
 }) {
   const diff = useMemo(() => diffSegments(pair.a.passage, pair.b.passage), [pair])
   // 추천은 병합이 쓰던 자와 같은 것이다. 없애지 않고 기본값으로 남긴다
   const recommended: 'a' | 'b' = completenessScore(pair.a) >= completenessScore(pair.b) ? 'a' : 'b'
   const [side, setSide] = useState<'a' | 'b'>(recommended)
   const [editing, setEditing] = useState(false)
+  // 두 문제의 연도·선지·정답·해설·쪽 번호를 펼친다. 첫 문장만으로는 같은 문제인지 가를 수 없다
+  const [detail, setDetail] = useState(false)
 
   const picked = side === 'a' ? pair.a : pair.b
   // 합치면 남을 해설. mergeQuestionInto 와 같은 순서로 모은다 (위쪽 먼저)
@@ -94,7 +103,21 @@ function SimilarPairCard({
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
         <span className="flex-1">
           {pair.a.subject} · {pair.a.no}번 · {pair.distance}글자 다름
+          <span className="ml-1">
+            (위 {yearLabel(pair.a)} / 아래 {yearLabel(pair.b)})
+          </span>
         </span>
+        <button
+          type="button"
+          onClick={() => setDetail((v) => !v)}
+          className={`shrink-0 px-2 py-0.5 border rounded transition-colors ${
+            detail
+              ? 'border-primary/40 text-primary'
+              : 'border-border text-muted-foreground hover:bg-muted'
+          }`}
+        >
+          {detail ? '자세히 접기' : '자세히 보기'}
+        </button>
         {canEdit && (
         <>
         <button
@@ -152,6 +175,25 @@ function SimilarPairCard({
           />
         </label>
       ))}
+
+      {detail && (
+        <div className="space-y-1">
+          <p className="text-[11px] text-muted-foreground">
+            선지가 같고 정답도 같으면 같은 문제, 선지나 연도가 다르면 다른 문제입니다
+          </p>
+          {(['a', 'b'] as const).map((which) => {
+            const q = which === 'a' ? pair.a : pair.b
+            return (
+              <div key={which}>
+                <p className="text-[11px] font-medium text-foreground">
+                  {which === 'a' ? '위' : '아래'} · {yearLabel(q)} · 정답 {q.answer || '없음'}
+                </p>
+                <QuestionDetail q={q} duplicates={0} onDelete={onDelete} />
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       {canEdit && editing && (
         <div className="space-y-1.5 rounded bg-muted/50 border border-border p-2">
@@ -757,6 +799,7 @@ export function ParseReview({ questions, onUnitChanged, onReparse, reparseDisabl
                 canEdit={isAdmin}
                 onMerge={(edit) => mergePair(p, edit)}
                 onIgnore={() => ignorePair(p)}
+                onDelete={removeQuestion}
               />
             ))}
           <p className="text-[11px] text-muted-foreground pt-1">
