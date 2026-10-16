@@ -135,6 +135,46 @@ export function isSameQuestionText(
   return !choicesConflict(a.choices, b.choices)
 }
 
+// 지문 뒷부분(보기 등)이 고쳐진 같은 문제를 알아보기 위한 하한. 발문만 공통인 짧은 지문은
+// 서로 다른 문제끼리도 앞부분이 같으므로, 이보다 긴 공통 앞부분을 요구한다
+export const MIN_LOOSE_PREFIX = 60
+// 지문이 달라졌어도 선지가 같다는 것을 믿으려면 견줄 수 있는 선지가 이만큼은 있어야 한다
+const MIN_LOOSE_COMMON_CHOICES = 3
+
+/**
+ * 지문 '뒷부분이 고쳐진' 같은 문제인가 — 교재 오류를 손으로 바로잡아 다시 올린 JSON 용.
+ *
+ * isSameQuestionText 는 완전 일치나 접두어일 때만 같다고 보므로, 보기(ㄱ~ㅁ)를 통째로 고친 문제는
+ * 다른 문제가 되어 옛 문제가 남은 채 새 문제가 하나 더 쌓인다. 여기서는 과목이 같고,
+ * 정규화한 지문의 공통 앞부분이 MIN_LOOSE_PREFIX 이상이며, 선지가 3개 이상 겹치고 서로 충돌하지 않을 때만
+ * 같다고 본다. 호출하는 쪽에서 후보가 정확히 하나일 때만 믿어야 한다(애매하면 새 문제로 둔다)
+ */
+export function isSameQuestionLoose(
+  a: { subject: string; passage: string; choices?: ChoiceLike[] },
+  b: { subject: string; passage: string; choices?: ChoiceLike[] }
+): boolean {
+  if (a.subject !== b.subject) return false
+  const pa = normalizePassage(a.passage)
+  const pb = normalizePassage(b.passage)
+  let n = 0
+  while (n < pa.length && n < pb.length && pa[n] === pb[n]) n++
+  if (n < MIN_LOOSE_PREFIX) return false
+  const byLabel = new Map<string, string>()
+  for (const c of a.choices ?? []) {
+    const t = normalizePassage(c.text ?? '')
+    if (t) byLabel.set(c.label, t)
+  }
+  let common = 0
+  for (const c of b.choices ?? []) {
+    const t = normalizePassage(c.text ?? '')
+    const mine = byLabel.get(c.label)
+    if (!t || mine === undefined) continue
+    if (!sameChoiceText(mine, t)) return false
+    common++
+  }
+  return common >= MIN_LOOSE_COMMON_CHOICES
+}
+
 /**
  * 편집 거리. cap 을 넘는 것이 확실해지면 즉시 그만두고 cap+1 을 돌려준다.
  * 정확한 거리가 필요한 게 아니라 "가까운가"만 보면 되므로, 먼 쌍에 시간을 쓰지 않는다

@@ -222,6 +222,8 @@ export function PdfTab({
   // JSON 처리 상태
   const [jsonText, setJsonText] = useState('')
   const [jsonDisplayName, setJsonDisplayName] = useState('')
+  // 이미 올라간 같은 문제의 내용을 이 JSON 으로 교체할지. 손으로 고쳐 다시 올릴 때 필요해서 기본으로 켜 둔다
+  const [jsonReplace, setJsonReplace] = useState(true)
   const [jsonStatus, setJsonStatus] = useState<'idle' | 'parsing' | 'done' | 'error'>('idle')
   // 문제가 여럿이면 전부 보여야 한 번에 고칠 수 있다. 첫 오류에서 멈추면 고치고 다시 넣기를 반복한다
   const [jsonErrors, setJsonErrors] = useState<string[]>([])
@@ -239,7 +241,7 @@ export function PdfTab({
   const [actionError, setActionError] = useState<string | null>(null)
   const resumeInputRef = useRef<HTMLInputElement>(null)
   const resumeTargetRef = useRef<string | null>(null)
-  const [summary, setSummary] = useState<{ added: number; merged: number; skipped: number[]; yearFixed?: number } | null>(null)
+  const [summary, setSummary] = useState<{ added: number; merged: number; skipped: number[]; yearFixed?: number; replaced?: number } | null>(null)
   const [reparse, setReparse] = useState<ReparseState | null>(null)
   const reparseInputRef = useRef<HTMLInputElement>(null)
   const reparsePanelRef = useRef<HTMLDivElement>(null)
@@ -438,8 +440,8 @@ export function PdfTab({
       return
     }
     const sourceName = jsonDisplayName.trim()
-    const result = addQuestions(questions, sourceName, undefined, { overwriteYear: true })
-    setSummary({ added: result.added, merged: result.merged, skipped: [], yearFixed: result.yearFixed })
+    const result = addQuestions(questions, sourceName, undefined, { overwriteYear: true, replaceContent: jsonReplace })
+    setSummary({ added: result.added, merged: result.merged, skipped: [], yearFixed: result.yearFixed, replaced: result.replaced })
     showReview([sourceName], true, true)
     setJsonStatus('done')
     setJsonErrors([])
@@ -1719,6 +1721,21 @@ export function PdfTab({
               id·addedAt 은 넣지 않아도 됩니다 (저장할 때 만듭니다).
             </p>
 
+            <label className="flex items-start gap-2 text-xs text-foreground cursor-pointer">
+              <input
+                type="checkbox"
+                checked={jsonReplace}
+                onChange={(e) => setJsonReplace(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                이미 있는 같은 문제는 지문·선지·정답·해설·보기를 이 파일 기준으로 교체
+                <span className="block text-[11px] text-muted-foreground">
+                  끄면 해설만 이어붙고 나머지는 기존 값을 유지합니다. 오답노트·형광펜·그림판은 어느 쪽이든 그대로예요.
+                </span>
+              </span>
+            </label>
+
             <button
               type="button"
               onClick={handleJsonImport}
@@ -1735,6 +1752,11 @@ export function PdfTab({
             <p className="text-emerald-700 dark:text-emerald-300 font-medium">
               완료: <span className="font-bold">{summary.added}문제</span> 추가,{' '}
               <span className="font-bold">{summary.merged}문제</span> 병합
+              {!!summary.replaced && (
+                <>
+                  , <span className="font-bold">{summary.replaced}문제</span> 내용 교체
+                </>
+              )}
               {!!summary.yearFixed && (
                 <>
                   , <span className="font-bold">{summary.yearFixed}문제</span> 연도 고침

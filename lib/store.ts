@@ -2,7 +2,7 @@
 
 import type { Question, QuestionDrawing, Subject, TableBlock, WrongNote } from './types'
 import { getAppMode } from './appMode'
-import { normalizePassage, isSameQuestionText } from './passageMatch'
+import { normalizePassage, isSameQuestionText, isSameQuestionLoose } from './passageMatch'
 import { isMultiAnswer, NO_ANSWER } from './answers'
 
 // apiKey는 개인 인증정보라 모드 공통으로 유지, 나머지는 모드별 접미사(_law/_general)로 분리
@@ -539,12 +539,21 @@ export function addQuestions(
     // 다시 올린 JSON 은 최신본이 맞는 값이라 그대로 따른다. 못 읽은 값(0)으로는 덮지 않는다.
     // id 는 그대로라 오답노트·형광펜·푼 횟수 연결은 끊기지 않는다
     overwriteYear?: boolean
+    // JSON 가져오기에서만 켠다. 같은 문제로 확인되면 지문·선지·정답·해설·보기(subItems) 등 '내용'을
+    // 가져온 JSON 의 값으로 바꾼다. 켜지 않으면 해설은 이어붙고(맨 앞의 옛 해설이 계속 보인다) 보기는 비었을 때만 채워져서,
+    // 손으로 고쳐 다시 올린 JSON 이 이미 올라간 문제에 반영되지 않는다.
+    // id·오답노트·형광펜·그림판·첨부 이미지는 그대로 둔다. 가져온 쪽에 값이 없는 항목은 지우지 않는다
+    // (비어 있는 값으로 멀쩡한 해설을 날리지 않으려는 것이다). 지문 뒷부분이 고쳐진 문제도
+    // 후보가 정확히 하나일 때는 같은 문제로 본다(isSameQuestionLoose)
+    replaceContent?: boolean
   }
-): { added: number; merged: number; yearFixed: number } {
+): { added: number; merged: number; yearFixed: number; replaced: number } {
   const result = getQuestions()
   let added = 0
   let merged = 0
   let yearFixed = 0
+  let replaced = 0
+  const replace = options?.replaceContent === true
 
   // 후보 키 → result 배열 인덱스 목록 (기존 문제의 순서를 그대로 보존한다)
   const buckets = new Map<string, number[]>()
@@ -558,7 +567,11 @@ export function addQuestions(
   for (const q of incoming) {
     const key = questionBucketKey(q)
     const candidates = buckets.get(key) ?? []
-    const matchIndex = candidates.find((i) => isSameQuestion(result[i], q))
+    let matchIndex = candidates.find((i) => isSameQuestion(result[i], q))
+    if (matchIndex === undefined && replace) {
+      const loose = candidates.filter((i) => isSameQuestionLoose(result[i], q))
+      if (loose.length === 1) matchIndex = loose[0]
+    }
 
     if (matchIndex === undefined) {
       result.push({
@@ -573,6 +586,10 @@ export function addQuestions(
     }
 
     const found = result[matchIndex]
+    if (replace) {
+      replaceContentOf(found, q)
+      replaced++
+    } else {
     const expl = new Set([
       ...(found.explanations ?? (found.explanation ? [found.explanation] : [])),
       ...(q.explanations ?? (q.explanation ? [q.explanation] : [])),
@@ -593,6 +610,7 @@ export function addQuestions(
     found.subChoiceExplanations ??= q.subChoiceExplanations
     found.subItems ??= q.subItems
     found.passageTable ??= q.passageTable
+    }
     // 첨부한 도면 이미지 ID 목록. 사람이 붙인 값이라 다시 가져온 파싱 결과가 덮으면 안 된다
     found.images ??= q.images
     // 연도도 ??= 가 아니다. 병합 키에서 연도를 뺐기 때문에(questionBucketKey 주석) 같은 문제를
@@ -621,7 +639,7 @@ export function addQuestions(
     }
     // 청크 경계에서 잘린 판본이 온전한 판본을 밀어내지 않도록, 더 완전한 쪽 내용을 채택한다.
     // id는 유지하므로 오답노트·형광펜 연결이 끊기지 않는다
-    if (completenessScore(q) > completenessScore(found)) {
+    if (!replace && completenessScore(q) > completenessScore(found)) {
       found.passage = q.passage
       found.choices = q.choices
       if (q.subItems?.length) found.subItems = q.subItems
@@ -630,7 +648,36 @@ export function addQuestions(
   }
 
   saveQuestions(result)
-  return { added, merged, yearFixed }
+  return { added, merged, yearFixed, replaced }
+}
+
+// replaceContent 용. found 의 '내용' 필드를 incoming 값으로 바꾼다 (id·addedAt·sourceFile·페이지·연도·
+// 그림판·첨부 이미지는 손대지 않는다). incoming 에 값이 없는 항목은 기존 값을 남긴다
+function replaceContentOf(found: Question, q: Question) {
+  const has = (v: unknown): boolean => {
+    if (v === undefined || v === null) return false
+    if (typeof v === 'string') return v.trim() !== ''
+    if (Array.isArray(v)) return v.length > 0
+    if (typeof v === 'object') return Object.keys(v as object).length > 0
+    return true
+  }
+  if (has(q.passage)) found.passage = q.passage
+  if (q.choices.some((c) => c.text?.trim())) found.choices = q.choices
+  if (has(q.answer)) found.answer = q.answer
+  if (has(q.subject)) found.subject = q.subject
+  if (has(q.unit)) found.unit = q.unit
+  if (has(q.explanation)) {
+    found.explanation = q.explanation
+    found.explanations = q.explanations?.length ? q.explanations : [q.explanation as string]
+  }
+  if (has(q.subChoiceAnswers)) found.subChoiceAnswers = q.subChoiceAnswers
+  if (has(q.choiceIsCorrectStatement)) found.choiceIsCorrectStatement = q.choiceIsCorrectStatement
+  if (has(q.choiceExplanations)) found.choiceExplanations = q.choiceExplanations
+  if (has(q.choiceExplanationSummaries)) found.choiceExplanationSummaries = q.choiceExplanationSummaries
+  if (has(q.subChoiceExplanations)) found.subChoiceExplanations = q.subChoiceExplanations
+  if (has(q.subItems)) found.subItems = q.subItems
+  if (has(q.passageTable)) found.passageTable = q.passageTable
+  if (has(q.cases)) found.cases = q.cases
 }
 
 /**
