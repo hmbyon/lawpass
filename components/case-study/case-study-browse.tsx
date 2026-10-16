@@ -151,6 +151,7 @@ export function CaseStudyBrowse() {
             seqNav={
               seq && {
                 label: seq.items[seq.at].label,
+                nextLabel: seq.items[seq.at + 1]?.label,
                 pos: seq.at + 1,
                 total: seq.items.length,
                 onPrev: prevProblem,

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { ImportPanel } from '@/components/case-study/import-panel'
 import { CaseStudyBrowse } from '@/components/case-study/case-study-browse'
 
@@ -13,9 +13,30 @@ export function CaseStudyShell({ isAdmin }: { isAdmin: boolean }) {
     ...(isAdmin ? [{ id: 'import' as const, label: '가져오기', icon: '📥' }] : []),
     { id: 'browse', label: '답안·목차', icon: '📚' },
   ]
+  // 카드 안의 고정 바(문항 이동)가 앱 헤더·이 탭 줄에 가려지지 않도록, 탭 줄이 끝나는 높이를
+  // --case-sticky-top 으로 내려 준다. 숫자를 박아 두지 않고 탭 줄의 top·높이를 재서 따라간다
+  const navRef = useRef<HTMLElement>(null)
+  const mainRef = useRef<HTMLElement>(null)
+  useLayoutEffect(() => {
+    const nav = navRef.current
+    const main = mainRef.current
+    if (!nav || !main) return
+    const update = () => {
+      const top = parseFloat(getComputedStyle(nav).top) || 0
+      main.style.setProperty('--case-sticky-top', `${top + nav.offsetHeight}px`)
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(nav)
+    window.addEventListener('resize', update)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', update)
+    }
+  }, [])
   return (
     <>
-      <nav className="sticky top-14 z-30 bg-background/90 backdrop-blur-sm border-b border-border no-print">
+      <nav ref={navRef} className="sticky top-14 z-30 bg-background/90 backdrop-blur-sm border-b border-border no-print">
         <div className="max-w-3xl mx-auto px-2">
           <div className="flex overflow-x-auto scrollbar-hide">
             {tabs.map((t) => (
@@ -35,7 +56,7 @@ export function CaseStudyShell({ isAdmin }: { isAdmin: boolean }) {
           </div>
         </div>
       </nav>
-      <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-5">
+      <main ref={mainRef} className="flex-1 max-w-3xl mx-auto w-full px-4 py-5">
         {/* 일반 사용자에게는 가져오기 트리 자체가 없다 */}
         {tab === 'import' && isAdmin && <ImportPanel />}
         {tab === 'browse' && <CaseStudyBrowse />}
