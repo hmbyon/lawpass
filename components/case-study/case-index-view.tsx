@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import type { CaseIndex, IndexCard, IndexProblem } from '@/lib/caseStudy/types'
 import { FilterChips } from '@/components/filter-chips'
 import {
@@ -47,6 +47,23 @@ function examTitle(kind: IndexProblem['kind'], exam: number | string): string {
 }
 
 // 분류 제목에 과목이 접두어로 붙어 온 경우('민소 · 병합소송') 과목 구획 아래에서는 떼고 보인다. 표시용일 뿐 값은 그대로다
+// 진도별 제목 순번 — 표시 전용. 데이터·그룹 키·검색 문자열에는 넣지 않는다
+const ROMAN = ['Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ', 'Ⅵ', 'Ⅶ', 'Ⅷ', 'Ⅸ', 'Ⅹ']
+const GANADA = '가나다라마바사아자차카타파하'
+const romanMark = (i: number) => `${ROMAN[i] ?? i + 1}.`
+// 가~하 14개를 넘으면 (1)(2)… 로 잇는다
+const ganadaMark = (i: number) => (i < GANADA.length ? `${GANADA[i]}.` : `(${i - GANADA.length + 1})`)
+
+// 번호는 고정폭 칸에 두고 제목은 그 옆에서 줄바꿈한다 — 두 줄째가 번호 밑으로 파고들지 않게(내어쓰기)
+function Numbered({ mark, width, children }: { mark: string; width: string; children: ReactNode }) {
+  return (
+    <span className="flex items-baseline">
+      <span className={`${width} shrink-0 tabular-nums`}>{mark}</span>
+      <span className="min-w-0">{children}</span>
+    </span>
+  )
+}
+
 function categoryLabel(category: string, subject: string): string {
   const prefix = `${subject} · `
   return category.startsWith(prefix) ? category.slice(prefix.length) : category
@@ -142,16 +159,18 @@ export function CaseIndexView({ index, onOpen }: Props) {
       {bySubject.map((subj) => (
         <section key={subj.subject} className="pt-6 first:pt-0">
           <h2 className="text-lg font-extrabold text-foreground pb-1.5 border-b-2 border-primary">{subj.subject}</h2>
-          {subj.categories.map((cat) => (
+          {subj.categories.map((cat, ci) => (
             <section key={cat.category} className="pt-5 first:pt-3">
               <h3 className="text-[15px] font-bold text-foreground pb-1 border-b border-border">
-                {categoryLabel(cat.category, subj.subject)}
+                <Numbered mark={romanMark(ci)} width="w-7">{categoryLabel(cat.category, subj.subject)}</Numbered>
               </h3>
-              {cat.chapters.map((ch) => (
+              {cat.chapters.map((ch, hi) => (
                 <div key={ch.chapter} className="mt-4">
                   <h4 className="mb-1.5 text-sm font-semibold text-foreground">
-                    {ch.chapter}
-                    <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">카드 {ch.cards.length}</span>
+                    <Numbered mark={`${hi + 1}.`} width="w-6">
+                      {ch.chapter}
+                      <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">카드 {ch.cards.length}</span>
+                    </Numbered>
                   </h4>
                   <div className="bg-card border border-border rounded-xl overflow-hidden">
                     {/* 레퍼런스와 같이 카드·유형·쪽수 열만 폭을 고정하고 변시·모의 열은 버튼 수만큼 나눠 갖는다 */}
@@ -173,7 +192,7 @@ export function CaseIndexView({ index, onOpen }: Props) {
                         </tr>
                       </thead>
                       <tbody className="max-sm:block max-sm:divide-y max-sm:divide-border">
-                        {ch.cards.map((c) => {
+                        {ch.cards.map((c, ki) => {
                           const bs = c.problems.filter((p) => p.kind === '변시')
                           const my = c.problems.filter((p) => p.kind === '모의')
                           const pages = c.pages && c.pages !== '—' ? c.pages : ''
@@ -190,7 +209,7 @@ export function CaseIndexView({ index, onOpen }: Props) {
                                   onClick={() => onOpen(c.id)}
                                   className="text-left text-[13px] leading-snug text-foreground hover:text-primary transition-colors"
                                 >
-                                  {c.title}
+                                  <Numbered mark={ganadaMark(ki)} width="w-7">{c.title}</Numbered>
                                 </button>
                               </td>
                               {[bs, my].map((list, i) => (
