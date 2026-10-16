@@ -16,6 +16,12 @@ service cloud.firestore {
     match /users/1Mt7tpI4n2gCn71O6qE1EP2Fns03/{mode}/questions/{document=**} {
       allow read: if request.auth != null;
     }
+
+    // 관리자 계정의 사례형 카드(색인 문서 + cards 하위 컬렉션)도 로그인한 누구나 읽는다.
+    // 쓰기는 주지 않는다 — 위의 본인 규칙으로 관리자만 쓴다 (docs/case-study-design.md)
+    match /users/1Mt7tpI4n2gCn71O6qE1EP2Fns03/{mode}/caseStudy/{document=**} {
+      allow read: if request.auth != null;
+    }
     
    match /feedback/{docId} {
           allow create: if request.auth != null;
