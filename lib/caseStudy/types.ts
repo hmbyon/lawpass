@@ -47,7 +47,11 @@ export interface Card {
   statutes: string[]
 }
 
-export type IndexProblem = Pick<Problem, 'id' | 'kind' | 'exam' | 'qno' | 'points' | 'stubFor'> & { sub?: string }
+// 색인의 stubFor 는 실제 _index.json 에서 문항 id 문자열('4-2#3')로 온다. 카드 쪽 모양({card, problem})도 받는다
+export type IndexProblem = Pick<Problem, 'id' | 'kind' | 'exam' | 'qno' | 'points'> & {
+  sub?: string
+  stubFor?: Problem['stubFor'] | string
+}
 
 export interface IndexCard {
   id: string

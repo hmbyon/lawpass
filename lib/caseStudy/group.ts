@@ -11,7 +11,10 @@ export function problemLabel(p: Pick<IndexProblem, 'kind' | 'exam' | 'qno' | 'su
 
 // 답안이 실제로 있는 곳. stub 문항이면 그 카드·문항으로 보낸다
 export function answerTarget(card: IndexCard, p: IndexProblem): { card: string; problem: string } {
-  return p.stubFor ?? { card: card.id, problem: p.id }
+  if (!p.stubFor) return { card: card.id, problem: p.id }
+  // 문항 id 는 '{카드id}#{번호}' 이다
+  if (typeof p.stubFor === 'string') return { card: p.stubFor.split('#')[0], problem: p.stubFor }
+  return p.stubFor
 }
 
 // 과목 → 교재 순서(order). 이전/다음 카드도 이 순서를 따른다
@@ -59,8 +62,9 @@ export interface ExamGroup {
 }
 
 function mockValue(exam: number | string): number {
-  // '26.1' → 26.1. 최신순 정렬에만 쓴다
-  return Number(exam) || 0
+  // '25.10' 은 숫자로 읽으면 25.1 이 되어 25.8 보다 앞선다. 연·월을 나눠 센다
+  const [y, m] = String(exam).split('.').map(Number)
+  return (y || 0) * 100 + (m || 0)
 }
 
 // 회차별: 변시 11→15회, 그다음 모의 최신순. 같은 문항이 stub 과 본 답안으로 두 번 나오면 한 번만 둔다

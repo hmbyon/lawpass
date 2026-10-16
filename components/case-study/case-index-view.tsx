@@ -20,7 +20,7 @@ function ProblemButton({ card, p, onOpen }: { card: IndexCard; p: IndexProblem; 
   return (
     <button
       onClick={() => onOpen(target.card, target.problem)}
-      title={p.stubFor ? `답안은 카드 ${p.stubFor.card} 에 있습니다` : undefined}
+      title={p.stubFor ? `답안은 카드 ${target.card} 에 있습니다` : undefined}
       className={`text-[11px] rounded-md px-1.5 py-0.5 border transition-colors hover:border-primary/60 hover:text-primary ${
         p.stubFor ? 'border-dashed border-border text-muted-foreground' : 'border-border bg-muted text-foreground'
       }`}

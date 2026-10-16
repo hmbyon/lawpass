@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from 'react'
 import type { Block, Card, Problem } from '@/lib/caseStudy/types'
 import { sanitizeCaseHtml } from '@/lib/caseStudy/sanitize'
+import { problemLabel } from '@/lib/caseStudy/group'
 
 interface Props {
   card: Card
@@ -141,7 +142,7 @@ export function CaseCardView({ card, focusProblemId, onBack, onPrev, onNext, onJ
                 p.stubFor ? 'border-dashed border-border text-muted-foreground' : 'border-border bg-muted text-foreground'
               }`}
             >
-              {p.examLabel || [p.qno, p.sub].filter(Boolean).join(' ')} · {p.points}점
+              {problemLabel(p)} · {p.points}점
             </button>
           ))}
         </div>
@@ -151,7 +152,7 @@ export function CaseCardView({ card, focusProblemId, onBack, onPrev, onNext, onJ
         <section className="bg-card border border-border rounded-xl px-4 py-3">
           <h2 className="text-xs font-semibold text-foreground mb-1.5">채점·출제 메모</h2>
           <ul className="list-disc pl-4 space-y-0.5 text-xs text-foreground/90">
-            {card.notes.map((n, i) => <li key={i}>{n}</li>)}
+            {card.notes.map((n, i) => <li key={i}><SafeHtml html={n} /></li>)}
           </ul>
         </section>
       )}
