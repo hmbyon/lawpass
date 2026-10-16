@@ -54,11 +54,12 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'cases', label: '기출판례', icon: '⚖️' },
 ]
 
-// 유형 스위치. 모바일에서는 앞 두 글자만 보여 헤더 한 줄에 들어가게 한다
-const STUDY_KINDS: { id: StudyKind; short: string; rest: string }[] = [
-  { id: 'objective', short: '객관', rest: '식' },
-  { id: 'caseStudy', short: '사례', rest: '형' },
-  { id: 'record', short: '기록', rest: '형' },
+// 유형 스위치. 헤더 폭(max-w-3xl)이 '동기화 중...' 이 뜬 상태에서 거의 꽉 차 있어 두 글자로 줄이고
+// 전체 이름은 title 로 보인다
+const STUDY_KINDS: { id: StudyKind; label: string; title: string }[] = [
+  { id: 'objective', label: '객관', title: '객관식' },
+  { id: 'caseStudy', label: '사례', title: '사례형' },
+  { id: 'record', label: '기록', title: '기록형 (준비 중)' },
 ]
 
 interface Props {
@@ -358,23 +359,38 @@ export function AppShell({ user }: Props) {
             <span className="hidden sm:inline text-xs text-muted-foreground">
               {appBadge}
             </span>
+            {/* 390px 폭에서는 세그먼트 셋이 헤더 한 줄에 들어가지 않는다(남는 폭이 40px 남짓).
+                모바일은 지금 유형만 보이는 알약 하나로 객관식↔사례형을 오간다 — 기록형은 어차피 고를 수 없다 */}
             {mode !== 'general' && (
-              <div className="flex items-center shrink-0 rounded-full border border-border p-0.5 text-[10px] sm:text-xs leading-none">
+              <button
+                onClick={() => {
+                  const next = kind === 'objective' ? 'caseStudy' : 'objective'
+                  setStudyKind(next)
+                  setStudyKindState(next)
+                }}
+                title="객관식 / 사례형 전환"
+                className="sm:hidden shrink-0 rounded-full border border-primary/40 bg-primary/10 text-primary text-[10px] font-semibold leading-none px-1 py-1"
+              >
+                {kind === 'objective' ? '객관' : '사례'}⇄
+              </button>
+            )}
+            {mode !== 'general' && (
+              <div className="hidden sm:flex items-center shrink-0 rounded-full border border-border p-0.5 text-[11px] leading-none">
                 {STUDY_KINDS.map((k) => (
                   <button
                     key={k.id}
                     // 기록형은 아직 화면이 없다
                     disabled={k.id === 'record'}
-                    title={k.id === 'record' ? '준비 중' : undefined}
+                    title={k.title}
                     onClick={() => {
                       setStudyKind(k.id)
                       setStudyKindState(k.id)
                     }}
-                    className={`rounded-full px-1.5 sm:px-2 py-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                    className={`rounded-full px-1.5 py-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                       kind === k.id ? 'bg-primary/15 text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'
                     }`}
                   >
-                    {k.short}<span className="hidden sm:inline">{k.rest}</span>
+                    {k.label}
                   </button>
                 ))}
               </div>
