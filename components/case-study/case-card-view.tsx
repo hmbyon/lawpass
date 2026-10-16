@@ -12,6 +12,20 @@ interface Props {
   onPrev?: () => void
   onNext?: () => void
   onJump: (cardId: string, problemId?: string) => void
+  // 회차별 목록에서 들어왔을 때만 — 같은 회차의 문항을 ◀ ▶ 로 넘긴다
+  seqNav?: { label: string; pos: number; total: number; onPrev?: () => void; onNext?: () => void }
+}
+
+// 변시·모의 배지 (목록과 같은 색)
+const KIND_BADGE: Record<Problem['kind'], string> = {
+  변시: 'border-primary/30 bg-primary/10 text-primary',
+  모의: 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300',
+}
+
+function KindBadge({ kind }: { kind: Problem['kind'] }) {
+  return (
+    <span className={`shrink-0 rounded px-1 py-px text-[10px] font-semibold leading-none border ${KIND_BADGE[kind]}`}>{kind}</span>
+  )
 }
 
 // 문항 id 에 '#' 이 들어 있어 그대로 DOM id 로 쓰되 querySelector 대신 getElementById 로 찾는다
@@ -51,11 +65,18 @@ function AnswerBlock({ b }: { b: Block }) {
   )
 }
 
-function ProblemSection({ p, onJump }: { p: Problem; onJump: Props['onJump'] }) {
+function ProblemSection({ p, active, onJump }: { p: Problem; active: boolean; onJump: Props['onJump'] }) {
   const sub = [p.qno, p.sub].filter(Boolean).join(' ')
   return (
-    <section id={anchorId(p.id)} className="scroll-mt-28 bg-card border border-border rounded-xl overflow-hidden">
+    // 지금 보고 있는 문항은 테두리·좌측 선으로 살짝 띄운다 — 긴 카드에서 어디를 읽던 중인지 보이게
+    <section
+      id={anchorId(p.id)}
+      className={`scroll-mt-28 bg-card border rounded-xl overflow-hidden transition-colors ${
+        active ? 'border-primary/60 ring-1 ring-primary/30 border-l-4 border-l-primary' : 'border-border'
+      }`}
+    >
       <header className="flex items-baseline gap-2 px-4 py-2.5 bg-muted border-b border-border">
+        <KindBadge kind={p.kind} />
         <span className="text-sm font-semibold text-foreground">{p.examLabel || sub}</span>
         {p.examLabel && sub && !p.examLabel.includes(p.qno) && <span className="text-xs text-muted-foreground">{sub}</span>}
         <span className="ml-auto shrink-0 text-xs font-semibold text-primary">{p.points}점</span>
@@ -104,20 +125,30 @@ function ProblemSection({ p, onJump }: { p: Problem; onJump: Props['onJump'] }) 
   )
 }
 
-export function CaseCardView({ card, focusProblemId, onBack, onPrev, onNext, onJump }: Props) {
+export function CaseCardView({ card, focusProblemId, onBack, onPrev, onNext, onJump, seqNav }: Props) {
   useEffect(() => {
     if (focusProblemId) document.getElementById(anchorId(focusProblemId))?.scrollIntoView({ block: 'start' })
     else window.scrollTo({ top: 0 })
   }, [card.id, focusProblemId])
 
   const navBtn = 'text-xs text-muted-foreground border border-border rounded-lg px-2.5 py-1 hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
+  // 레퍼런스 답안집과 같은 바: [← 목록으로] [‹ 이전 카드] [다음 카드 ›]. 없는 쪽 버튼은 그리지 않는다
   const nav = (
-    <div className="flex items-center gap-2">
-      <button onClick={onBack} className={navBtn}>← 목록으로</button>
-      <div className="ml-auto flex gap-2">
-        <button onClick={onPrev} disabled={!onPrev} className={navBtn}>이전 카드</button>
-        <button onClick={onNext} disabled={!onNext} className={navBtn}>다음 카드</button>
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <button onClick={onBack} className={navBtn}>← 목록으로</button>
+        {onPrev && <button onClick={onPrev} className={navBtn}>‹ 이전 카드</button>}
+        {onNext && <button onClick={onNext} className={navBtn}>다음 카드 ›</button>}
       </div>
+      {seqNav && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-2.5 py-1.5">
+          <span className="min-w-0 flex-1 text-xs text-foreground">
+            {seqNav.label} <span className="tabular-nums text-muted-foreground">({seqNav.pos}/{seqNav.total})</span>
+          </span>
+          <button onClick={seqNav.onPrev} disabled={!seqNav.onPrev} title="이전 문항 (←)" className={navBtn}>◀ 이전 문항</button>
+          <button onClick={seqNav.onNext} disabled={!seqNav.onNext} title="다음 문항 (→)" className={navBtn}>다음 문항 ▶</button>
+        </div>
+      )}
     </div>
   )
 
@@ -138,16 +169,17 @@ export function CaseCardView({ card, focusProblemId, onBack, onPrev, onNext, onJ
             <button
               key={p.id}
               onClick={() => document.getElementById(anchorId(p.id))?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-              className={`text-[11px] rounded-md px-1.5 py-0.5 border hover:border-primary/60 hover:text-primary transition-colors ${
+              className={`inline-flex items-center gap-1 text-[11px] rounded-md px-1.5 py-0.5 border hover:border-primary/60 hover:text-primary transition-colors ${
                 p.stubFor ? 'border-dashed border-border text-muted-foreground' : 'border-border bg-muted text-foreground'
               }`}
             >
-              {problemLabel(p)} · {p.points}점
+              <KindBadge kind={p.kind} />
+              {problemLabel(p).replace(/^(변시|모의) /, '')} · {p.points}점
             </button>
           ))}
         </div>
       )}
-      {card.problems.map((p) => <ProblemSection key={p.id} p={p} onJump={onJump} />)}
+      {card.problems.map((p) => <ProblemSection key={p.id} p={p} active={p.id === focusProblemId} onJump={onJump} />)}
       {card.notes.length > 0 && (
         <section className="bg-card border border-border rounded-xl px-4 py-3">
           <h2 className="text-xs font-semibold text-foreground mb-1.5">채점·출제 메모</h2>

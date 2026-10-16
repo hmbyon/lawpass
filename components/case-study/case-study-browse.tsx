@@ -5,7 +5,7 @@ import type { Card, CaseIndex } from '@/lib/caseStudy/types'
 import { getAppMode } from '@/lib/appMode'
 import { fetchCaseCard, fetchCaseIndex } from '@/lib/firebaseServices/caseStudy'
 import { sortCards } from '@/lib/caseStudy/group'
-import { CaseIndexView } from '@/components/case-study/case-index-view'
+import { CaseIndexView, type SeqItem } from '@/components/case-study/case-index-view'
 import { CaseCardView } from '@/components/case-study/case-card-view'
 
 export function CaseErrorNotice({ error }: { error: unknown }) {
@@ -31,7 +31,8 @@ export function CaseStudyBrowse() {
   // undefined = 불러오는 중, null = 아직 아무것도 올라오지 않음
   const [index, setIndex] = useState<CaseIndex | null | undefined>(undefined)
   const [indexError, setIndexError] = useState<unknown>(null)
-  const [open, setOpen] = useState<{ card: string; problem?: string } | null>(null)
+  // seq 가 있으면 회차별 목록에서 들어온 것이다 — 카드 위에 '문항 이동'(◀ ▶)을 띄운다
+  const [open, setOpen] = useState<{ card: string; problem?: string; seq?: { items: SeqItem[]; at: number } } | null>(null)
   const [card, setCard] = useState<Card | null | undefined>(undefined)
   const [cardError, setCardError] = useState<unknown>(null)
   const cache = useRef(new Map<string, Card | null>())
@@ -65,10 +66,49 @@ export function CaseStudyBrowse() {
   const ordered = useMemo(() => (index ? sortCards(index.cards) : []), [index])
   const pos = ordered.findIndex((c) => c.id === openCardId)
 
-  function openCard(cardId: string, problemId?: string) {
+  function openCard(cardId: string, problemId?: string, seq?: { items: SeqItem[]; at: number }) {
     if (!open) listScroll.current = window.scrollY
-    setOpen({ card: cardId, problem: problemId })
+    setOpen({ card: cardId, problem: problemId, seq })
   }
+
+  // 카드 안에서 다른 카드로 넘어가도(이전/다음 카드·stub 점프) 회차별 순서는 들고 간다 — ◀ ▶ 가 끊기지 않게
+  function jump(cardId: string, problemId?: string) {
+    setOpen((o) => ({ card: cardId, problem: problemId, seq: o?.seq }))
+  }
+
+  function moveSeq(delta: number) {
+    setOpen((o) => {
+      if (!o?.seq) return o
+      const at = o.seq.at + delta
+      const item = o.seq.items[at]
+      return item ? { card: item.card, problem: item.problem, seq: { items: o.seq.items, at } } : o
+    })
+  }
+
+  const seq = open?.seq
+  const prevCard = pos > 0 ? () => jump(ordered[pos - 1].id) : undefined
+  const nextCard = pos >= 0 && pos < ordered.length - 1 ? () => jump(ordered[pos + 1].id) : undefined
+  const prevProblem = seq && seq.at > 0 ? () => moveSeq(-1) : undefined
+  const nextProblem = seq && seq.at < seq.items.length - 1 ? () => moveSeq(1) : undefined
+
+  // ← → 키: 회차별에서 들어왔으면 문항, 아니면 카드를 넘긴다. 입력창에 포커스가 있으면 건드리지 않는다
+  const keys = useRef<{ prev?: () => void; next?: () => void }>({})
+  keys.current = { prev: seq ? prevProblem : prevCard, next: seq ? nextProblem : nextCard }
+  const isOpen = !!open
+  useEffect(() => {
+    if (!isOpen) return
+    function onKey(e: KeyboardEvent) {
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+      const t = e.target as HTMLElement | null
+      if (t?.closest('input, textarea, select, [contenteditable="true"]')) return
+      const fn = e.key === 'ArrowLeft' ? keys.current.prev : e.key === 'ArrowRight' ? keys.current.next : undefined
+      if (!fn) return
+      e.preventDefault()
+      fn()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [isOpen])
 
   function back() {
     setOpen(null)
@@ -105,9 +145,18 @@ export function CaseStudyBrowse() {
             card={card}
             focusProblemId={open.problem}
             onBack={back}
-            onPrev={pos > 0 ? () => openCard(ordered[pos - 1].id) : undefined}
-            onNext={pos >= 0 && pos < ordered.length - 1 ? () => openCard(ordered[pos + 1].id) : undefined}
-            onJump={openCard}
+            onPrev={prevCard}
+            onNext={nextCard}
+            onJump={jump}
+            seqNav={
+              seq && {
+                label: seq.items[seq.at].label,
+                pos: seq.at + 1,
+                total: seq.items.length,
+                onPrev: prevProblem,
+                onNext: nextProblem,
+              }
+            }
           />
         ))}
     </div>
