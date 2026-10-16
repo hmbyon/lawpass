@@ -1,5 +1,5 @@
 import { db } from '@/lib/firebase'
-import { doc, getDoc, setDoc } from 'firebase/firestore'
+import { doc, getDoc, setDoc, writeBatch } from 'firebase/firestore'
 import { ADMIN_UID, byteLength } from '@/lib/firebaseServices/sync'
 import type { Card, CaseIndex } from '@/lib/caseStudy/types'
 
@@ -15,6 +15,10 @@ import type { Card, CaseIndex } from '@/lib/caseStudy/types'
 
 // Firestore 문서 한도 1MiB 보다 여유를 둔다. 카드는 조각으로 나누지 않으므로 넘으면 저장 자체를 막는다
 const MAX_DOC_BYTES = 900_000
+
+// 한 번의 commit 에 담는 한도. Firestore 상한(쓰기 500건 · 요청 10MiB)보다 넉넉히 아래로 잡는다
+export const BATCH_MAX_OPS = 450
+export const BATCH_MAX_BYTES = 4_000_000
 
 function indexRef(mode: string) {
   return doc(db, 'users', ADMIN_UID, mode, 'caseStudy')
@@ -53,4 +57,15 @@ export async function saveCaseIndex(mode: string, index: CaseIndex): Promise<voi
 export async function saveCaseCard(mode: string, card: Card): Promise<void> {
   assertSize(card, `카드 ${card.id}`)
   await setDoc(cardRef(mode, card.id), card)
+}
+
+// 카드 여러 장을 한 번에 쓴다. 원자적이라 하나라도 거부되면 전부 안 써진다 —
+// 어느 카드가 문제인지 가리려면 호출부가 saveCaseCard 로 한 장씩 다시 써야 한다
+export async function saveCaseCardsBatch(mode: string, cards: Card[]): Promise<void> {
+  const batch = writeBatch(db)
+  for (const card of cards) {
+    assertSize(card, `카드 ${card.id}`)
+    batch.set(cardRef(mode, card.id), card)
+  }
+  await batch.commit()
 }

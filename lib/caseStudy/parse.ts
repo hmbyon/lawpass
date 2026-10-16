@@ -26,3 +26,22 @@ export function parseCaseFile(name: string, text: string): ParsedFile {
   if (!Array.isArray(obj.problems)) throw new Error('problems 배열이 없습니다')
   return { kind: 'card', name, card: obj as unknown as Card }
 }
+
+// 일괄 쓰기 단위로 나눈다. 건수와 바이트 둘 다 넘지 않게 — 항목 하나가 예산을 넘으면 그것만 단독 묶음이다
+export function chunkForBatch<T>(items: T[], maxOps: number, maxBytes: number): T[][] {
+  const out: T[][] = []
+  let cur: T[] = []
+  let bytes = 0
+  for (const item of items) {
+    const size = new TextEncoder().encode(JSON.stringify(item)).length
+    if (cur.length > 0 && (cur.length >= maxOps || bytes + size > maxBytes)) {
+      out.push(cur)
+      cur = []
+      bytes = 0
+    }
+    cur.push(item)
+    bytes += size
+  }
+  if (cur.length > 0) out.push(cur)
+  return out
+}
