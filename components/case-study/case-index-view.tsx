@@ -46,6 +46,12 @@ function examTitle(kind: IndexProblem['kind'], exam: number | string): string {
   return `20${y}년 ${m}월 모의`
 }
 
+// 분류 제목에 과목이 접두어로 붙어 온 경우('민소 · 병합소송') 과목 구획 아래에서는 떼고 보인다. 표시용일 뿐 값은 그대로다
+function categoryLabel(category: string, subject: string): string {
+  const prefix = `${subject} · `
+  return category.startsWith(prefix) ? category.slice(prefix.length) : category
+}
+
 function examShort(kind: IndexProblem['kind'], exam: number | string): string {
   return kind === '변시' ? `변시 ${exam}회` : `모의 ${exam}`
 }
@@ -86,6 +92,17 @@ export function CaseIndexView({ index, onOpen }: Props) {
 
   const cards = useMemo(() => filterCards(index, subject, query), [index, subject, query])
   const byChapter = useMemo(() => (sort === '진도별' ? groupByChapter(cards) : []), [cards, sort])
+  // 진도별 1단계 구획 = 과목. 카드가 과목 → 교재 순으로 정렬돼 있어 같은 과목의 분류는 연달아 나온다
+  const bySubject = useMemo(() => {
+    const out: { subject: string; categories: typeof byChapter }[] = []
+    for (const cat of byChapter) {
+      const subject = cat.chapters[0]?.cards[0]?.subject ?? ''
+      const last = out[out.length - 1]
+      if (last && last.subject === subject) last.categories.push(cat)
+      else out.push({ subject, categories: [cat] })
+    }
+    return out
+  }, [byChapter])
   const byExam = useMemo(() => (sort === '회차별' ? groupByExam(cards) : []), [cards, sort])
   // 회차별 유형·카드 열 — 답안이 있는 카드의 제목. 그 카드가 필터에 걸려 빠져도 제목은 보여야 하므로 전체 색인에서 찾는다
   const byId = useMemo(() => new Map(index.cards.map((c) => [c.id, c])), [index])
@@ -121,77 +138,84 @@ export function CaseIndexView({ index, onOpen }: Props) {
         </p>
       )}
 
-      {byChapter.map((cat) => (
-        <section key={cat.category} className="pt-4 first:pt-0">
-          {/* 분류(편) → 장 → 카드. 위계는 굵기·밑줄로 가른다 */}
-          <h2 className="text-base font-bold text-foreground pb-1.5 border-b-2 border-primary">{cat.category}</h2>
-          {cat.chapters.map((ch) => (
-            <div key={ch.chapter} className="mt-4">
-              <h3 className="mb-1.5 text-sm font-semibold text-foreground">
-                {ch.chapter}
-                <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">카드 {ch.cards.length}</span>
+      {/* 과목 → 분류(편) → 장 → 카드. 위계는 크기·굵기·밑줄로 가른다 */}
+      {bySubject.map((subj) => (
+        <section key={subj.subject} className="pt-6 first:pt-0">
+          <h2 className="text-lg font-extrabold text-foreground pb-1.5 border-b-2 border-primary">{subj.subject}</h2>
+          {subj.categories.map((cat) => (
+            <section key={cat.category} className="pt-5 first:pt-3">
+              <h3 className="text-[15px] font-bold text-foreground pb-1 border-b border-border">
+                {categoryLabel(cat.category, subj.subject)}
               </h3>
-              <div className="bg-card border border-border rounded-xl overflow-hidden">
-                {/* 레퍼런스와 같이 카드·유형·쪽수 열만 폭을 고정하고 변시·모의 열은 버튼 수만큼 나눠 갖는다 */}
-                <table className={TABLE}>
-                  <colgroup>
-                    <col className="w-14" />
-                    <col className="w-48" />
-                    <col />
-                    <col />
-                    <col className="w-24" />
-                  </colgroup>
-                  <thead className="max-sm:hidden">
-                    <tr>
-                      <th className={TH}>카드</th>
-                      <th className={TH}>유형</th>
-                      <th className={TH}>변시</th>
-                      <th className={TH}>모의</th>
-                      <th className={TH}>송영곤</th>
-                    </tr>
-                  </thead>
-                  <tbody className="max-sm:block max-sm:divide-y max-sm:divide-border">
-                    {ch.cards.map((c) => {
-                      const bs = c.problems.filter((p) => p.kind === '변시')
-                      const my = c.problems.filter((p) => p.kind === '모의')
-                      const pages = c.pages && c.pages !== '—' ? c.pages : ''
-                      return (
-                        // 좁으면: 1줄 [카드번호 … 쪽수] / 2줄 유형 / 3·4줄 변시·모의 버튼 (빈 칸은 감춘다)
-                        <tr key={c.id} className="max-sm:grid max-sm:grid-cols-[auto_1fr] max-sm:gap-x-3 max-sm:gap-y-1.5 max-sm:px-3 max-sm:py-2.5">
-                          <td className={`${TD} whitespace-nowrap`}>
-                            <button onClick={() => onOpen(c.id)} className="font-semibold tabular-nums text-primary hover:underline">
-                              {c.id}
-                            </button>
-                          </td>
-                          <td className={`${TD} max-sm:col-span-2 max-sm:row-start-2`}>
-                            <button
-                              onClick={() => onOpen(c.id)}
-                              className="text-left text-[13px] leading-snug text-foreground hover:text-primary transition-colors"
-                            >
-                              {c.title}
-                            </button>
-                          </td>
-                          {[bs, my].map((list, i) => (
-                            <td key={i} className={`${TD} max-sm:col-span-2 ${list.length === 0 ? 'max-sm:hidden' : ''}`}>
-                              {list.length === 0 ? (
-                                DASH
-                              ) : (
-                                <div className="flex flex-wrap gap-1">
-                                  {list.map((p) => <ProblemButton key={p.id} card={c} p={p} onOpen={onOpen} />)}
-                                </div>
-                              )}
-                            </td>
-                          ))}
-                          <td className={`${TD} text-muted-foreground max-sm:col-start-2 max-sm:row-start-1 max-sm:justify-self-end max-sm:text-right max-sm:text-[11px]`}>
-                            {pages || DASH}
-                          </td>
+              {cat.chapters.map((ch) => (
+                <div key={ch.chapter} className="mt-4">
+                  <h4 className="mb-1.5 text-sm font-semibold text-foreground">
+                    {ch.chapter}
+                    <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">카드 {ch.cards.length}</span>
+                  </h4>
+                  <div className="bg-card border border-border rounded-xl overflow-hidden">
+                    {/* 레퍼런스와 같이 카드·유형·쪽수 열만 폭을 고정하고 변시·모의 열은 버튼 수만큼 나눠 갖는다 */}
+                    <table className={TABLE}>
+                      <colgroup>
+                        <col className="w-14" />
+                        <col className="w-48" />
+                        <col />
+                        <col />
+                        <col className="w-24" />
+                      </colgroup>
+                      <thead className="max-sm:hidden">
+                        <tr>
+                          <th className={TH}>카드</th>
+                          <th className={TH}>유형</th>
+                          <th className={TH}>변시</th>
+                          <th className={TH}>모의</th>
+                          <th className={TH}>송영곤</th>
                         </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                      </thead>
+                      <tbody className="max-sm:block max-sm:divide-y max-sm:divide-border">
+                        {ch.cards.map((c) => {
+                          const bs = c.problems.filter((p) => p.kind === '변시')
+                          const my = c.problems.filter((p) => p.kind === '모의')
+                          const pages = c.pages && c.pages !== '—' ? c.pages : ''
+                          return (
+                            // 좁으면: 1줄 [카드번호 … 쪽수] / 2줄 유형 / 3·4줄 변시·모의 버튼 (빈 칸은 감춘다)
+                            <tr key={c.id} className="max-sm:grid max-sm:grid-cols-[auto_1fr] max-sm:gap-x-3 max-sm:gap-y-1.5 max-sm:px-3 max-sm:py-2.5">
+                              <td className={`${TD} whitespace-nowrap`}>
+                                <button onClick={() => onOpen(c.id)} className="font-semibold tabular-nums text-primary hover:underline">
+                                  {c.id}
+                                </button>
+                              </td>
+                              <td className={`${TD} max-sm:col-span-2 max-sm:row-start-2`}>
+                                <button
+                                  onClick={() => onOpen(c.id)}
+                                  className="text-left text-[13px] leading-snug text-foreground hover:text-primary transition-colors"
+                                >
+                                  {c.title}
+                                </button>
+                              </td>
+                              {[bs, my].map((list, i) => (
+                                <td key={i} className={`${TD} max-sm:col-span-2 ${list.length === 0 ? 'max-sm:hidden' : ''}`}>
+                                  {list.length === 0 ? (
+                                    DASH
+                                  ) : (
+                                    <div className="flex flex-wrap gap-1">
+                                      {list.map((p) => <ProblemButton key={p.id} card={c} p={p} onOpen={onOpen} />)}
+                                    </div>
+                                  )}
+                                </td>
+                              ))}
+                              <td className={`${TD} text-muted-foreground max-sm:col-start-2 max-sm:row-start-1 max-sm:justify-self-end max-sm:text-right max-sm:text-[11px]`}>
+                                {pages || DASH}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </section>
           ))}
         </section>
       ))}
