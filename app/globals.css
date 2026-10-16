@@ -286,3 +286,26 @@ mark[data-erasing] {
 .hl-bracket[data-erasable]:hover {
   background-color: rgb(239 68 68);
 }
+
+/* 사례형 답안·목차 (components/case-study). 배경을 반투명으로 깔아 라이트·다크·눈 보호 테마 어디서나
+   글자색(--foreground)은 테마 그대로 두고 칸만 옅게 물든다 */
+.case-study mark {
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+.case-study mark.law {
+  background-color: oklch(0.82 0.09 230 / 35%);
+}
+.case-study mark.case {
+  background-color: oklch(0.84 0.1 60 / 35%);
+}
+.case-study mark.res {
+  background-color: oklch(0.9 0.12 100 / 40%);
+}
+.case-study u {
+  text-decoration-line: underline;
+  text-decoration-color: var(--muted-foreground);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
