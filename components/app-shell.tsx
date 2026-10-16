@@ -57,7 +57,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 // 유형 스위치. 헤더 폭(max-w-3xl)이 '동기화 중...' 이 뜬 상태에서 거의 꽉 차 있어 두 글자로 줄이고
 // 전체 이름은 title 로 보인다
 const STUDY_KINDS: { id: StudyKind; label: string; title: string }[] = [
-  { id: 'objective', label: '객관', title: '객관식' },
+  { id: 'objective', label: '선택', title: '선택형' },
   { id: 'caseStudy', label: '사례', title: '사례형' },
   { id: 'record', label: '기록', title: '기록형 (준비 중)' },
 ]
@@ -371,10 +371,10 @@ export function AppShell({ user }: Props) {
                   setStudyKind(next)
                   setStudyKindState(next)
                 }}
-                title={`객관식 / 사례형 전환 (지금: ${kind === 'objective' ? '객관식' : '사례형'})`}
+                title={`선택형 / 사례형 전환 (지금: ${kind === 'objective' ? '선택형' : '사례형'})`}
                 className={`sm:hidden shrink-0 rounded-full border border-primary/40 bg-primary/10 text-primary text-[10px] font-semibold leading-none py-1 ${compactHeader ? 'px-0.5' : 'px-1'}`}
               >
-                {!compactHeader && (kind === 'objective' ? '객관' : '사례')}⇄
+                {!compactHeader && (kind === 'objective' ? '선택' : '사례')}⇄
               </button>
             )}
             {mode !== 'general' && (
