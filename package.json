@@ -10,7 +10,8 @@
     "check:parse-review": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --outDir .tmp-check lib/parseReview.ts lib/units.ts scripts/parseReviewCheck.ts && node .tmp-check/scripts/parseReviewCheck.js",
     "check:replace-content": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/store.ts scripts/replaceContentCheck.ts && node .tmp-check/scripts/replaceContentCheck.js",
     "check:case-normalize": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseDigest.ts lib/caseFavorites.ts scripts/check-case-normalize.ts && node .tmp-check/scripts/check-case-normalize.js",
-    "check:case-fields": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseStudy/sanitize.ts scripts/check-case-fields.ts && node .tmp-check/scripts/check-case-fields.js"
+    "check:case-fields": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseStudy/sanitize.ts scripts/check-case-fields.ts && node .tmp-check/scripts/check-case-fields.js",
+    "check:case-unified": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseDigest.ts scripts/check-case-unified.ts && node .tmp-check/scripts/check-case-unified.js"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

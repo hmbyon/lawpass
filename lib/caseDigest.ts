@@ -1,6 +1,8 @@
 import type { CaseRef, ExamType, ExplanationBlock, Question, Subject } from './types'
 import { SUBJECT_UNITS } from './units'
 import { examMonthOf, examMonthLabel, type ExamMonthLabel } from './questionSource'
+import type { CaseIndex, CaseSubject, IndexProblem } from './caseStudy/types'
+import { problemLabel } from './caseStudy/group'
 
 /**
  * 해설에 인용된 판례를 판례 단위로 모은다.
@@ -92,6 +94,51 @@ export interface CaseGroup {
   // 한 판례가 여러 과목·단원에 걸쳐 인용될 수 있다. 인용한 문제들의 과목·단원을 모아 둔다
   subjects: Subject[]
   units: string[]
+  // ── 통합 판례 DB (선택형 + 사례형) ──
+  // 위 필드(questions·count·subjects·units·요지·선고일)는 전부 **선택형 값**이다 — 기존 화면이
+  // 그대로 돌게 하려는 것이다. 사례형까지 합친 정보는 아래 셋에만 있다
+  sources: CaseSource[] // 이 판례를 인용한 곳 전부 (선택형 문제 + 사례형 문항)
+  counts: { objective: number; caseStudy: number; total: number } // total 은 정렬용 합계
+  hasSummary: boolean // 요지가 있는가. 사례형에만 나온 판례는 요지가 없다(문구는 화면이 정한다)
+}
+
+/**
+ * 판례를 인용한 출처 하나.
+ *
+ * objective — 선택형 문제. 이동·표시에 필요한 값은 question 에 다 있다(과목·시험종류·연도·번호)
+ * caseStudy — 사례형 문항. 색인(_index.json v1.1)의 '문항 단위 cases' 에서 온다.
+ *   problemLabel 은 사례형 목록의 문항 라벨과 같은 규칙(lib/caseStudy/group.ts problemLabel)이고,
+ *   year 는 **시험 연도**다(변시 N회 → 2011+N, 모의 '24.6' → 2024). 판례 선고연도가 아니다
+ */
+export type CaseSource =
+  | {
+      kind: 'objective'
+      questionId: string
+      question: Question
+      subject: Subject
+      examType: ExamType
+      year: number
+      label: string // "12번"
+    }
+  | {
+      kind: 'caseStudy'
+      cardId: string
+      problemId: string
+      cardTitle: string
+      problemLabel: string // "변시 11회 제2문의 1 문1", "모의 24.6 제2문의 2 문1"
+      subject: CaseSubject
+      examType: IndexProblem['kind'] // '변시' | '모의'
+      year: number | null
+    }
+
+// 사례형 문항의 시험 연도. 판례 선고연도로 쓰지 않는다
+function caseStudyExamYear(p: IndexProblem): number | null {
+  if (p.kind === '변시') {
+    const round = Number(p.exam)
+    return round > 0 ? 2011 + round : null
+  }
+  const yy = Number(String(p.exam).split('.')[0])
+  return yy > 0 ? 2000 + yy : null
 }
 
 export interface CaseDigest {
@@ -110,8 +157,30 @@ function pick(list: string[]): { summary: string; otherSummaries: number } {
   return { summary: longest, otherSummaries: uniq.length - 1 }
 }
 
+// now 는 예전부터 쓰이지 않던 인자다. 호출부를 깨지 않으려고 시그니처만 남겨 둔다
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function buildCaseDigest(questions: Question[], now: Date = new Date()): CaseDigest {
-  const groups = new Map<string, { refs: CaseRef[]; questions: Question[] }>()
+  return buildUnifiedCaseDigest(questions)
+}
+
+/**
+ * 선택형 문제와 사례형 색인을 합쳐 판례 단위로 모은다. 같은 key(normalizeCaseNumber)면 한 판례다.
+ *
+ * caseIndex 가 없거나 비어 있으면 buildCaseDigest 와 같은 결과다 — 선택형 그룹을 먼저 만들고
+ * 사례형은 그 뒤에 얹기만 하므로, 선택형 그룹의 순서와 기존 필드 값은 사례형이 있어도 그대로다.
+ *
+ * 사례형은 **문항 단위 cases** 만 쓴다. 카드 단위 cases 는 문항들의 합이라 같이 세면 두 번 센다.
+ * stub 문항(답안이 다른 카드에 있음)은 건너뛴다 — 그 판례는 답안이 있는 문항이 이미 센다.
+ *
+ * 사례형에만 나온 판례(선택형에 같은 key 가 없는 것)의 처리:
+ *  - 선고일·법원이 없다. 사건번호 연도로 선고연도를 짐작하지 않는다 → year = null.
+ *    그래서 화면에서는 기존 '선고일 미상' 묶음에 들어가고, 선고 기간 필터(inPeriod 는
+ *    year === null 을 거르지 않는다)에 걸리지 않고 늘 보인다.
+ *  - 요지가 없다 → summary = '', hasSummary = false.
+ *  - 선택형 필드(questions·count·subjects·units)는 비어 있다(0). 출제 횟수는 counts 에 있다
+ */
+export function buildUnifiedCaseDigest(questions: Question[], caseIndex?: CaseIndex | null): CaseDigest {
+  const groups = new Map<string, { refs: CaseRef[]; questions: Question[]; sources: CaseSource[]; firstRaw: string; caseStudy: number }>()
   let questionsWithCases = 0
 
   for (const q of questions) {
@@ -123,12 +192,40 @@ export function buildCaseDigest(questions: Question[], now: Date = new Date()): 
       const key = normalizeCaseNumber(c.caseNumber)
       if (!key || seen.has(key)) continue
       seen.add(key)
+      const source: CaseSource = {
+        kind: 'objective', questionId: q.id, question: q, subject: q.subject, examType: q.examType, year: q.year, label: `${q.no}번`,
+      }
       const found = groups.get(key)
       if (found) {
         found.refs.push(c)
         found.questions.push(q)
+        found.sources.push(source)
       } else {
-        groups.set(key, { refs: [c], questions: [q] })
+        groups.set(key, { refs: [c], questions: [q], sources: [source], firstRaw: c.caseNumber, caseStudy: 0 })
+      }
+    }
+  }
+
+  for (const card of caseIndex?.cards ?? []) {
+    for (const p of card.problems ?? []) {
+      if (p.stubFor || !p.cases?.length) continue
+      // 한 문항이 같은 판례를 두 번 인용해도 1건이다 (선택형과 같은 원칙)
+      const seen = new Set<string>()
+      for (const raw of p.cases) {
+        const key = normalizeCaseNumber(raw)
+        if (!key || seen.has(key)) continue
+        seen.add(key)
+        const source: CaseSource = {
+          kind: 'caseStudy', cardId: card.id, problemId: p.id, cardTitle: card.title, problemLabel: problemLabel(p),
+          subject: card.subject, examType: p.kind, year: caseStudyExamYear(p),
+        }
+        const found = groups.get(key)
+        if (found) {
+          found.sources.push(source)
+          found.caseStudy++
+        } else {
+          groups.set(key, { refs: [], questions: [], sources: [source], firstRaw: raw, caseStudy: 1 })
+        }
       }
     }
   }
@@ -137,9 +234,11 @@ export function buildCaseDigest(questions: Question[], now: Date = new Date()): 
     const { summary, otherSummaries } = pick(g.refs.map((r) => r.summary))
     // 선고일·법원은 비어 있는 사본이 섞이므로, 적혀 있는 것 중 첫 번째를 쓴다
     const decidedDate = g.refs.find((r) => r.decidedDate?.trim())?.decidedDate
+    const objective = g.questions.length
     return {
       key,
-      caseNumber: g.refs[0].caseNumber,
+      // 선택형 표기가 있으면 그것(기존과 같다), 사례형에만 있으면 처음 만난 사례형 표기
+      caseNumber: g.refs[0]?.caseNumber ?? g.firstRaw,
       decidedDate,
       court: g.refs.find((r) => r.court?.trim())?.court,
       summary,
@@ -149,6 +248,9 @@ export function buildCaseDigest(questions: Question[], now: Date = new Date()): 
       count: g.questions.length,
       subjects: Array.from(new Set(g.questions.map((q) => q.subject))),
       units: Array.from(new Set(g.questions.map((q) => q.unit?.trim()).filter((u): u is string => !!u))),
+      sources: g.sources,
+      counts: { objective, caseStudy: g.caseStudy, total: objective + g.caseStudy },
+      hasSummary: summary !== '',
     }
   })
 

@@ -1,4 +1,5 @@
-import type { CaseIndex, IndexCard, IndexProblem } from '@/lib/caseStudy/types'
+// 상대 경로: lib/caseDigest.ts 를 거쳐 check:* 스크립트(tsc CLI, 경로 별칭 없음)에서도 컴파일된다
+import type { CaseIndex, IndexCard, IndexProblem } from './types'
 
 export type SubjectFilter = '전체' | '민법' | '민소'
 
