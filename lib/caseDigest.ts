@@ -37,12 +37,37 @@ export function inPeriod(year: number | null, years: number | null, now: Date): 
  *
  * 지문 정규화(passageMatch.ts)와 달리 여기서는 글자를 지운다. 사건번호는 자연어가 아니라
  * 정해진 형식이라, 뼈대만 같으면 같은 판례로 봐도 안전하다
+ *
+ * 연도는 2자리도 받는다. 1990년대 이전 판례는 "95다8713", "62다801"처럼 적힌다 —
+ * 4자리만 보면 이것들은 공백만 지운 원문이 키가 되어, "대법원 95다8713"·"95다8713 판결"이
+ * 서로 다른 판례로 갈라진다. 2자리 연도는 키에서 4자리로 올린다(아래 fullYear).
+ *
+ * 연도 앞이 숫자면 연도로 보지 않는다 — "2016다…"의 "16"이나 "123다…"의 "23"을 집지
+ * 않으려는 것이다. 빌드 타깃(ES6)이 정규식 lookbehind를 못 써서 앞 글자를 첫 그룹으로 잡는다
  */
-const CASE_NUMBER = /(\d{4})\s*([가-힣]{1,4})\s*(\d+)/
+const CASE_NUMBER = /(^|\D)(\d{4}|\d{2})\s*([가-힣]{1,4})\s*(\d+)/
+
+/**
+ * 2자리 연도를 4자리로: 00~29 → 20xx, 30~99 → 19xx.
+ *
+ * 대법원은 2000년부터 사건번호에 4자리 연도를 쓰므로, 2자리로 적힌 것은 사실상 전부 19xx다.
+ * 00~29를 20xx로 두는 것은 "16다12345"처럼 줄여 적은 최근 판례를 "2016다12345"와 맞추려는
+ * 것이다. 실제 데이터(선택형 판례 5,757건·사례형 495건)의 2자리 연도는 62~99뿐이라
+ * 경계(29/30)에 걸리는 표기는 없다 — scripts/check-case-normalize.ts 에 경계를 고정해 둔다
+ */
+function fullYear(year: string): string {
+  if (year.length === 4) return year
+  const n = Number(year)
+  return String(n <= 29 ? 2000 + n : 1900 + n)
+}
+
+function caseKey(m: RegExpExecArray): string {
+  return `${fullYear(m[2])}${m[3]}${m[4]}`
+}
 
 export function normalizeCaseNumber(caseNumber: string): string {
   const m = CASE_NUMBER.exec(caseNumber ?? '')
-  if (m) return `${m[1]}${m[2]}${m[3]}`
+  if (m) return caseKey(m)
   return (caseNumber ?? '').replace(/\s+/g, '')
 }
 
@@ -397,7 +422,8 @@ const CASE_NUMBER_ALL = new RegExp(CASE_NUMBER.source, 'g')
 function caseNumberAt(text: string, key: string): { at: number; len: number } | null {
   CASE_NUMBER_ALL.lastIndex = 0
   for (let m = CASE_NUMBER_ALL.exec(text); m; m = CASE_NUMBER_ALL.exec(text)) {
-    if (`${m[1]}${m[2]}${m[3]}` === key) return { at: m.index, len: m[0].length }
+    // 첫 그룹은 연도 앞 글자다(정규식 설명 참고). 자리는 그 글자를 빼고 사건번호부터 잡는다
+    if (caseKey(m) === key) return { at: m.index + m[1].length, len: m[0].length - m[1].length }
   }
   // 사건번호 형식이 아닌 표기(normalizeCaseNumber가 공백만 지워 돌려준 것)는 그 글자들을
   // 그대로 찾는다. 본문에서도 띄어 적힐 수 있어 글자 사이 공백을 허용한다

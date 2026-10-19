@@ -1,4 +1,5 @@
 import type { AppMode } from './appMode'
+import { normalizeCaseNumber } from './caseDigest'
 
 /**
  * 기출판례 즐겨찾기. 판례 하나는 정규화한 사건번호(CaseGroup.key)로 가리킨다.
@@ -17,7 +18,13 @@ export function readFavoriteCases(mode: AppMode): Set<string> {
   try {
     const raw = localStorage.getItem(storageKey(mode))
     const parsed = raw ? JSON.parse(raw) : []
-    return new Set(Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === 'string') : [])
+    const stored = Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === 'string') : []
+    // 정규화 규칙이 바뀌면(2자리 연도 판례 "95다8713" → "1995다8713") 옛 key 로는 판례를 못 찾아
+    // 즐겨찾기가 사라져 보인다. 읽을 때 새 규칙으로 옮기고 겹친 것은 하나로 합친다.
+    // 이미 새 key 면 정규화해도 그대로라 다시 읽어도 결과가 같다(멱등)
+    const keys = new Set(stored.map(normalizeCaseNumber))
+    if (keys.size !== stored.length || stored.some((k) => !keys.has(k))) writeFavoriteCases(mode, keys)
+    return keys
   } catch {
     return new Set()
   }
