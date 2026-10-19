@@ -13,11 +13,13 @@ import {
   groupBySource, examMonthOf, examMonthValue, EXAM_MONTH_OPTIONS, type ExamMonthLabel,
 } from '@/lib/questionSource'
 import {
-  buildCaseDigest, filterCases, sortCases, periodLabel, PERIOD_OPTIONS, examYearLabel,
+  buildUnifiedCaseDigest, filterCases, sortCases, periodLabel, PERIOD_OPTIONS, examYearLabel,
   findCaseMentions, allExplanationText, previewMention, selectedUnitsOf, mergeUnitSelection,
-  searchCases,
-  type CaseGroup, type CaseSort,
+  searchCases, inOrigin, caseStudyExcerpt, CASE_STUDY_SUBJECT,
+  type CaseGroup, type CaseSort, type CaseOrigin, type CaseSource,
 } from '@/lib/caseDigest'
+import type { Card, CaseIndex } from '@/lib/caseStudy/types'
+import { fetchCaseCard } from '@/lib/firebaseServices/caseStudy'
 
 /**
  * 기출판례 — 해설에 인용된 판례를 판례 단위로 모아 보여준다.
@@ -123,6 +125,73 @@ function QuestionLine({
   )
 }
 
+// 사례형 카드는 판례 화면에서 출처 줄을 펼칠 때만 읽는다. 카드 단위로 한 번만 — 실패하면 지워서 다시 시도할 수 있게
+const cardCache = new Map<string, Promise<Card | null>>()
+function loadCard(cardId: string): Promise<Card | null> {
+  const key = `${getAppMode()}|${cardId}`
+  let p = cardCache.get(key)
+  if (!p) {
+    p = fetchCaseCard(getAppMode(), cardId).catch((e) => {
+      cardCache.delete(key)
+      throw e
+    })
+    cardCache.set(key, p)
+  }
+  return p
+}
+
+type CaseStudySource = Extract<CaseSource, { kind: 'caseStudy' }>
+
+/**
+ * 사례형 출처 한 줄. 누르면 그 문항 모범답안에서 이 판례가 나온 자리를 글자로만 발췌해 펼친다.
+ * 카드로 이동하는 것은 아직 없다(다음 단계). 불러오기에 실패해도 줄은 남는다
+ */
+function CaseStudyLine({ source, caseKey }: { source: CaseStudySource; caseKey: string }) {
+  const [open, setOpen] = useState(false)
+  const [state, setState] = useState<{ excerpt: string | null } | 'loading' | 'error' | null>(null)
+  function toggle() {
+    const next = !open
+    setOpen(next)
+    if (!next || (state && state !== 'error')) return
+    setState('loading')
+    loadCard(source.cardId)
+      .then((card) => {
+        const problem = card?.problems.find((p) => p.id === source.problemId)
+        setState({ excerpt: caseStudyExcerpt(problem, caseKey) })
+      })
+      .catch(() => setState('error'))
+  }
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={open}
+        className="flex items-start gap-1.5 text-left text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+      >
+        {/* 선택형 출처 줄과 갈리게 색 점 + '사례형' 라벨 */}
+        <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500" />
+        <span>
+          <span className="font-medium text-sky-700 dark:text-sky-300">사례형</span> · {source.cardTitle} · {source.problemLabel}
+        </span>
+      </button>
+      {open && (
+        <div className="mt-1 ml-3 rounded-lg border border-sky-500/30 bg-sky-500/5 p-2 text-xs">
+          {state === 'loading' || state === null ? (
+            <p className="text-[11px] text-muted-foreground">답안을 불러오는 중…</p>
+          ) : state === 'error' ? (
+            <p className="text-[11px] text-muted-foreground">사례형 카드를 불러오지 못했습니다</p>
+          ) : state.excerpt ? (
+            <p className="text-foreground whitespace-pre-wrap leading-relaxed">{state.excerpt}</p>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">모범답안에서 이 판례가 나온 자리를 찾지 못했습니다</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function CaseCard({
   group,
   allQuestions,
@@ -130,6 +199,8 @@ function CaseCard({
   onOpen,
   favorite,
   onToggleFavorite,
+  origin,
+  unified,
 }: {
   group: CaseGroup
   // 출처에 파일명을 붙일지는 전체 문제집을 봐야 안다 (같은 회차의 다른 판본이 있는지)
@@ -138,9 +209,24 @@ function CaseCard({
   onOpen: (id: string | null) => void
   favorite: boolean
   onToggleFavorite: (key: string) => void
+  // 출처 칩. 사례형 칩이면 선택형 출처는 접어 두고, 선택형 칩이면 예전 카드와 같다
+  origin: CaseOrigin
+  // 사례형 출처가 하나라도 있는 통합 화면인가. 아니면 카드가 예전과 한 글자도 다르지 않다
+  unified: boolean
 }) {
   // 카드에서 바로 보여줄 조각. 판례 목록을 훑는 사람이 매번 문제를 펼쳐 보게 할 이유가 없다
   const preview = useMemo(() => previewMention(group), [group])
+  const showObjective = origin !== 'caseStudy'
+  const caseStudySources = unified && origin !== 'objective'
+    ? group.sources.filter((s): s is CaseStudySource => s.kind === 'caseStudy')
+    : []
+  // 출제 횟수는 소스별로 ("선택형 3 · 사례형 2", 0 은 생략). 통합 화면이 아니면 예전 표기
+  const countLabel = unified
+    ? [
+        showObjective && group.counts.objective > 0 && `선택형 ${group.counts.objective}`,
+        origin !== 'objective' && group.counts.caseStudy > 0 && `사례형 ${group.counts.caseStudy}`,
+      ].filter(Boolean).join(' · ')
+    : `${group.count}회 출제`
   return (
     <div className="bg-card border border-border rounded-xl p-3.5 space-y-2">
       <div className="flex items-start gap-2">
@@ -157,8 +243,13 @@ function CaseCard({
         >
           {favorite ? '★' : '☆'}
         </button>
-        <p className="flex-1 text-sm text-foreground leading-relaxed">{group.summary || '요지 없음'}</p>
-        <span className="shrink-0 text-xs font-semibold text-primary tabular-nums">{group.count}회 출제</span>
+        {group.summary ? (
+          <p className="flex-1 text-sm text-foreground leading-relaxed">{group.summary}</p>
+        ) : (
+          // 사례형에만 나온 판례는 요지가 없다. 오류가 아니므로 보조 문구로만
+          <p className="flex-1 text-sm text-muted-foreground leading-relaxed">요지 없음</p>
+        )}
+        <span className="shrink-0 text-xs font-semibold text-primary tabular-nums">{countLabel}</span>
       </div>
 
       <p className="text-[11px] text-muted-foreground">
@@ -172,7 +263,7 @@ function CaseCard({
           길이는 previewMention 이 결론 문장을 남기며 줄여 둔다. CSS 로 한 번 더 접으면
           그 결론이 접힌 자리 아래로 밀려나므로 여기서는 접지 않는다.
           전문은 그 문제번호를 누르면 나온다 */}
-      {preview && (
+      {showObjective && preview && (
         <div className="rounded-lg border border-primary/30 bg-primary/5 p-2 space-y-0.5">
           <p className="text-[11px] text-muted-foreground">
             {preview.q.no}번 {preview.mention.where}
@@ -186,7 +277,7 @@ function CaseCard({
       {/* 출처별로 묶는다. 판례 하나가 여러 회차에 걸쳐 나오는 것이 이 화면의 핵심이라,
           문제번호만 늘어놓으면 어느 시험 것인지 알 수 없다 */}
       <div className="space-y-1.5">
-        {groupBySource(group.questions, allQuestions).map((bucket) => (
+        {showObjective && groupBySource(group.questions, allQuestions).map((bucket) => (
           <div key={bucket.label} className="flex flex-wrap items-center gap-1.5">
             <span className="text-[11px] text-muted-foreground shrink-0">{bucket.label}</span>
             {bucket.questions.map((q) => (
@@ -200,6 +291,9 @@ function CaseCard({
             ))}
           </div>
         ))}
+        {caseStudySources.map((src) => (
+          <CaseStudyLine key={src.problemId} source={src} caseKey={group.key} />
+        ))}
       </div>
     </div>
   )
@@ -207,8 +301,46 @@ function CaseCard({
 
 const EXAM_TYPES: ExamType[] = ['변호사시험', '모의고사']
 
-export function CasesTab({ questions }: { questions: Question[] }) {
-  const digest = useMemo(() => buildCaseDigest(questions), [questions])
+const ORIGIN_KEY = 'lawpass_cases_origin'
+const ORIGINS: { id: CaseOrigin; label: string }[] = [
+  { id: 'all', label: '전체' },
+  { id: 'objective', label: '선택형' },
+  { id: 'caseStudy', label: '사례형' },
+]
+
+export function CasesTab({
+  questions,
+  caseIndex,
+  caseIndexError = false,
+}: {
+  questions: Question[]
+  // 사례형 색인. 없으면(불러오는 중·실패·로그인 전) 예전과 똑같은 선택형 판례 화면이다
+  caseIndex?: CaseIndex | null
+  caseIndexError?: boolean
+}) {
+  const digest = useMemo(() => buildUnifiedCaseDigest(questions, caseIndex), [questions, caseIndex])
+  // 사례형 출처가 실제로 하나라도 있을 때만 출처 칩·소스별 횟수를 켠다.
+  // v1 색인(문항 cases 없음)이나 색인 없음이면 화면이 예전과 한 글자도 다르지 않다
+  const unified = useMemo(() => digest.groups.some((g) => g.counts.caseStudy > 0), [digest.groups])
+  const [origin, setOrigin] = useState<CaseOrigin>('all')
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(ORIGIN_KEY)
+      if (saved === 'all' || saved === 'objective' || saved === 'caseStudy') setOrigin(saved)
+    } catch {
+      // 저장소를 못 읽으면 기본값(전체)으로 둔다
+    }
+  }, [])
+  function changeOrigin(next: CaseOrigin) {
+    setOrigin(next)
+    try {
+      localStorage.setItem(ORIGIN_KEY, next)
+    } catch {
+      // 기억하지 못해도 이번 화면에는 적용된다
+    }
+  }
+  // 통합 화면이 아니면 늘 선택형 기준 — counts.objective 는 count 와 같아 숫자·정렬이 예전 그대로다
+  const effectiveOrigin: CaseOrigin = unified ? origin : 'objective'
   const [openId, setOpenId] = useState<string | null>(null)
   // 기본은 최근 5개년·출제횟수순. 탭 이름이 '기출판례'인 만큼 전체도 한 번에 볼 수 있게 둔다
   const [years, setYears] = useState<number | null>(5)
@@ -238,8 +370,8 @@ export function CasesTab({ questions }: { questions: Question[] }) {
 
   // 과목·단원·시험유형만 적용한 목록. 기간으로 몇 건이 빠졌는지 세려면 그 앞 단계가 필요하다
   const scoped = useMemo(
-    () => filterCases(digest.groups, { subjects, units, examTypes, examMonths, examYears, now }),
-    [digest.groups, subjects, units, examTypes, examMonths, examYears, now]
+    () => filterCases(digest.groups, { subjects, units, examTypes, examMonths, examYears, now, origin: effectiveOrigin }),
+    [digest.groups, subjects, units, examTypes, examMonths, examYears, now, effectiveOrigin]
   )
   // 검색은 필터 결과를 한 번 더 거른다. 단원 칩의 '있는 것'(availableUnits)은 scoped 로
   // 계산하므로, 타이핑하는 동안 칩이 사라지지는 않는다
@@ -252,12 +384,33 @@ export function CasesTab({ questions }: { questions: Question[] }) {
   )
   const effectiveYears = onlyFav ? null : years
   const inRange = useMemo(
-    () => filterCases(searched, { years: effectiveYears, subjects, units, examTypes, examMonths, examYears, now }),
-    [searched, effectiveYears, subjects, units, examTypes, examMonths, examYears, now]
+    () => filterCases(searched, { years: effectiveYears, subjects, units, examTypes, examMonths, examYears, now, origin: effectiveOrigin }),
+    [searched, effectiveYears, subjects, units, examTypes, examMonths, examYears, now, effectiveOrigin]
   )
-  // 선고일을 모르는 판례는 기간과 무관하게 늘 따로 보여준다 (숨기면 재파싱할지 정할 수 없다)
-  const dated = useMemo(() => sortCases(inRange.filter((g) => g.year !== null), sort), [inRange, sort])
-  const undated = useMemo(() => sortCases(inRange.filter((g) => g.year === null), sort), [inRange, sort])
+  // 선고일을 모르는 판례는 기간과 무관하게 늘 따로 보여준다 (숨기면 재파싱할지 정할 수 없다).
+  // 사례형에만 나온 판례도 선고일이 없어 여기에 든다. 출제 횟수는 고른 칩 기준으로 센다
+  const dated = useMemo(() => sortCases(inRange.filter((g) => g.year !== null), sort, effectiveOrigin), [inRange, sort, effectiveOrigin])
+  const undated = useMemo(() => sortCases(inRange.filter((g) => g.year === null), sort, effectiveOrigin), [inRange, sort, effectiveOrigin])
+  // 출처 칩에 붙일 숫자 — 다른 조건(검색·과목·기간…)은 그대로 두고 칩만 바꿨을 때 보일 판례 수
+  const originCounts = useMemo(() => {
+    if (!unified) return null
+    const shown = (o: CaseOrigin) => {
+      const sc = filterCases(digest.groups, { subjects, units, examTypes, examMonths, examYears, now, origin: o })
+      const se = searchCases(sc, query)
+      const fv = onlyFav ? se.filter((g) => favs.has(g.key)) : se
+      return filterCases(fv, { years: effectiveYears, subjects, units, examTypes, examMonths, examYears, now, origin: o }).length
+    }
+    return { all: shown('all'), objective: shown('objective'), caseStudy: shown('caseStudy') }
+  }, [unified, digest.groups, subjects, units, examTypes, examMonths, examYears, now, query, onlyFav, favs, effectiveYears])
+  // 사례형 출처가 칩·필터 후보에 보태질 때(선택형 칩이면 예전과 같게 보태지 않는다)
+  const caseStudyPool = useMemo(
+    () =>
+      effectiveOrigin === 'objective'
+        ? []
+        : scoped.flatMap((g) => g.sources.filter((s): s is Extract<CaseSource, { kind: 'caseStudy' }> => s.kind === 'caseStudy')),
+    [scoped, effectiveOrigin]
+  )
+  const originTotal = useMemo(() => digest.groups.filter((g) => inOrigin(g, effectiveOrigin)).length, [digest.groups, effectiveOrigin])
   const hiddenByPeriod = searched.filter((g) => g.year !== null).length - dated.length
 
   /**
@@ -279,13 +432,23 @@ export function CasesTab({ questions }: { questions: Question[] }) {
     () => Array.from(new Set(scoped.flatMap((g) => g.units))),
     [scoped]
   )
-  const availableSubjects = useMemo(
-    () => Array.from(new Set(digest.groups.flatMap((g) => g.subjects))),
-    [digest.groups]
-  )
+  const availableSubjects = useMemo(() => {
+    const groups = digest.groups.filter((g) => inOrigin(g, effectiveOrigin))
+    const fromCaseStudy =
+      effectiveOrigin === 'objective'
+        ? []
+        : groups.flatMap((g) => g.sources.flatMap((s) => (s.kind === 'caseStudy' ? [CASE_STUDY_SUBJECT[s.subject]] : [])))
+    return Array.from(new Set([...groups.flatMap((g) => g.subjects), ...fromCaseStudy]))
+  }, [digest.groups, effectiveOrigin])
   const availableExamTypes = useMemo(
-    () => Array.from(new Set(scoped.flatMap((g) => g.questions.map((q) => q.examType)))),
-    [scoped]
+    () =>
+      Array.from(
+        new Set([
+          ...scoped.flatMap((g) => g.questions.map((q) => q.examType)),
+          ...caseStudyPool.map((s): ExamType => (s.examType === '변시' ? '변호사시험' : '모의고사')),
+        ])
+      ),
+    [scoped, caseStudyPool]
   )
   // 회차(6/8/10모)는 '모의고사' 문제들에서만 뽑는다. 파일명에서 월을 못 읽은 문제는 후보에서 빠진다
   const availableExamMonths = useMemo(() => {
@@ -297,8 +460,12 @@ export function CasesTab({ questions }: { questions: Question[] }) {
         if (month) found.add(month)
       }
     }
+    for (const s of caseStudyPool) {
+      const month = s.examType === '모의' ? Number(String(s.exam).split('.')[1]) : 0
+      if (month === 6 || month === 8 || month === 10) found.add(month)
+    }
     return EXAM_MONTH_OPTIONS.filter((label) => found.has(examMonthValue(label)))
-  }, [scoped])
+  }, [scoped, caseStudyPool])
   // 출제연도는 변호사시험·모의고사 문제들의 실제 연도에서 뽑아 최신순으로 둔다.
   // 시험유형을 골랐으면 그 유형에 있는 연도만 후보가 된다. 연도를 못 읽은 문제는 후보에서 빠진다
   const availableExamYears = useMemo(() => {
@@ -309,10 +476,14 @@ export function CasesTab({ questions }: { questions: Question[] }) {
         if (q.year) found.add(q.year)
       }
     }
+    for (const s of caseStudyPool) {
+      if (examTypes.length > 0 && !examTypes.includes(s.examType === '변시' ? '변호사시험' : '모의고사')) continue
+      if (s.year) found.add(s.year)
+    }
     return Array.from(found)
       .sort((a, b) => b - a)
       .map(examYearLabel)
-  }, [scoped, examTypes])
+  }, [scoped, examTypes, caseStudyPool])
 
   // 출제연도 '최근 N개년': 후보 연도(최신순) 앞에서 N개를 고른다. 비어 있으면 전체이므로 '전체'는 선택을 비운다
   const RECENT_EXAM_YEARS = [1, 3, 5]
@@ -340,6 +511,11 @@ export function CasesTab({ questions }: { questions: Question[] }) {
         <p className="text-sm text-muted-foreground">
           해설에 인용된 판례를 판례별로 모아, 많이 나온 순서로 보여줍니다.
         </p>
+        {caseIndexError && (
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            사례형 판례를 불러오지 못해 선택형 판례만 보여줍니다
+          </p>
+        )}
       </div>
 
       {digest.totalGroups === 0 ? (
@@ -575,8 +751,29 @@ export function CasesTab({ questions }: { questions: Question[] }) {
             </div>
           </div>
 
+          {/* 출처 칩 — 사례형 출처가 있을 때만. 기록형은 아직 데이터가 없어 칩을 두지 않는다 */}
+          {originCounts && (
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="출처">
+              {ORIGINS.map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => changeOrigin(o.id)}
+                  aria-pressed={effectiveOrigin === o.id}
+                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                    effectiveOrigin === o.id
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-muted text-muted-foreground border-border hover:border-primary/50'
+                  }`}
+                >
+                  {o.label} <span className="tabular-nums opacity-80">{originCounts[o.id]}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           <p className="text-[11px] text-muted-foreground">
-            판례 {digest.totalGroups}건 중 {dated.length + undated.length}건 표시 · 판례가 달린 문제{' '}
+            판례 {originTotal}건 중 {dated.length + undated.length}건 표시 · 판례가 달린 문제{' '}
             {digest.questionsWithCases}개
             {/* 뺀 건수는 실제로 뺐을 때만 알린다 */}
             {effectiveYears !== null && hiddenByPeriod > 0 && ` · ${periodLabel(effectiveYears)}보다 오래된 판례 ${hiddenByPeriod}건은 뺐습니다`}
@@ -612,13 +809,13 @@ export function CasesTab({ questions }: { questions: Question[] }) {
                         openId={openId}
                         onOpen={setOpenId}
                         favorite={favs.has(g.key)}
-                        onToggleFavorite={toggleFavorite}
+                        onToggleFavorite={toggleFavorite} origin={effectiveOrigin} unified={unified}
                       />
                     ))}
                   </div>
                 ))
               : dated.map((g) => (
-                  <CaseCard key={g.key} group={g} allQuestions={questions} openId={openId} onOpen={setOpenId} favorite={favs.has(g.key)} onToggleFavorite={toggleFavorite} />
+                  <CaseCard key={g.key} group={g} allQuestions={questions} openId={openId} onOpen={setOpenId} favorite={favs.has(g.key)} onToggleFavorite={toggleFavorite} origin={effectiveOrigin} unified={unified} />
                 ))}
           </div>
 
@@ -627,10 +824,14 @@ export function CasesTab({ questions }: { questions: Question[] }) {
             <div className="space-y-2 pt-1">
               <p className="text-xs text-muted-foreground">
                 선고일 미상 {undated.length}건
-                <span className="text-[11px]"> — 해설에 선고일이 적혀 있지 않아 연도를 알 수 없습니다</span>
+                <span className="text-[11px]">
+                  {effectiveOrigin === 'objective'
+                    ? ' — 해설에 선고일이 적혀 있지 않아 연도를 알 수 없습니다'
+                    : ' — 사례형에만 나온 판례 등 선고일을 알 수 없는 판례입니다 · 선고 시기 필터와 상관없이 늘 보입니다'}
+                </span>
               </p>
               {undated.map((g) => (
-                <CaseCard key={g.key} group={g} allQuestions={questions} openId={openId} onOpen={setOpenId} favorite={favs.has(g.key)} onToggleFavorite={toggleFavorite} />
+                <CaseCard key={g.key} group={g} allQuestions={questions} openId={openId} onOpen={setOpenId} favorite={favs.has(g.key)} onToggleFavorite={toggleFavorite} origin={effectiveOrigin} unified={unified} />
               ))}
             </div>
           )}

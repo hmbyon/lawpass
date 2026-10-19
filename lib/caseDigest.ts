@@ -128,6 +128,7 @@ export type CaseSource =
       problemLabel: string // "변시 11회 제2문의 1 문1", "모의 24.6 제2문의 2 문1"
       subject: CaseSubject
       examType: IndexProblem['kind'] // '변시' | '모의'
+      exam: IndexProblem['exam'] // 회차 원값 (변시 11, 모의 '24.6') — 모의 회차(월) 필터용
       year: number | null
     }
 
@@ -217,7 +218,7 @@ export function buildUnifiedCaseDigest(questions: Question[], caseIndex?: CaseIn
         seen.add(key)
         const source: CaseSource = {
           kind: 'caseStudy', cardId: card.id, problemId: p.id, cardTitle: card.title, problemLabel: problemLabel(p),
-          subject: card.subject, examType: p.kind, year: caseStudyExamYear(p),
+          subject: card.subject, examType: p.kind, exam: p.exam, year: caseStudyExamYear(p),
         }
         const found = groups.get(key)
         if (found) {
@@ -259,24 +260,53 @@ export function buildUnifiedCaseDigest(questions: Question[], caseIndex?: CaseIn
 
 export type CaseSort = 'count' | 'date'
 
+/**
+ * 판례 화면의 출처 칩. 'objective' 는 기존 선택형 화면과 같다 — 기준이 counts.objective(= count)라
+ * 숫자도 정렬도 예전 그대로다. 'all' 은 선택형·사례형 합(counts.total)
+ */
+export type CaseOrigin = 'all' | 'objective' | 'caseStudy'
+
+/** 그 칩에서의 출제 횟수 */
+export function originCount(g: CaseGroup, origin: CaseOrigin): number {
+  return origin === 'all' ? g.counts.total : origin === 'objective' ? g.counts.objective : g.counts.caseStudy
+}
+
+/** 그 칩에 드는 판례인가 (그 출처에서 한 번이라도 인용됐나) */
+export function inOrigin(g: CaseGroup, origin: CaseOrigin): boolean {
+  return originCount(g, origin) > 0
+}
+
+type Metric = (g: CaseGroup) => number
+const countMetric: Metric = (g) => g.count
+
 /** 많이 나온 판례가 먼저. 같으면 최신 선고일, 그다음 사건번호로 순서를 고정한다 */
-const byCount = (a: CaseGroup, b: CaseGroup) =>
-  b.count - a.count || (b.year ?? 0) - (a.year ?? 0) || a.key.localeCompare(b.key)
+const byCountOf = (n: Metric) => (a: CaseGroup, b: CaseGroup) =>
+  n(b) - n(a) || (b.year ?? 0) - (a.year ?? 0) || a.key.localeCompare(b.key)
+const byCount = byCountOf(countMetric)
 
 /**
  * 최신 선고일이 먼저. 선고일을 모르는 판례는 맨 뒤로 민다 —
  * 0으로 쳐서 섞으면 "언제 것인지 모르는 판례"가 가장 오래된 판례인 척 자리를 차지한다
  */
-const byDate = (a: CaseGroup, b: CaseGroup) => {
-  if (a.year === null || b.year === null) {
-    if (a.year === b.year) return byCount(a, b)
-    return a.year === null ? 1 : -1
+const byDateOf = (n: Metric) => {
+  const cnt = byCountOf(n)
+  return (a: CaseGroup, b: CaseGroup) => {
+    if (a.year === null || b.year === null) {
+      if (a.year === b.year) return cnt(a, b)
+      return a.year === null ? 1 : -1
+    }
+    return b.year - a.year || n(b) - n(a) || a.key.localeCompare(b.key)
   }
-  return b.year - a.year || b.count - a.count || a.key.localeCompare(b.key)
 }
+const byDate = byDateOf(countMetric)
 
-export function sortCases(groups: CaseGroup[], sort: CaseSort): CaseGroup[] {
-  return [...groups].sort(sort === 'date' ? byDate : byCount)
+/**
+ * origin 을 주면 출제 횟수를 그 칩 기준(originCount)으로 센다. 안 주면 예전과 같이 count(선택형)
+ */
+export function sortCases(groups: CaseGroup[], sort: CaseSort, origin?: CaseOrigin): CaseGroup[] {
+  if (!origin) return [...groups].sort(sort === 'date' ? byDate : byCount)
+  const n: Metric = (g) => originCount(g, origin)
+  return [...groups].sort(sort === 'date' ? byDateOf(n) : byCountOf(n))
 }
 
 /**
@@ -318,6 +348,9 @@ export function mergeUnitSelection(subject: Subject, current: string[], next: st
  * 단, 단원 조건은 그 문제의 과목에서 고른 것만 본다 — 과목마다 독립이다.
  * 기간은 선고일을 아는 판례에만 걸린다 (모르는 것은 화면이 따로 모아 보여준다)
  */
+// 사례형 과목 이름 → 선택형 과목 이름 (필터 칩은 선택형 이름으로 그려진다)
+export const CASE_STUDY_SUBJECT: Record<CaseSubject, Subject> = { 민법: '민법', 민소: '민사소송법' }
+
 /** 출제연도 라벨. 칩에 그대로 쓰는 문자열이라 필터와 화면이 같은 함수를 쓴다 (문제 풀기 화면의 연도 칩과 같은 표기) */
 export function examYearLabel(year: number): string {
   return String(year)
@@ -334,6 +367,8 @@ export function filterCases(
     /** 출제연도 라벨("2025"). 변호사시험·모의고사에 똑같이 걸리고, 6/8/10모와 함께 걸면 "2025년 6모"로 좁혀진다 */
     examYears?: string[]
     now?: Date
+    /** 출처 칩. 주면 그 출처에서 인용된 판례만 남기고, 과목 등 조건도 그 출처에서 판정한다. 안 주면 예전과 같다 */
+    origin?: CaseOrigin
   }
 ): CaseGroup[] {
   const {
@@ -344,6 +379,7 @@ export function filterCases(
     examMonths = [],
     examYears = [],
     now = new Date(),
+    origin,
   } = opts
   // 과목별로 한 번만 추려 둔다. 문제마다 다시 계산하면 목록 전체를 훑는 일이 반복된다
   const chosen = new Map<string, string[]>()
@@ -356,9 +392,32 @@ export function filterCases(
     return got
   }
 
+  // 사례형 문항이 조건에 드는가. 과목·시험유형은 선택형 이름으로 옮겨 견준다.
+  // 사례형에는 단원이 없다 — 그 과목의 단원을 골랐으면 사례형 출처는 빠진다
+  const caseStudyMatches = (s: Extract<CaseSource, { kind: 'caseStudy' }>): boolean => {
+    const subject = CASE_STUDY_SUBJECT[s.subject]
+    if (subjects.length > 0 && !subjects.includes(subject)) return false
+    if (unitsFor(subject).length > 0) return false
+    const examType: ExamType = s.examType === '변시' ? '변호사시험' : '모의고사'
+    if (examTypes.length > 0 && !examTypes.includes(examType)) return false
+    if ((examTypes.length === 0 || examTypes.includes('모의고사')) && examMonths.length > 0 && s.examType === '모의') {
+      const month = Number(String(s.exam).split('.')[1])
+      // 월을 읽었으면 그 달 칩이 골라져 있어야 한다(1월 모의는 6/8/10모 칩 어디에도 들지 않는다)
+      if (month && !(examMonths as string[]).includes(`${month}모`)) return false
+    }
+    if (examYears.length > 0 && s.year && !examYears.includes(examYearLabel(s.year))) return false
+    return true
+  }
+
   return groups.filter((g) => {
+    if (origin && !inOrigin(g, origin)) return false
     if (!inPeriod(g.year, years, now)) return false
     if (subjects.length === 0 && units.length === 0 && examTypes.length === 0 && examYears.length === 0) return true
+    if (origin && origin !== 'objective') {
+      const cs = g.sources.some((s) => s.kind === 'caseStudy' && caseStudyMatches(s))
+      if (cs) return true
+      if (origin === 'caseStudy') return false
+    }
     return g.questions.some((q) => {
       if (subjects.length > 0 && !subjects.includes(q.subject)) return false
       const only = unitsFor(q.subject)
@@ -720,4 +779,37 @@ export function previewMention(group: CaseGroup): CasePreview | null {
   }
   if (!best) return null
   return { ...best, mention: { ...best.mention, text: clipForCard(best.mention.text, normalizeCaseNumber(group.caseNumber)) } }
+}
+
+// ── 사례형 답안 발췌 ───────────────────────────────────────────────
+
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", nbsp: ' ' }
+
+/** 카드 html 조각을 글자로만. 태그는 지우고(<br> 은 띄어쓰기) 흔한 엔티티를 되돌린다 — 화면에는 텍스트로만 넣는다 */
+export function htmlToText(html: string): string {
+  return (html ?? '')
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (_, e: string) => ENTITIES[e])
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** 텍스트에서 그 판례번호가 적힌 자리 앞뒤 radius 자. 표기가 2자리/4자리로 달라도 key 로 찾는다 */
+export function excerptCaseNumber(text: string, caseNumber: string, radius = 100): string | null {
+  const found = caseNumberAt(text, normalizeCaseNumber(caseNumber))
+  if (!found) return null
+  const from = Math.max(0, found.at - radius)
+  const to = Math.min(text.length, found.at + found.len + radius)
+  return `${from > 0 ? '…' : ''}${text.slice(from, to).trim()}${to < text.length ? '…' : ''}`
+}
+
+/** 사례형 문항의 모범답안에서 그 판례가 나온 자리를 발췌한다. 못 찾으면 null */
+export function caseStudyExcerpt(
+  problem: { answer?: { blocks: { html: string }[] } } | undefined,
+  caseNumber: string,
+  radius = 100
+): string | null {
+  const text = (problem?.answer?.blocks ?? []).map((b) => htmlToText(b.html)).join(' ')
+  return text ? excerptCaseNumber(text, caseNumber, radius) : null
 }

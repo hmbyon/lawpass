@@ -25,6 +25,8 @@ import { CasesTab } from '@/components/tabs/cases-tab'
 import { OnboardingModal } from '@/components/onboarding-modal'
 import { getStudyKind, setStudyKind, type StudyKind } from '@/lib/studyKind'
 import { CaseStudyShell } from '@/components/case-study/case-study-shell'
+import { fetchCaseIndex } from '@/lib/firebaseServices/caseStudy'
+import type { CaseIndex } from '@/lib/caseStudy/types'
 
 type Tab = 'pdf' | 'cbt' | 'study' | 'wrong' | 'memo' | 'cases'
 
@@ -288,6 +290,24 @@ export function AppShell({ user }: Props) {
   useEffect(() => {
     recordUserDirectory(user)
   }, [user])
+
+  // 기출판례 탭에 함께 보일 사례형 판례 색인. 그 탭을 처음 열 때 모드별로 한 번만 읽는다.
+  // 실패해도 선택형 판례 화면은 그대로 돈다 — 사례형 출처만 빠지고 탭이 작게 알린다
+  const [caseIndex, setCaseIndex] = useState<{ mode: AppMode; index: CaseIndex | null; error: boolean } | null>(null)
+  const caseIndexMode = caseIndex?.mode
+  useEffect(() => {
+    if (tab !== 'cases' || caseIndexMode === mode) return
+    let alive = true
+    fetchCaseIndex(mode)
+      .then((index) => alive && setCaseIndex({ mode, index, error: false }))
+      .catch((e) => {
+        console.error('[app-shell] 사례형 판례 색인을 불러오지 못했습니다', e)
+        if (alive) setCaseIndex({ mode, index: null, error: true })
+      })
+    return () => {
+      alive = false
+    }
+  }, [tab, mode, caseIndexMode])
 
   useEffect(() => {
     refreshUnreadFeedback()
@@ -598,7 +618,14 @@ export function AppShell({ user }: Props) {
         {tab === 'wrong' && <WrongTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
         {tab === 'memo' && <MemoTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
         {/* 판례는 내 문제의 해설에서 뽑은 것만 센다. 공유받은 문제집은 이번 범위가 아니다 */}
-        {tab === 'cases' && <CasesTab key={syncedAt} questions={[...questions, ...poolQuestions, ...adminQuestions]} />}
+        {tab === 'cases' && (
+          <CasesTab
+            key={syncedAt}
+            questions={[...questions, ...poolQuestions, ...adminQuestions]}
+            caseIndex={caseIndex?.mode === mode ? caseIndex.index : undefined}
+            caseIndexError={caseIndex?.mode === mode && caseIndex.error}
+          />
+        )}
       </main>
       </>) : <CaseStudyShell isAdmin={isAdmin} />}
 
