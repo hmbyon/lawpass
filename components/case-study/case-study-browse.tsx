@@ -26,7 +26,22 @@ export function CaseErrorNotice({ error }: { error: unknown }) {
 const Loading = () => <p className="text-center text-xs text-muted-foreground py-8 animate-pulse">불러오는 중…</p>
 
 // 답안·목차 — Firestore 를 읽어 표시 컴포넌트에 넘기기만 한다
-export function CaseStudyBrowse() {
+// 다른 화면(판례)이 "이 카드의 이 문항을 열어 달라"고 보내는 요청. nonce 로 같은 대상도 다시 열 수 있다
+export interface CaseOpenRequest {
+  cardId: string
+  problemId: string
+  nonce: number
+}
+
+export function CaseStudyBrowse({
+  request,
+  onRequestDone,
+  onBackToCases,
+}: {
+  request?: CaseOpenRequest | null
+  onRequestDone?: () => void
+  onBackToCases?: () => void
+} = {}) {
   const mode = getAppMode()
   // undefined = 불러오는 중, null = 아직 아무것도 올라오지 않음
   const [index, setIndex] = useState<CaseIndex | null | undefined>(undefined)
@@ -37,6 +52,22 @@ export function CaseStudyBrowse() {
   const [cardError, setCardError] = useState<unknown>(null)
   const cache = useRef(new Map<string, Card | null>())
   const listScroll = useRef(0)
+  // 판례 화면에서 '카드 보기'로 들어왔는가. 목록으로 돌아갈 때까지 '판례로 돌아가기'를 보인다
+  const [fromCases, setFromCases] = useState(false)
+
+  // 외부 요청은 색인이 온 뒤 한 번만 연다(열고 나면 부모가 요청을 비운다)
+  const requestNonce = request?.nonce
+  useEffect(() => {
+    if (!request || !index) return
+    // 판례 화면의 스크롤은 이 목록의 것이 아니다 — 목록으로 돌아가면 맨 위에서 시작한다
+    setOpen((o) => {
+      if (!o) listScroll.current = 0
+      return { card: request.cardId, problem: request.problemId }
+    })
+    setFromCases(true)
+    onRequestDone?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestNonce, index])
 
   useEffect(() => {
     fetchCaseIndex(mode).then(setIndex).catch(setIndexError)
@@ -112,6 +143,7 @@ export function CaseStudyBrowse() {
 
   function back() {
     setOpen(null)
+    setFromCases(false)
     requestAnimationFrame(() => window.scrollTo({ top: listScroll.current }))
   }
 
@@ -131,6 +163,9 @@ export function CaseStudyBrowse() {
         (cardError ? (
           <div className="space-y-3">
             <button onClick={back} className="text-xs text-muted-foreground hover:text-foreground">← 목록으로</button>
+            {fromCases && onBackToCases && (
+              <button onClick={onBackToCases} className="ml-3 text-xs text-primary hover:underline">← 판례로 돌아가기</button>
+            )}
             <CaseErrorNotice error={cardError} />
           </div>
         ) : card === undefined ? (
@@ -138,6 +173,9 @@ export function CaseStudyBrowse() {
         ) : card === null ? (
           <div className="space-y-3">
             <button onClick={back} className="text-xs text-muted-foreground hover:text-foreground">← 목록으로</button>
+            {fromCases && onBackToCases && (
+              <button onClick={onBackToCases} className="ml-3 text-xs text-primary hover:underline">← 판례로 돌아가기</button>
+            )}
             <p className="text-center text-xs text-muted-foreground py-8">카드 {open.card} 가 아직 올라오지 않았습니다</p>
           </div>
         ) : (
@@ -148,6 +186,7 @@ export function CaseStudyBrowse() {
             onPrev={prevCard}
             onNext={nextCard}
             onJump={jump}
+            onBackToCases={fromCases ? onBackToCases : undefined}
             seqNav={
               seq && {
                 label: seq.items[seq.at].label,

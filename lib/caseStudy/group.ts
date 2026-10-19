@@ -97,3 +97,14 @@ export function groupByExam(cards: IndexCard[]): ExamGroup[] {
     return a.kind === '변시' ? Number(a.exam) - Number(b.exam) : mockValue(b.exam) - mockValue(a.exam)
   })
 }
+
+/**
+ * 판례 화면에서 "카드 보기"로 갈 수 있는가. 판례 색인을 만든 뒤 카드가 지워졌거나(문서 없음)
+ * 다시 올리며 문항이 빠졌으면 갈 곳이 없다 — 그때는 이동하지 않고 판례 화면에 머문다
+ */
+export type CaseJumpStatus = 'ok' | 'missing-card' | 'missing-problem'
+
+export function caseJumpStatus(card: { problems?: { id: string }[] } | null | undefined, problemId: string): CaseJumpStatus {
+  if (!card) return 'missing-card'
+  return (card.problems ?? []).some((p) => p.id === problemId) ? 'ok' : 'missing-problem'
+}

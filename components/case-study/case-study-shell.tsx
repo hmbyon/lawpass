@@ -1,14 +1,29 @@
 'use client'
 
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ImportPanel } from '@/components/case-study/import-panel'
-import { CaseStudyBrowse } from '@/components/case-study/case-study-browse'
+import { CaseStudyBrowse, type CaseOpenRequest } from '@/components/case-study/case-study-browse'
 
 type CaseTab = 'import' | 'browse'
 
 // 사례형 화면의 탭 줄 + 본문. 탭 줄 클래스는 app-shell 의 객관식 nav 와 같다
-export function CaseStudyShell({ isAdmin }: { isAdmin: boolean }) {
+export function CaseStudyShell({
+  isAdmin,
+  openRequest,
+  onOpenRequestDone,
+  onBackToCases,
+}: {
+  isAdmin: boolean
+  // 판례 화면의 '카드 보기' — 답안·목차 탭에서 그 카드·문항을 연다
+  openRequest?: CaseOpenRequest | null
+  onOpenRequestDone?: () => void
+  onBackToCases?: () => void
+}) {
   const [tab, setTab] = useState<CaseTab>('browse')
+  const openNonce = openRequest?.nonce
+  useEffect(() => {
+    if (openNonce !== undefined) setTab('browse')
+  }, [openNonce])
   const tabs: { id: CaseTab; label: string; icon: string }[] = [
     ...(isAdmin ? [{ id: 'import' as const, label: '가져오기', icon: '📥' }] : []),
     { id: 'browse', label: '답안·목차', icon: '📚' },
@@ -59,7 +74,9 @@ export function CaseStudyShell({ isAdmin }: { isAdmin: boolean }) {
       <main ref={mainRef} className="flex-1 max-w-3xl mx-auto w-full px-4 py-5">
         {/* 일반 사용자에게는 가져오기 트리 자체가 없다 */}
         {tab === 'import' && isAdmin && <ImportPanel />}
-        {tab === 'browse' && <CaseStudyBrowse />}
+        {tab === 'browse' && (
+          <CaseStudyBrowse request={openRequest} onRequestDone={onOpenRequestDone} onBackToCases={onBackToCases} />
+        )}
       </main>
     </>
   )

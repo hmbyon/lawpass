@@ -12,6 +12,8 @@ interface Props {
   onPrev?: () => void
   onNext?: () => void
   onJump: (cardId: string, problemId?: string) => void
+  // 판례 화면에서 '카드 보기'로 들어왔을 때만 — 바에 '판례로 돌아가기'를 둔다
+  onBackToCases?: () => void
   // 회차별 목록에서 들어왔을 때만 — 같은 회차의 문항을 ◀ ▶ 로 넘긴다
   seqNav?: SeqNav
 }
@@ -163,7 +165,7 @@ function ProblemSection({
   )
 }
 
-export function CaseCardView({ card, focusProblemId, onBack, onPrev, onNext, onJump, seqNav }: Props) {
+export function CaseCardView({ card, focusProblemId, onBack, onPrev, onNext, onJump, onBackToCases, seqNav }: Props) {
   useEffect(() => {
     if (focusProblemId) document.getElementById(anchorId(focusProblemId))?.scrollIntoView({ block: 'start' })
     else window.scrollTo({ top: 0 })
@@ -191,6 +193,9 @@ export function CaseCardView({ card, focusProblemId, onBack, onPrev, onNext, onJ
   // 레퍼런스 답안집과 같은 바: [← 목록으로] [‹ 이전 카드] [다음 카드 ›]. 없는 쪽 버튼은 그리지 않는다
   const nav = (
     <div className="flex flex-wrap items-center gap-2">
+      {onBackToCases && (
+        <button onClick={onBackToCases} className={`${navBtn} border-primary/40 text-primary`}>← 판례로 돌아가기</button>
+      )}
       <button onClick={onBack} className={navBtn}>← 목록으로</button>
       {onPrev && <button onClick={onPrev} className={navBtn}>‹ 이전 카드</button>}
       {onNext && <button onClick={onNext} className={navBtn}>다음 카드 ›</button>}

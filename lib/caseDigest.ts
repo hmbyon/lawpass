@@ -781,6 +781,23 @@ export function previewMention(group: CaseGroup): CasePreview | null {
   return { ...best, mention: { ...best.mention, text: clipForCard(best.mention.text, normalizeCaseNumber(group.caseNumber)) } }
 }
 
+/** 사례형 출처가 달린 사례형 문항 수 (문항 id 기준, 여러 판례에 걸쳐도 한 번) */
+export function caseStudyProblemCount(groups: CaseGroup[]): number {
+  const ids = new Set<string>()
+  for (const g of groups) for (const s of g.sources) if (s.kind === 'caseStudy') ids.add(s.problemId)
+  return ids.size
+}
+
+/**
+ * 판례 목록 위 요약 줄의 뒷부분. 선택형 칩(통합 화면이 아닐 때 포함)은 예전 문구 그대로다
+ *  - 전체: "선택형 문제 N · 사례형 문항 M" / 선택형: "판례가 달린 문제 N개" / 사례형: "사례형 문항 M"
+ */
+export function casesSummaryTail(origin: CaseOrigin, questionsWithCases: number, caseStudyProblems: number): string {
+  if (origin === 'objective') return `판례가 달린 문제 ${questionsWithCases}개`
+  if (origin === 'caseStudy') return `사례형 문항 ${caseStudyProblems}`
+  return `선택형 문제 ${questionsWithCases} · 사례형 문항 ${caseStudyProblems}`
+}
+
 // ── 사례형 답안 발췌 ───────────────────────────────────────────────
 
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", nbsp: ' ' }

@@ -15,11 +15,12 @@ import {
 import {
   buildUnifiedCaseDigest, filterCases, sortCases, periodLabel, PERIOD_OPTIONS, examYearLabel,
   findCaseMentions, allExplanationText, previewMention, selectedUnitsOf, mergeUnitSelection,
-  searchCases, inOrigin, caseStudyExcerpt, CASE_STUDY_SUBJECT,
+  searchCases, inOrigin, caseStudyExcerpt, CASE_STUDY_SUBJECT, caseStudyProblemCount, casesSummaryTail,
   type CaseGroup, type CaseSort, type CaseOrigin, type CaseSource,
 } from '@/lib/caseDigest'
 import type { Card, CaseIndex } from '@/lib/caseStudy/types'
 import { fetchCaseCard } from '@/lib/firebaseServices/caseStudy'
+import { caseJumpStatus } from '@/lib/caseStudy/group'
 
 /**
  * 기출판례 — 해설에 인용된 판례를 판례 단위로 모아 보여준다.
@@ -144,11 +145,32 @@ type CaseStudySource = Extract<CaseSource, { kind: 'caseStudy' }>
 
 /**
  * 사례형 출처 한 줄. 누르면 그 문항 모범답안에서 이 판례가 나온 자리를 글자로만 발췌해 펼친다.
- * 카드로 이동하는 것은 아직 없다(다음 단계). 불러오기에 실패해도 줄은 남는다
+ * 옆의 '카드 보기'는 그 카드·문항으로 간다 — 먼저 카드를 읽어 문항이 아직 있는지 확인하고,
+ * 지워졌으면 이동하지 않고 이 줄에 안내만 띄운다. 불러오기에 실패해도 줄은 남는다
  */
-function CaseStudyLine({ source, caseKey }: { source: CaseStudySource; caseKey: string }) {
+function CaseStudyLine({
+  source,
+  caseKey,
+  onOpenCard,
+}: {
+  source: CaseStudySource
+  caseKey: string
+  onOpenCard?: (cardId: string, problemId: string) => void
+}) {
   const [open, setOpen] = useState(false)
   const [state, setState] = useState<{ excerpt: string | null } | 'loading' | 'error' | null>(null)
+  const [jumpMsg, setJumpMsg] = useState<string | null>(null)
+  function openCard() {
+    if (!onOpenCard) return
+    setJumpMsg(null)
+    loadCard(source.cardId)
+      .then((card) => {
+        const status = caseJumpStatus(card, source.problemId)
+        if (status === 'ok') onOpenCard(source.cardId, source.problemId)
+        else setJumpMsg(status === 'missing-card' ? '이 카드는 지금 사례형 목록에 없습니다' : '카드에서 이 문항을 찾지 못했습니다')
+      })
+      .catch(() => setJumpMsg('사례형 카드를 불러오지 못했습니다'))
+  }
   function toggle() {
     const next = !open
     setOpen(next)
@@ -163,18 +185,30 @@ function CaseStudyLine({ source, caseKey }: { source: CaseStudySource; caseKey: 
   }
   return (
     <div>
-      <button
-        type="button"
-        onClick={toggle}
-        aria-expanded={open}
-        className="flex items-start gap-1.5 text-left text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-      >
-        {/* 선택형 출처 줄과 갈리게 색 점 + '사례형' 라벨 */}
-        <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500" />
-        <span>
-          <span className="font-medium text-sky-700 dark:text-sky-300">사례형</span> · {source.cardTitle} · {source.problemLabel}
-        </span>
-      </button>
+      <div className="flex items-start gap-2">
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={open}
+          className="flex flex-1 items-start gap-1.5 text-left text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {/* 선택형 출처 줄과 갈리게 색 점 + '사례형' 라벨 */}
+          <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500" />
+          <span>
+            <span className="font-medium text-sky-700 dark:text-sky-300">사례형</span> · {source.cardTitle} · {source.problemLabel}
+          </span>
+        </button>
+        {onOpenCard && (
+          <button
+            type="button"
+            onClick={openCard}
+            className="shrink-0 text-[11px] text-primary hover:underline"
+          >
+            카드 보기 →
+          </button>
+        )}
+      </div>
+      {jumpMsg && <p className="mt-0.5 ml-3 text-[11px] text-amber-600 dark:text-amber-400">{jumpMsg}</p>}
       {open && (
         <div className="mt-1 ml-3 rounded-lg border border-sky-500/30 bg-sky-500/5 p-2 text-xs">
           {state === 'loading' || state === null ? (
@@ -201,6 +235,7 @@ function CaseCard({
   onToggleFavorite,
   origin,
   unified,
+  onOpenCaseCard,
 }: {
   group: CaseGroup
   // 출처에 파일명을 붙일지는 전체 문제집을 봐야 안다 (같은 회차의 다른 판본이 있는지)
@@ -213,6 +248,7 @@ function CaseCard({
   origin: CaseOrigin
   // 사례형 출처가 하나라도 있는 통합 화면인가. 아니면 카드가 예전과 한 글자도 다르지 않다
   unified: boolean
+  onOpenCaseCard?: (cardId: string, problemId: string) => void
 }) {
   // 카드에서 바로 보여줄 조각. 판례 목록을 훑는 사람이 매번 문제를 펼쳐 보게 할 이유가 없다
   const preview = useMemo(() => previewMention(group), [group])
@@ -292,7 +328,7 @@ function CaseCard({
           </div>
         ))}
         {caseStudySources.map((src) => (
-          <CaseStudyLine key={src.problemId} source={src} caseKey={group.key} />
+          <CaseStudyLine key={src.problemId} source={src} caseKey={group.key} onOpenCard={onOpenCaseCard} />
         ))}
       </div>
     </div>
@@ -312,11 +348,14 @@ export function CasesTab({
   questions,
   caseIndex,
   caseIndexError = false,
+  onOpenCaseCard,
 }: {
   questions: Question[]
   // 사례형 색인. 없으면(불러오는 중·실패·로그인 전) 예전과 똑같은 선택형 판례 화면이다
   caseIndex?: CaseIndex | null
   caseIndexError?: boolean
+  // 사례형 출처 줄의 '카드 보기'. 주면 그 카드·문항으로 간다(app-shell 이 사례형으로 바꿔 연다)
+  onOpenCaseCard?: (cardId: string, problemId: string) => void
 }) {
   const digest = useMemo(() => buildUnifiedCaseDigest(questions, caseIndex), [questions, caseIndex])
   // 사례형 출처가 실제로 하나라도 있을 때만 출처 칩·소스별 횟수를 켠다.
@@ -410,6 +449,7 @@ export function CasesTab({
         : scoped.flatMap((g) => g.sources.filter((s): s is Extract<CaseSource, { kind: 'caseStudy' }> => s.kind === 'caseStudy')),
     [scoped, effectiveOrigin]
   )
+  const caseStudyProblems = useMemo(() => caseStudyProblemCount(digest.groups), [digest.groups])
   const originTotal = useMemo(() => digest.groups.filter((g) => inOrigin(g, effectiveOrigin)).length, [digest.groups, effectiveOrigin])
   const hiddenByPeriod = searched.filter((g) => g.year !== null).length - dated.length
 
@@ -773,8 +813,8 @@ export function CasesTab({
           )}
 
           <p className="text-[11px] text-muted-foreground">
-            판례 {originTotal}건 중 {dated.length + undated.length}건 표시 · 판례가 달린 문제{' '}
-            {digest.questionsWithCases}개
+            판례 {originTotal}건 중 {dated.length + undated.length}건 표시 ·{' '}
+            {casesSummaryTail(effectiveOrigin, digest.questionsWithCases, caseStudyProblems)}
             {/* 뺀 건수는 실제로 뺐을 때만 알린다 */}
             {effectiveYears !== null && hiddenByPeriod > 0 && ` · ${periodLabel(effectiveYears)}보다 오래된 판례 ${hiddenByPeriod}건은 뺐습니다`}
           </p>
@@ -809,13 +849,13 @@ export function CasesTab({
                         openId={openId}
                         onOpen={setOpenId}
                         favorite={favs.has(g.key)}
-                        onToggleFavorite={toggleFavorite} origin={effectiveOrigin} unified={unified}
+                        onToggleFavorite={toggleFavorite} origin={effectiveOrigin} unified={unified} onOpenCaseCard={onOpenCaseCard}
                       />
                     ))}
                   </div>
                 ))
               : dated.map((g) => (
-                  <CaseCard key={g.key} group={g} allQuestions={questions} openId={openId} onOpen={setOpenId} favorite={favs.has(g.key)} onToggleFavorite={toggleFavorite} origin={effectiveOrigin} unified={unified} />
+                  <CaseCard key={g.key} group={g} allQuestions={questions} openId={openId} onOpen={setOpenId} favorite={favs.has(g.key)} onToggleFavorite={toggleFavorite} origin={effectiveOrigin} unified={unified} onOpenCaseCard={onOpenCaseCard} />
                 ))}
           </div>
 
@@ -831,7 +871,7 @@ export function CasesTab({
                 </span>
               </p>
               {undated.map((g) => (
-                <CaseCard key={g.key} group={g} allQuestions={questions} openId={openId} onOpen={setOpenId} favorite={favs.has(g.key)} onToggleFavorite={toggleFavorite} origin={effectiveOrigin} unified={unified} />
+                <CaseCard key={g.key} group={g} allQuestions={questions} openId={openId} onOpen={setOpenId} favorite={favs.has(g.key)} onToggleFavorite={toggleFavorite} origin={effectiveOrigin} unified={unified} onOpenCaseCard={onOpenCaseCard} />
               ))}
             </div>
           )}

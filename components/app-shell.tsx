@@ -25,10 +25,13 @@ import { CasesTab } from '@/components/tabs/cases-tab'
 import { OnboardingModal } from '@/components/onboarding-modal'
 import { getStudyKind, setStudyKind, type StudyKind } from '@/lib/studyKind'
 import { CaseStudyShell } from '@/components/case-study/case-study-shell'
+import type { CaseOpenRequest } from '@/components/case-study/case-study-browse'
 import { fetchCaseIndex } from '@/lib/firebaseServices/caseStudy'
 import type { CaseIndex } from '@/lib/caseStudy/types'
 
-type Tab = 'pdf' | 'cbt' | 'study' | 'wrong' | 'memo' | 'cases'
+type Tab = 'pdf' | 'cbt' | 'study' | 'wrong' | 'memo'
+// 판례는 선택형 안의 탭이 아니라 문제유형(선택·사례·기록)과 별개인 화면이다. 헤더의 ⚖️ 버튼(모바일은 유형 알약 메뉴)으로 연다
+type View = 'study' | 'cases'
 
 // 헤더 동기화 배지 규칙. 조건이 서로 얽혀 있어 한 곳에 모으고 테스트로 고정한다.
 // 핵심은 '실패 중에도 올리기가 보여야 한다'는 것 — 실패 버튼은 pull부터 다시 하는데,
@@ -53,7 +56,6 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'study', label: '선학습', icon: '📖' },
   { id: 'wrong', label: '오답노트', icon: '📝' },
   { id: 'memo', label: 'D-1 암기장', icon: '⭐' },
-  { id: 'cases', label: '기출판례', icon: '⚖️' },
 ]
 
 // 유형 스위치. 헤더 폭(max-w-3xl)이 '동기화 중...' 이 뜬 상태에서 거의 꽉 차 있어 두 글자로 줄이고
@@ -70,6 +72,16 @@ interface Props {
 
 export function AppShell({ user }: Props) {
   const [tab, setTab] = useState<Tab>('pdf')
+  // 판례 화면을 여닫아도 kind·tab 은 그대로다. 학습 화면은 숨길 뿐 언마운트하지 않는다
+  const [view, setView] = useState<View>('study')
+  // 판례 화면은 한 번 열면 계속 마운트해 둔다 — 사례형 카드로 갔다 돌아와도 검색·칩·스크롤이 남게
+  const [casesMounted, setCasesMounted] = useState(false)
+  const viewScroll = useRef<Record<View, number>>({ study: 0, cases: 0 })
+  // 판례 화면의 '카드 보기' → 사례형 답안·목차에서 그 카드·문항을 연다 (열고 나면 비운다)
+  const [caseOpenRequest, setCaseOpenRequest] = useState<CaseOpenRequest | null>(null)
+  // 모바일 유형 알약 메뉴 (선택형 · 사례형 · 판례)
+  const [kindMenu, setKindMenu] = useState(false)
+  const kindMenuRef = useRef<HTMLDivElement>(null)
   const [questions, setQuestions] = useState<Question[]>([])
   // 공유받은 문제는 내 문제와 한 배열에 담지 않는다. 화면에 넘길 때만 합치고,
   // 저장·동기화 경로에는 끝까지 따로 둔다 (docs/shared-pool-design.md §3)
@@ -291,12 +303,12 @@ export function AppShell({ user }: Props) {
     recordUserDirectory(user)
   }, [user])
 
-  // 기출판례 탭에 함께 보일 사례형 판례 색인. 그 탭을 처음 열 때 모드별로 한 번만 읽는다.
+  // 판례 화면에 함께 보일 사례형 판례 색인. 판례 화면을 처음 열 때 모드별로 한 번만 읽는다.
   // 실패해도 선택형 판례 화면은 그대로 돈다 — 사례형 출처만 빠지고 탭이 작게 알린다
   const [caseIndex, setCaseIndex] = useState<{ mode: AppMode; index: CaseIndex | null; error: boolean } | null>(null)
   const caseIndexMode = caseIndex?.mode
   useEffect(() => {
-    if (tab !== 'cases' || caseIndexMode === mode) return
+    if (view !== 'cases' || caseIndexMode === mode) return
     let alive = true
     fetchCaseIndex(mode)
       .then((index) => alive && setCaseIndex({ mode, index, error: false }))
@@ -307,7 +319,41 @@ export function AppShell({ user }: Props) {
     return () => {
       alive = false
     }
-  }, [tab, mode, caseIndexMode])
+  }, [view, mode, caseIndexMode])
+
+  useEffect(() => {
+    if (!kindMenu) return
+    function handleClickOutside(e: MouseEvent) {
+      if (kindMenuRef.current && !kindMenuRef.current.contains(e.target as Node)) setKindMenu(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [kindMenu])
+
+  // 학습 ↔ 판례 화면 전환. 각 화면의 스크롤 자리를 기억했다가 돌아오면 되돌린다
+  function switchView(next: View) {
+    if (next === view) return
+    viewScroll.current[view] = window.scrollY
+    if (next === 'cases') setCasesMounted(true)
+    setView(next)
+    requestAnimationFrame(() => window.scrollTo({ top: viewScroll.current[next] }))
+  }
+
+  function chooseKind(next: StudyKind) {
+    setStudyKind(next)
+    setStudyKindState(next)
+    switchView('study')
+  }
+
+  // 판례 화면의 사례형 출처 '카드 보기'. 사례형으로 바꿔 그 카드·문항을 연다 —
+  // 스크롤은 카드 화면이 그 문항으로 맞추므로 여기서 되돌리지 않는다
+  function openCaseCard(cardId: string, problemId: string) {
+    viewScroll.current.cases = window.scrollY
+    setStudyKind('caseStudy')
+    setStudyKindState('caseStudy')
+    setCaseOpenRequest({ cardId, problemId, nonce: Date.now() })
+    setView('study')
+  }
 
   useEffect(() => {
     refreshUnreadFeedback()
@@ -319,6 +365,7 @@ export function AppShell({ user }: Props) {
 
   function handleLogoClick() {
     setTab('pdf')
+    switchView('study')
     loadFromFirebase()
   }
 
@@ -355,8 +402,8 @@ export function AppShell({ user }: Props) {
   }
 
   const badges = syncBadges({ syncing, syncError, pendingSync })
-  // 동기화 실패(⚠️·☁️)나 동기화 중('동기화 중...') 상태에서는 390px 헤더가 넘친다. 그때만 모바일에서
-  // 간격·여백을 줄이고 유형 알약을 ⇄ 하나로 접는다 (평상시·데스크톱 모양은 그대로)
+  // 동기화 실패(⚠️·☁️)나 동기화 중('동기화 중...') 상태에서는 헤더가 넘친다. 그때만 모바일에서
+  // 간격·여백을 줄이고 유형 알약을 ⇄ 하나로 접으며, 데스크톱에서는 모드 배지를 접는다 (평상시 모양은 그대로)
   const compactHeader = badges.error || syncing
 
   if (switching) {
@@ -379,23 +426,49 @@ export function AppShell({ user }: Props) {
             >
               {appTitleBase}<span className="hidden sm:inline"> AI</span>
             </button>
-            <span className="hidden sm:inline text-xs text-muted-foreground">
+            {/* 동기화 중·실패로 헤더가 빡빡할 때는 데스크톱에서도 모드 배지를 접는다 — ⚖️ 판례 버튼까지 들어가면
+                로고가 두 줄로 접힌다. 평상시에는 그대로 보인다 */}
+            <span className={`${compactHeader ? 'hidden' : 'hidden sm:inline'} text-xs text-muted-foreground`}>
               {appBadge}
             </span>
             {/* 390px 폭에서는 세그먼트 셋이 헤더 한 줄에 들어가지 않는다(남는 폭이 40px 남짓).
                 모바일은 지금 유형만 보이는 알약 하나로 객관식↔사례형을 오간다 — 기록형은 어차피 고를 수 없다 */}
             {mode !== 'general' && (
-              <button
-                onClick={() => {
-                  const next = kind === 'objective' ? 'caseStudy' : 'objective'
-                  setStudyKind(next)
-                  setStudyKindState(next)
-                }}
-                title={`선택형 / 사례형 전환 (지금: ${kind === 'objective' ? '선택형' : '사례형'})`}
-                className={`sm:hidden shrink-0 rounded-full border border-primary/40 bg-primary/10 text-primary text-[10px] font-semibold leading-none py-1 ${compactHeader ? 'px-0.5' : 'px-1'}`}
-              >
-                {!compactHeader && (kind === 'objective' ? '선택' : '사례')}⇄
-              </button>
+              <div ref={kindMenuRef} className="sm:hidden relative shrink-0">
+                <button
+                  onClick={() => setKindMenu((v) => !v)}
+                  aria-expanded={kindMenu}
+                  aria-haspopup="menu"
+                  title={`문제 유형 · 판례 (지금: ${view === 'cases' ? '판례' : kind === 'objective' ? '선택형' : '사례형'})`}
+                  className={`rounded-full border border-primary/40 bg-primary/10 text-primary text-[10px] font-semibold leading-none py-1 ${compactHeader ? 'px-0.5' : 'px-1'}`}
+                >
+                  {!compactHeader && (view === 'cases' ? '판례' : kind === 'objective' ? '선택' : '사례')}⇄
+                </button>
+                {kindMenu && (
+                  <div role="menu" className="absolute left-0 top-8 z-50 w-32 rounded-xl border border-border bg-card py-1 shadow-lg">
+                    {([
+                      { id: 'objective', label: '선택형', active: view === 'study' && kind === 'objective' },
+                      { id: 'caseStudy', label: '사례형', active: view === 'study' && kind === 'caseStudy' },
+                      { id: 'cases', label: '⚖️ 판례', active: view === 'cases' },
+                    ] as const).map((item) => (
+                      <button
+                        key={item.id}
+                        role="menuitem"
+                        onClick={() => {
+                          setKindMenu(false)
+                          if (item.id === 'cases') switchView(view === 'cases' ? 'study' : 'cases')
+                          else chooseKind(item.id)
+                        }}
+                        className={`w-full text-left px-3 py-2 text-xs transition-colors ${
+                          item.active ? 'text-primary font-semibold bg-primary/10' : 'text-foreground hover:bg-accent'
+                        } ${item.id === 'cases' ? 'border-t border-border' : ''}`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
             {mode !== 'general' && (
               <div className="hidden sm:flex items-center shrink-0 rounded-full border border-border p-0.5 text-[11px] leading-none">
@@ -405,12 +478,9 @@ export function AppShell({ user }: Props) {
                     // 기록형은 아직 화면이 없다
                     disabled={k.id === 'record'}
                     title={k.title}
-                    onClick={() => {
-                      setStudyKind(k.id)
-                      setStudyKindState(k.id)
-                    }}
+                    onClick={() => chooseKind(k.id)}
                     className={`rounded-full px-1.5 py-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                      kind === k.id ? 'bg-primary/15 text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'
+                      view === 'study' && kind === k.id ? 'bg-primary/15 text-primary font-semibold' : 'text-muted-foreground hover:text-foreground'
                     }`}
                   >
                     {k.label}
@@ -418,6 +488,19 @@ export function AppShell({ user }: Props) {
                 ))}
               </div>
             )}
+            {/* 판례 — 유형 스위치(선택·사례·기록)와 별개인 화면이라 스위치 밖 아이콘 버튼으로 둔다. 모바일은 알약 메뉴 */}
+            <button
+              onClick={() => switchView(view === 'cases' ? 'study' : 'cases')}
+              aria-pressed={view === 'cases'}
+              title={view === 'cases' ? '판례 닫기' : '판례'}
+              className={`hidden sm:inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] leading-5 transition-colors ${
+                view === 'cases'
+                  ? 'border-primary bg-primary/15 text-primary font-semibold'
+                  : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+              }`}
+            >
+              ⚖️ 판례
+            </button>
             {/* 모바일에서는 아이콘만 보여 한 줄에 나란히 들어가게 한다 */}
             <div className="flex items-center gap-1 sm:gap-2">
             <button
@@ -563,6 +646,25 @@ export function AppShell({ user }: Props) {
         </div>
       </header>
 
+      {/* 판례 화면. 처음 열 때 마운트하고 그 뒤로는 숨기기만 한다 — 사례형 카드로 갔다 돌아와도
+          검색·칩·즐겨찾기 상태가 그대로다. key 는 모드: 동기화마다 리셋하지 않고(목록은 questions 가
+          바뀌면 다시 계산된다) 모드가 바뀔 때만 새로 연다(즐겨찾기가 모드별이다).
+          문항은 내 문제 + 공유받은 문제집 + 관리자 문제를 합친 것이고, 사례형 색인이 오면 사례형 출처가 더해진다 */}
+      {casesMounted && (
+        <main className={`flex-1 max-w-3xl mx-auto w-full px-4 py-5 ${view === 'cases' ? '' : 'hidden'}`}>
+          <CasesTab
+            key={mode}
+            questions={[...questions, ...poolQuestions, ...adminQuestions]}
+            caseIndex={caseIndex?.mode === mode ? caseIndex.index : undefined}
+            caseIndexError={caseIndex?.mode === mode && caseIndex.error}
+            onOpenCaseCard={openCaseCard}
+          />
+        </main>
+      )}
+
+      {/* 학습 화면 — 판례를 여는 동안에는 숨길 뿐 언마운트하지 않는다(진행 중이던 탭·세션이 그대로).
+          'contents' 라 감싸도 nav 의 sticky·main 의 flex 배치는 예전과 같다 */}
+      <div className={view === 'cases' ? 'hidden' : 'contents'}>
       {/* 객관식은 기존 nav·main 그대로다. 사례형만 전용 탭 줄과 화면으로 갈아 끼운다.
           동기화·인증·피드백 훅은 위에서 kind 와 무관하게 늘 돈다 */}
       {kind === 'objective' ? (<>
@@ -617,22 +719,24 @@ export function AppShell({ user }: Props) {
         {tab === 'study' && <StudyTab key={syncedAt} questions={[...questions, ...poolQuestions, ...adminQuestions]} onDone={refreshAndSync} onSync={refreshAndSync} />}
         {tab === 'wrong' && <WrongTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
         {tab === 'memo' && <MemoTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
-        {/* 판례는 내 문제의 해설에서 뽑은 것만 센다. 공유받은 문제집은 이번 범위가 아니다 */}
-        {tab === 'cases' && (
-          <CasesTab
-            key={syncedAt}
-            questions={[...questions, ...poolQuestions, ...adminQuestions]}
-            caseIndex={caseIndex?.mode === mode ? caseIndex.index : undefined}
-            caseIndexError={caseIndex?.mode === mode && caseIndex.error}
-          />
-        )}
       </main>
-      </>) : <CaseStudyShell isAdmin={isAdmin} />}
+      </>) : (
+        <CaseStudyShell
+          isAdmin={isAdmin}
+          openRequest={caseOpenRequest}
+          onOpenRequestDone={() => setCaseOpenRequest(null)}
+          onBackToCases={() => switchView('cases')}
+        />
+      )}
+      </div>
 
       {showOnboarding && (
         <OnboardingModal
           onClose={() => setShowOnboarding(false)}
-          onSelectTab={(selectedTab) => setTab(selectedTab)}
+          onSelectTab={(selectedTab) => {
+            setTab(selectedTab)
+            switchView('study')
+          }}
           isAdmin={isAdmin}
         />
       )}
