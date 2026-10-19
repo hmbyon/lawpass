@@ -35,14 +35,21 @@ function assertSize(value: unknown, what: string) {
   }
 }
 
+// 판례번호(cases)는 색인 v1.1 에서 생긴 필드다. v1 문서에는 없으므로 읽을 때 [] 로 채워 둔다
+const withCases = <T extends { cases?: string[] }>(o: T): T => ({ ...o, cases: o.cases ?? [] })
+
 export async function fetchCaseIndex(mode: string): Promise<CaseIndex | null> {
   const snap = await getDoc(indexRef(mode))
-  return snap.exists() ? (snap.data() as CaseIndex) : null
+  if (!snap.exists()) return null
+  const index = snap.data() as CaseIndex
+  return { ...index, cards: index.cards.map((c) => ({ ...withCases(c), problems: (c.problems ?? []).map(withCases) })) }
 }
 
 export async function fetchCaseCard(mode: string, id: string): Promise<Card | null> {
   const snap = await getDoc(cardRef(mode, id))
-  return snap.exists() ? (snap.data() as Card) : null
+  if (!snap.exists()) return null
+  const card = snap.data() as Card
+  return { ...withCases(card), problems: (card.problems ?? []).map(withCases) }
 }
 
 export async function caseCardExists(mode: string, id: string): Promise<boolean> {

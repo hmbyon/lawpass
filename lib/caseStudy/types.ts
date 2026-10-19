@@ -28,6 +28,9 @@ export interface Problem {
   brief?: string[]
   question?: { paragraphs: string[]; ask: string }
   answer?: { source: string; blocks: Block[] }
+  // 이 문항 모범답안이 인용한 판례번호, 원문 표기 그대로(v1.1). 정규화는 caseDigest.normalizeCaseNumber.
+  // v1 데이터에는 없다 — 읽을 때 [] 로 채운다(lib/firebaseServices/caseStudy.ts)
+  cases?: string[]
 }
 
 export interface Card {
@@ -48,7 +51,7 @@ export interface Card {
 }
 
 // 색인의 stubFor 는 실제 _index.json 에서 문항 id 문자열('4-2#3')로 온다. 카드 쪽 모양({card, problem})도 받는다
-export type IndexProblem = Pick<Problem, 'id' | 'kind' | 'exam' | 'qno' | 'points'> & {
+export type IndexProblem = Pick<Problem, 'id' | 'kind' | 'exam' | 'qno' | 'points' | 'cases'> & {
   sub?: string
   stubFor?: Problem['stubFor'] | string
 }
@@ -61,6 +64,8 @@ export interface IndexCard {
   order: [number, number]
   title: string
   pages: string
+  // 이 카드가 인용한 판례번호(v1.1, 원문 표기). v1 색인에는 없다
+  cases?: string[]
   problems: IndexProblem[]
 }
 

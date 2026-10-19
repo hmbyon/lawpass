@@ -1,8 +1,10 @@
 import type { Card, CaseIndex } from '@/lib/caseStudy/types'
+import { sanitizeCardCases, sanitizeIndexCases } from '@/lib/caseStudy/sanitize'
 
+// warnings: 파일은 받되 일부 항목(cases)을 버렸다는 알림. 저장을 막지 않는다
 export type ParsedFile =
-  | { kind: 'index'; name: string; index: CaseIndex }
-  | { kind: 'card'; name: string; card: Card }
+  | { kind: 'index'; name: string; index: CaseIndex; warnings: string[] }
+  | { kind: 'card'; name: string; card: Card; warnings: string[] }
 
 // 가져오기 전 최소 검증. 형식이 어긋난 파일은 저장하지 않고 사유를 돌려준다(throw)
 export function parseCaseFile(name: string, text: string): ParsedFile {
@@ -18,13 +20,15 @@ export function parseCaseFile(name: string, text: string): ParsedFile {
   if (name === '_index.json') {
     if (!Array.isArray(obj.cards)) throw new Error('cards 배열이 없습니다')
     if (obj.cards.some((c) => typeof (c as { id?: unknown })?.id !== 'string')) throw new Error('id 없는 색인 항목이 있습니다')
-    return { kind: 'index', name, index: obj as unknown as CaseIndex }
+    const index = obj as unknown as CaseIndex
+    return { kind: 'index', name, index, warnings: sanitizeIndexCases(index) }
   }
   if (typeof obj.id !== 'string' || !obj.id) throw new Error('id 가 없습니다')
   // Firestore 문서 id 로 쓰므로 '/' 가 들어가면 경로가 갈라진다
   if (obj.id.includes('/')) throw new Error(`id 에 '/' 가 들어 있습니다 (${obj.id})`)
   if (!Array.isArray(obj.problems)) throw new Error('problems 배열이 없습니다')
-  return { kind: 'card', name, card: obj as unknown as Card }
+  const card = obj as unknown as Card
+  return { kind: 'card', name, card, warnings: sanitizeCardCases(card) }
 }
 
 // 일괄 쓰기 단위로 나눈다. 건수와 바이트 둘 다 넘지 않게 — 항목 하나가 예산을 넘으면 그것만 단독 묶음이다

@@ -5,6 +5,7 @@ import { auth } from '@/lib/firebase'
 import { isAdminEmail } from '@/lib/admin'
 import { getAppMode } from '@/lib/appMode'
 import { chunkForBatch, parseCaseFile, type ParsedFile } from '@/lib/caseStudy/parse'
+import { indexCaseStats } from '@/lib/caseStudy/sanitize'
 import {
   BATCH_MAX_BYTES, BATCH_MAX_OPS, caseCardExists, saveCaseCard, saveCaseCardsBatch, saveCaseIndex,
 } from '@/lib/firebaseServices/caseStudy'
@@ -13,6 +14,7 @@ interface Result {
   ok: number
   failed: { name: string; reason: string }[]
   warnings: string[]
+  notes: string[] // 오류·경고가 아닌 알림 (판례 색인 포함 여부)
 }
 
 const isJson = (f: File) => f.name.toLowerCase().endsWith('.json')
@@ -68,6 +70,7 @@ export function ImportPanel() {
     const total = files.length
     const failed: Result['failed'] = []
     const warnings: string[] = []
+    const notes: string[] = []
     const parsed: ParsedFile[] = []
     let done = 0
     let ok = 0
@@ -77,7 +80,9 @@ export function ImportPanel() {
     // 읽기·검증에서 걸린 파일은 실패로 적고 나머지는 계속 간다 (깨진 JSON, OneDrive 에서 못 받은 파일 등)
     for (const f of files) {
       try {
-        parsed.push(parseCaseFile(f.name, await f.text()))
+        const p = parseCaseFile(f.name, await f.text())
+        parsed.push(p)
+        for (const w of p.warnings) warnings.push(`${f.name} — ${w}`)
       } catch (e) {
         failed.push({ name: f.name, reason: reason(e) })
         setProgress({ done: ++done, total })
@@ -111,8 +116,12 @@ export function ImportPanel() {
 
     for (const ix of indexes) {
       try {
+        // 크기(900KB)는 saveCaseIndex 가 쓰기 전에 재고, 넘으면 쓰지 않고 실패로 알린다
         await saveCaseIndex(mode, ix.index)
         ok++
+        // v1.1 색인은 카드·문항에 판례번호(cases)를 싣는다. 없으면 v1 형식일 뿐 오류가 아니다
+        const stats = indexCaseStats(ix.index)
+        notes.push(stats.cases > 0 ? `판례 색인 포함: 카드 ${stats.cards}개, 판례 ${stats.cases}종` : '판례 색인 없음(v1 형식)')
         // 색인이 가리키는데 이번에 올라오지 않았고 원격에도 없는 카드 — 목록에서 눌러도 열리지 않는다
         const missing: string[] = []
         for (const c of ix.index.cards) {
@@ -130,7 +139,7 @@ export function ImportPanel() {
     if (indexes.length === 0 && cards.length > 0) {
       warnings.push('_index.json 을 함께 올리지 않아 목록(색인)은 바뀌지 않았습니다')
     }
-    setResult({ ok, failed, warnings })
+    setResult({ ok, failed, warnings, notes })
   }
 
   return (
@@ -204,6 +213,9 @@ export function ImportPanel() {
               ))}
             </ul>
           )}
+          {result.notes.map((n, i) => (
+            <p key={`n${i}`} className="text-muted-foreground">{n}</p>
+          ))}
           {result.warnings.map((w, i) => (
             <p key={i} className="text-amber-400 break-all">⚠️ {w}</p>
           ))}
