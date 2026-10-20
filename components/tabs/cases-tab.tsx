@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Question } from '@/lib/types'
 import type { ExamType, Subject } from '@/lib/types'
 import { SUBJECT_UNITS } from '@/lib/units'
@@ -15,7 +15,8 @@ import {
 import {
   buildUnifiedCaseDigest, filterCases, sortCases, periodLabel, PERIOD_OPTIONS, examYearLabel,
   findCaseMentions, allExplanationText, previewMention, selectedUnitsOf, mergeUnitSelection,
-  searchCases, inOrigin, caseStudyExcerpt, CASE_STUDY_SUBJECT, caseStudyProblemCount, casesSummaryTail,
+  searchCases, inOrigin, CASE_STUDY_SUBJECT, caseStudyProblemCount, casesSummaryTail,
+  stripBucketLabels, groupCaseStudySources, caseStudyExamLabel, caseStudyQuestionLabel, caseStudyParagraphs, caseNumberSpans,
   type CaseGroup, type CaseSort, type CaseOrigin, type CaseSource,
 } from '@/lib/caseDigest'
 import type { Card, CaseIndex } from '@/lib/caseStudy/types'
@@ -143,82 +144,222 @@ function loadCard(cardId: string): Promise<Card | null> {
 
 type CaseStudySource = Extract<CaseSource, { kind: 'caseStudy' }>
 
+// 판례번호가 적힌 자리를 굵게. 글자만 쪼개 React 요소로 감싼다(HTML 을 넣지 않는다)
+function Highlighted({ text, caseNumber }: { text: string; caseNumber: string }) {
+  const spans = caseNumberSpans(text, caseNumber)
+  const parts: ReactNode[] = []
+  let at = 0
+  spans.forEach((sp, i) => {
+    if (sp.at > at) parts.push(text.slice(at, sp.at))
+    parts.push(
+      <strong key={i} className="font-semibold text-sky-700 dark:text-sky-300">
+        {text.slice(sp.at, sp.at + sp.len)}
+      </strong>
+    )
+    at = sp.at + sp.len
+  })
+  if (at < text.length) parts.push(text.slice(at))
+  return <>{parts}</>
+}
+
+// 소제목. 보라 = 선택형, 파랑 = 사례형 — 박스 색과 같다. 이 둘이 출처를 가르는 유일한 표시다
+function SourceHeading({ tone, children }: { tone: 'objective' | 'caseStudy'; children: ReactNode }) {
+  return (
+    <p className={`pt-1 text-[11px] font-semibold ${tone === 'objective' ? 'text-primary' : 'text-sky-700 dark:text-sky-300'}`}>
+      {children}
+    </p>
+  )
+}
+
+const answerLabel = (s: CaseStudySource) =>
+  `${caseStudyExamLabel(s.examType, s.exam)} ${caseStudyQuestionLabel(s.qno, s.sub)} 답안`
+
 /**
- * 사례형 출처 한 줄. 누르면 그 문항 모범답안에서 이 판례가 나온 자리를 글자로만 발췌해 펼친다.
- * 옆의 '카드 보기'는 그 카드·문항으로 간다 — 먼저 카드를 읽어 문항이 아직 있는지 확인하고,
- * 지워졌으면 이동하지 않고 이 줄에 안내만 띄운다. 불러오기에 실패해도 줄은 남는다
+ * 파란 박스 — 보라 요지 박스("22번 해설")에 대응한다. 이 판례가 나온 모범답안 문단을 **통째로** 보여준다.
+ * 판례 카드가 수백 장이라 화면에 들어올 때 사례형 카드를 읽는다(카드 단위 캐시 공유).
+ * 같은 문단은 한 번만, 나머지는 "다른 답안 N가지"로 펼친다
  */
-function CaseStudyLine({
+function CaseStudyAnswerBox({ sources, caseNumber }: { sources: CaseStudySource[]; caseNumber: string }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [state, setState] = useState<{ label: string; text: string }[] | 'idle' | 'loading' | 'error'>('idle')
+  const [showAll, setShowAll] = useState(false)
+  const ordered = useMemo(() => groupCaseStudySources(sources).flatMap((b) => b.sources), [sources])
+
+  function load() {
+    setState('loading')
+    Promise.all(ordered.map((s) => loadCard(s.cardId).then((card) => ({ s, card }))))
+      .then((list) => {
+        const seen = new Set<string>()
+        const entries: { label: string; text: string }[] = []
+        for (const { s, card } of list) {
+          for (const text of caseStudyParagraphs(card?.problems.find((p) => p.id === s.problemId), caseNumber)) {
+            if (seen.has(text)) continue
+            seen.add(text)
+            entries.push({ label: answerLabel(s), text })
+          }
+        }
+        setState(entries)
+      })
+      .catch(() => setState('error'))
+  }
+
+  useEffect(() => {
+    if (state !== 'idle') return
+    const el = ref.current
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      load()
+      return
+    }
+    const io = new IntersectionObserver((list) => {
+      if (list.some((e) => e.isIntersecting)) {
+        io.disconnect()
+        load()
+      }
+    }, { rootMargin: '200px' })
+    io.observe(el)
+    return () => io.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state])
+
+  const box = 'rounded-lg border border-sky-500/30 bg-sky-500/5 p-2 space-y-0.5'
+  return (
+    <div ref={ref} className={box}>
+      {state === 'idle' || state === 'loading' ? (
+        <p className="text-[11px] text-muted-foreground">답안을 불러오는 중…</p>
+      ) : state === 'error' ? (
+        <button type="button" onClick={load} className="text-[11px] text-muted-foreground hover:text-foreground">
+          답안을 불러오지 못했습니다 · 다시 시도
+        </button>
+      ) : state.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground">모범답안에서 이 판례가 나온 문단을 찾지 못했습니다</p>
+      ) : (
+        <>
+          {(showAll ? state : state.slice(0, 1)).map((e, i) => (
+            <div key={i} className={i > 0 ? 'pt-1.5 space-y-0.5' : 'space-y-0.5'}>
+              <p className="text-[11px] text-muted-foreground">{e.label}</p>
+              <p className="text-xs text-foreground whitespace-pre-wrap leading-relaxed">
+                <Highlighted text={e.text} caseNumber={caseNumber} />
+              </p>
+            </div>
+          ))}
+          {state.length > 1 && (
+            <button
+              type="button"
+              onClick={() => setShowAll((v) => !v)}
+              className="pt-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+            >
+              {showAll ? '다른 답안 접기' : `다른 답안 ${state.length - 1}가지`}
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+/**
+ * 사례형 문항 버튼 하나 — 선택형 "22번"(QuestionLine)과 같은 자리·같은 방식으로 그 자리에서 펼친다.
+ * 펼치면 문제(사안 원문·설문)와 이 판례가 나온 답안 문단, 그리고 '카드 보기'(카드로 이동)를 보여준다.
+ * 카드로 가기 전에 그 문항이 아직 있는지 확인하고, 지워졌으면 이동하지 않고 안내만 한다
+ */
+function CaseStudyQuestionLine({
   source,
-  caseKey,
+  caseNumber,
+  open,
+  onToggle,
   onOpenCard,
 }: {
   source: CaseStudySource
-  caseKey: string
+  caseNumber: string
+  open: boolean
+  onToggle: () => void
   onOpenCard?: (cardId: string, problemId: string) => void
 }) {
-  const [open, setOpen] = useState(false)
-  const [state, setState] = useState<{ excerpt: string | null } | 'loading' | 'error' | null>(null)
+  const [card, setCard] = useState<Card | null | undefined | 'error'>(undefined)
   const [jumpMsg, setJumpMsg] = useState<string | null>(null)
+  useEffect(() => {
+    if (!open || (card !== undefined && card !== 'error')) return
+    let alive = true
+    loadCard(source.cardId)
+      .then((c) => alive && setCard(c))
+      .catch(() => alive && setCard('error'))
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, source.cardId])
+
   function openCard() {
     if (!onOpenCard) return
     setJumpMsg(null)
     loadCard(source.cardId)
-      .then((card) => {
-        const status = caseJumpStatus(card, source.problemId)
+      .then((c) => {
+        const status = caseJumpStatus(c, source.problemId)
         if (status === 'ok') onOpenCard(source.cardId, source.problemId)
         else setJumpMsg(status === 'missing-card' ? '이 카드는 지금 사례형 목록에 없습니다' : '카드에서 이 문항을 찾지 못했습니다')
       })
       .catch(() => setJumpMsg('사례형 카드를 불러오지 못했습니다'))
   }
-  function toggle() {
-    const next = !open
-    setOpen(next)
-    if (!next || (state && state !== 'error')) return
-    setState('loading')
-    loadCard(source.cardId)
-      .then((card) => {
-        const problem = card?.problems.find((p) => p.id === source.problemId)
-        setState({ excerpt: caseStudyExcerpt(problem, caseKey) })
-      })
-      .catch(() => setState('error'))
-  }
+
+  const problem = card && card !== 'error' ? card.problems.find((p) => p.id === source.problemId) : undefined
+  const paragraphs = problem ? caseStudyParagraphs(problem, caseNumber) : []
   return (
     <div>
-      <div className="flex items-start gap-2">
-        <button
-          type="button"
-          onClick={toggle}
-          aria-expanded={open}
-          className="flex flex-1 items-start gap-1.5 text-left text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-        >
-          {/* 선택형 출처 줄과 갈리게 색 점 + '사례형' 라벨 */}
-          <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500" />
-          <span>
-            <span className="font-medium text-sky-700 dark:text-sky-300">사례형</span> · {source.cardTitle} · {source.problemLabel}
-          </span>
-        </button>
-        {onOpenCard && (
-          <button
-            type="button"
-            onClick={openCard}
-            className="shrink-0 text-[11px] text-primary hover:underline"
-          >
-            카드 보기 →
-          </button>
-        )}
-      </div>
-      {jumpMsg && <p className="mt-0.5 ml-3 text-[11px] text-amber-600 dark:text-amber-400">{jumpMsg}</p>}
+      <button
+        onClick={onToggle}
+        className={`px-2 py-0.5 rounded text-xs border transition-colors ${
+          open
+            ? 'bg-primary text-primary-foreground border-primary'
+            : 'bg-muted text-muted-foreground border-border hover:border-primary/40'
+        }`}
+      >
+        {caseStudyQuestionLabel(source.qno, source.sub)}
+      </button>
       {open && (
-        <div className="mt-1 ml-3 rounded-lg border border-sky-500/30 bg-sky-500/5 p-2 text-xs">
-          {state === 'loading' || state === null ? (
-            <p className="text-[11px] text-muted-foreground">답안을 불러오는 중…</p>
-          ) : state === 'error' ? (
+        <div className="mt-1.5 mb-1 p-2.5 rounded-lg bg-muted/50 border border-border space-y-2 text-xs">
+          <p className="text-[11px] text-muted-foreground">
+            <span className="text-xs font-semibold text-foreground">{CASE_STUDY_SUBJECT[source.subject]}</span>
+            {' · '}
+            {caseStudyExamLabel(source.examType, source.exam)} · {source.cardTitle}
+          </p>
+          {card === undefined ? (
+            <p className="text-[11px] text-muted-foreground">문제를 불러오는 중…</p>
+          ) : card === 'error' ? (
             <p className="text-[11px] text-muted-foreground">사례형 카드를 불러오지 못했습니다</p>
-          ) : state.excerpt ? (
-            <p className="text-foreground whitespace-pre-wrap leading-relaxed">{state.excerpt}</p>
+          ) : !problem ? (
+            <p className="text-[11px] text-muted-foreground">이 카드에서 문항을 찾지 못했습니다</p>
           ) : (
-            <p className="text-[11px] text-muted-foreground">모범답안에서 이 판례가 나온 자리를 찾지 못했습니다</p>
+            <>
+              {/* 원문 마지막 문단이 설문과 같은 글인 경우가 많다 — 설문은 아래에 따로 보이므로 겹치면 뺀다 */}
+              {problem.question?.paragraphs
+                .filter((t) => t.trim() !== problem.question?.ask.trim())
+                .map((t, i) => (
+                  <p key={i} className="text-foreground whitespace-pre-wrap leading-relaxed">{t}</p>
+                ))}
+              {problem.question?.ask && (
+                <p className="text-foreground font-medium border-l-2 border-sky-500 pl-2 leading-relaxed">{problem.question.ask}</p>
+              )}
+              <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-2 space-y-1.5">
+                <p className="text-[11px] font-medium text-sky-700 dark:text-sky-300">이 판례가 나온 답안</p>
+                {paragraphs.length > 0 ? (
+                  paragraphs.map((t, i) => (
+                    <p key={i} className="text-foreground whitespace-pre-wrap leading-relaxed">
+                      <Highlighted text={t} caseNumber={caseNumber} />
+                    </p>
+                  ))
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">모범답안에서 이 판례가 나온 문단을 찾지 못했습니다</p>
+                )}
+              </div>
+            </>
+          )}
+          {onOpenCard && (
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={openCard} className="text-[11px] text-primary hover:underline">
+                카드 보기 →
+              </button>
+              {jumpMsg && <span className="text-[11px] text-amber-600 dark:text-amber-400">{jumpMsg}</span>}
+            </div>
           )}
         </div>
       )}
@@ -256,6 +397,8 @@ function CaseCard({
   const caseStudySources = unified && origin !== 'objective'
     ? group.sources.filter((s): s is CaseStudySource => s.kind === 'caseStudy')
     : []
+  const hasCaseStudy = caseStudySources.length > 0
+  const hasObjective = showObjective && group.questions.length > 0
   // 출제 횟수는 소스별로 ("선택형 3 · 사례형 2", 0 은 생략). 통합 화면이 아니면 예전 표기
   const countLabel = unified
     ? [
@@ -299,6 +442,8 @@ function CaseCard({
           길이는 previewMention 이 결론 문장을 남기며 줄여 둔다. CSS 로 한 번 더 접으면
           그 결론이 접힌 자리 아래로 밀려나므로 여기서는 접지 않는다.
           전문은 그 문제번호를 누르면 나온다 */}
+      {/* 사례형 출처가 함께 보일 때만 소제목으로 가른다. 선택형 출처만 있거나 선택형 칩이면 예전 카드 그대로 */}
+      {hasCaseStudy && hasObjective && <SourceHeading tone="objective">선택형</SourceHeading>}
       {showObjective && preview && (
         <div className="rounded-lg border border-primary/30 bg-primary/5 p-2 space-y-0.5">
           <p className="text-[11px] text-muted-foreground">
@@ -312,8 +457,10 @@ function CaseCard({
 
       {/* 출처별로 묶는다. 판례 하나가 여러 회차에 걸쳐 나오는 것이 이 화면의 핵심이라,
           문제번호만 늘어놓으면 어느 시험 것인지 알 수 없다 */}
+      {hasObjective && (
       <div className="space-y-1.5">
-        {showObjective && groupBySource(group.questions, allQuestions).map((bucket) => (
+        {/* 라벨 뒤 괄호(문제집 파일명)는 이 화면에서는 떼고, 같은 라벨이 되면 한 줄로 합친다 */}
+        {stripBucketLabels(groupBySource(group.questions, allQuestions)).map((bucket) => (
           <div key={bucket.label} className="flex flex-wrap items-center gap-1.5">
             <span className="text-[11px] text-muted-foreground shrink-0">{bucket.label}</span>
             {bucket.questions.map((q) => (
@@ -327,10 +474,35 @@ function CaseCard({
             ))}
           </div>
         ))}
-        {caseStudySources.map((src) => (
-          <CaseStudyLine key={src.problemId} source={src} caseKey={group.key} onOpenCard={onOpenCaseCard} />
-        ))}
       </div>
+      )}
+
+      {hasCaseStudy && (
+        <>
+          <SourceHeading tone="caseStudy">사례형</SourceHeading>
+          <CaseStudyAnswerBox sources={caseStudySources} caseNumber={group.key} />
+          <div className="space-y-1.5">
+            {groupCaseStudySources(caseStudySources).map((bucket) => (
+              <div key={bucket.label} className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] text-muted-foreground shrink-0">{bucket.label}</span>
+                {bucket.sources.map((src) => {
+                  const id = `${group.key}|cs|${src.problemId}`
+                  return (
+                    <CaseStudyQuestionLine
+                      key={src.problemId}
+                      source={src}
+                      caseNumber={group.key}
+                      open={openId === id}
+                      onToggle={() => onOpen(openId === id ? null : id)}
+                      onOpenCard={onOpenCaseCard}
+                    />
+                  )
+                })}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }

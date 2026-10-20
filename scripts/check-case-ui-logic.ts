@@ -1,6 +1,6 @@
 /**
  * 기출판례 화면(CasesTab)의 출처 칩·정렬·발췌 로직 검증 (check:case-ui-logic).
- * 화면은 lib/caseDigest.ts 의 filterCases·sortCases(origin)·caseStudyExcerpt 를 그대로 부르므로
+ * 화면은 lib/caseDigest.ts 의 filterCases·sortCases(origin)·caseStudyParagraphs 등을 그대로 부르므로
  * 그 함수들을 화면과 같은 순서(필터 → 검색 → 기간 → 정렬)로 엮어 검사한다.
  *
  * 실데이터 통계는 check:case-unified 와 같이 환경 변수가 있을 때만 낸다:
@@ -10,8 +10,9 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
-  buildCaseDigest, buildUnifiedCaseDigest, caseStudyExcerpt, excerptCaseNumber, filterCases, htmlToText,
-  originCount, searchCases, sortCases, type CaseGroup, type CaseOrigin, type CaseSort,
+  buildCaseDigest, buildUnifiedCaseDigest, caseNumberSpans, caseStudyExamLabel, caseStudyParagraphs, caseStudyQuestionLabel,
+  filterCases, groupCaseStudySources, htmlToText, originCount, searchCases, sortCases, stripBucketLabels, stripSourceSuffix,
+  type CaseGroup, type CaseOrigin, type CaseSort, type CaseSource,
 } from '../lib/caseDigest'
 import type { CaseIndex } from '../lib/caseStudy/types'
 import type { ExamType, Question, Subject } from '../lib/types'
@@ -93,21 +94,68 @@ assert.deepEqual(screen(uni, { years: null, examTypes: ['모의고사'] }, 'case
 assert.deepEqual(screen(uni, { years: null, query: '2003다2' }, 'all').undated.map((g) => g.key), ['2003다2'])
 assert.deepEqual(screen(uni, { years: null, query: '03다2' }, 'all').undated.map((g) => g.key), ['2003다2'])
 
-// 7. 발췌: 태그 제거, 앞뒤 100자, 2자리/4자리 표기
+// 7. 답안 문단: 블록 하나를 통째로("…" 없음), 2자리/4자리 표기, 같은 문단은 한 번, 한 문단에 두 번
 assert.equal(htmlToText('가<mark class="case">95다8713</mark>나<br>다 &amp; &lt;b&gt;'), '가95다8713나 다 & <b>')
 const long = 'ㄱ'.repeat(300)
-const problem = { answer: { blocks: [{ html: `<p>${long}</p>` }, { html: `판례(대판 1995. 4. 25. <mark class="case">95다8713</mark>)는 <b>그렇다</b>. ${long}` }] } }
-const ex = caseStudyExcerpt(problem, '1995다8713')!
-assert.ok(ex.includes('95다8713') && !ex.includes('<'), '4자리 key 로 2자리 본문을 찾고 태그는 없다')
-assert.ok(ex.startsWith('…') && ex.endsWith('…'))
-const core = ex.slice(1, -1)
-assert.ok(core.length <= 100 + '95다8713'.length + 100 && core.length >= 150, `앞뒤 약 100자 (${core.length}자)`)
-assert.equal(caseStudyExcerpt({ answer: { blocks: [{ html: '<mark class="case">2016다12345</mark> 참조' }] } }, '16다12345'), '2016다12345 참조')
-assert.equal(caseStudyExcerpt(problem, '2020다9'), null, '없으면 null')
-assert.equal(caseStudyExcerpt(undefined, '95다8713'), null)
-assert.equal(excerptCaseNumber('짧은 95다8713 글', '95다8713'), '짧은 95다8713 글')
+const para = `판례(대판 1995. 4. 25. <mark class="case">95다8713</mark>)는 <b>그렇다</b>. ${long} 다시 1995다8713 참조.`
+const problem = { answer: { blocks: [
+  { t: 'h1', html: 'Ⅰ. 95다8713 쟁점' }, // 목차 줄은 문단이 아니다
+  { t: 'p', html: `<p>${long}</p>` },
+  { t: 'p', html: para },
+  { t: 'p', html: para }, // 같은 문단이 두 번 → 한 번
+  { t: 'p', html: '다른 문단 <mark class="case">2016다12345</mark>' },
+] } }
+const ps = caseStudyParagraphs(problem, '1995다8713')
+assert.equal(ps.length, 1, '목차 줄·같은 문단 제외')
+assert.equal(ps[0], htmlToText(para), '블록 전체 그대로')
+assert.ok(!ps[0].startsWith('…') && !ps[0].endsWith('…') && ps[0].length > 300 && !ps[0].includes('<'))
+assert.equal(caseNumberSpans(ps[0], '1995다8713').length, 2, '한 문단에 두 번(2자리·4자리 표기) 모두 강조')
+assert.deepEqual(caseStudyParagraphs(problem, '16다12345'), ['다른 문단 2016다12345'], '줄여 쓴 key 로 4자리 본문')
+assert.deepEqual(caseStudyParagraphs(problem, '2020다9'), [])
+assert.deepEqual(caseStudyParagraphs(undefined, '95다8713'), [])
+const spans = caseNumberSpans('앞 95 다 8713 뒤', '1995다8713')
+assert.deepEqual(spans, [{ at: 2, len: 9 }], '띄어 쓴 표기도 자리 그대로')
 
-console.log('통과: 출처 칩 수·정렬 기준·선택형 칩 = 기존 화면(9조합)·선고일 미상·과목/유형 AND·검색·발췌')
+// 8. 시험 라벨·문항 버튼 라벨
+assert.equal(caseStudyExamLabel('변시', 11), '11회 변시')
+assert.equal(caseStudyExamLabel('변시', 15), '15회 변시')
+assert.equal(caseStudyExamLabel('모의', '26.1'), '2026년 1모')
+assert.equal(caseStudyExamLabel('모의', '24.10'), '2024년 10모', '10월은 25.1 이 아니다')
+assert.equal(caseStudyExamLabel('모의', '09.6'), '2009년 6모', '두 자리 연도 경계: 09 → 2009')
+assert.equal(caseStudyExamLabel('모의', '2026.8'), '2026년 8모', '네 자리 연도는 그대로')
+assert.equal(caseStudyExamLabel('모의', '이상'), '모의 이상', '못 읽으면 원값')
+assert.equal(caseStudyQuestionLabel('제2문의 3', ''), '제2문의 3')
+assert.equal(caseStudyQuestionLabel('제2문의 1', '문2'), '제2문의 1 문2')
+
+// 9. 사례형 출처 묶기: 시험별, 최근이 위, 묶음 안은 문항 순
+const src = (problemId: string, examType: '변시' | '모의', exam: number | string, year: number, qno: string, sub = '') =>
+  ({ kind: 'caseStudy', cardId: problemId.split('#')[0], problemId, cardTitle: 't', problemLabel: '', subject: '민법', examType, exam, qno, sub, year }) as Extract<CaseSource, { kind: 'caseStudy' }>
+const buckets = groupCaseStudySources([
+  src('a#1', '변시', 11, 2022, '제2문의 1', '문2'),
+  src('b#1', '모의', '24.6', 2024, '제1문의 3'),
+  src('c#1', '모의', '24.10', 2024, '제1문의 2'),
+  src('d#1', '변시', 11, 2022, '제2문의 1', '문1'),
+  src('e#1', '모의', '26.1', 2026, '제2문의 1'),
+])
+assert.deepEqual(buckets.map((b) => b.label), ['2026년 1모', '2024년 10모', '2024년 6모', '11회 변시'])
+assert.deepEqual(buckets[3].sources.map((s) => caseStudyQuestionLabel(s.qno, s.sub)), ['제2문의 1 문1', '제2문의 1 문2'])
+
+// 10. 괄호 접미사: 표시에서만 떼고, 같은 라벨이 되면 한 줄로 (문제번호순)
+assert.equal(stripSourceSuffix('2026년 8모(민법_변시)'), '2026년 8모')
+assert.equal(stripSourceSuffix('11회 변시(민법_변시)'), '11회 변시')
+assert.equal(stripSourceSuffix('11회 변시'), '11회 변시')
+assert.equal(stripSourceSuffix('2024년 모의고사(2024 (1차))'), '2024년 모의고사(2024 (1차))', '괄호가 겹친 것은 건드리지 않는다')
+const qn = (id: string, no: number) => ({ id, no }) as unknown as Question
+assert.deepEqual(
+  stripBucketLabels([
+    { label: '11회 변시(민법_변시)', questions: [qn('x', 22)] },
+    { label: '2026년 8모', questions: [qn('y', 3)] },
+    { label: '11회 변시(questions.json)', questions: [qn('z', 5)] },
+  ]).map((b) => [b.label, b.questions.map((q) => q.no)]),
+  [['11회 변시', [5, 22]], ['2026년 8모', [3]]]
+)
+
+console.log('통과: 출처 칩 수·정렬 기준·선택형 칩 = 기존 화면(9조합)·선고일 미상·과목/유형 AND·검색·답안 문단·시험/문항 라벨·출처 묶기·괄호 제거')
 
 // ── 실데이터 통계 (환경 변수가 있을 때만) ───────────────────────────
 const objDir = process.env.LAWPASS_OBJECTIVE_DIR
@@ -138,12 +186,14 @@ if (!objDir || !caseDir) {
   for (const o of combos) assert.equal(sig(screen(realUni, o, 'objective'), 'objective'), sig(screen(realOld, o)), `실데이터 선택형 칩 = 기존 화면 ${JSON.stringify(o)}`)
   const def: Opts = {}
   const cnt = (origin: CaseOrigin) => { const r = screen(realUni, def, origin); return { dated: r.dated.length, undated: r.undated.length } }
-  // 사례형 출처 발췌가 실제 답안에서 찾아지는 비율
-  let found = 0, total = 0
+  // 사례형 출처마다 판례가 나온 답안 문단을 통째로 찾는 비율
+  let found = 0, total = 0, maxLen = 0
   for (const g of realUni) for (const s of g.sources) {
     if (s.kind !== 'caseStudy') continue
     total++
-    if (caseStudyExcerpt(cards.get(s.cardId)?.problems.find((p) => p.id === s.problemId), g.key)) found++
+    const ps = caseStudyParagraphs(cards.get(s.cardId)?.problems.find((p) => p.id === s.problemId), g.key)
+    if (ps.length) found++
+    for (const t of ps) maxLen = Math.max(maxLen, t.length)
   }
   console.log('실데이터 통계 (기본 필터: 최근 5개년·출제횟수순)')
   for (const o of ['all', 'objective', 'caseStudy'] as CaseOrigin[]) {
@@ -151,5 +201,5 @@ if (!objDir || !caseDir) {
     console.log(`  ${o.padEnd(9)} 판례 ${c.dated + c.undated}건 (선고일 있음 ${c.dated} · 선고일 미상 ${c.undated})`)
   }
   console.log(`  선택형 칩 = 기존 화면: ${combos.length}조합 모두 동일`)
-  console.log(`  사례형 출처 발췌: ${total}건 중 ${found}건 찾음`)
+  console.log(`  사례형 출처 답안 문단: ${total}건 중 ${found}건 찾음 (가장 긴 문단 ${maxLen}자, 자르지 않음)`)
 }

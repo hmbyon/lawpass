@@ -1,6 +1,6 @@
 import type { CaseRef, ExamType, ExplanationBlock, Question, Subject } from './types'
 import { SUBJECT_UNITS } from './units'
-import { examMonthOf, examMonthLabel, type ExamMonthLabel } from './questionSource'
+import { examMonthOf, examMonthLabel, type ExamMonthLabel, type SourceBucket } from './questionSource'
 import type { CaseIndex, CaseSubject, IndexProblem } from './caseStudy/types'
 import { problemLabel } from './caseStudy/group'
 
@@ -129,6 +129,8 @@ export type CaseSource =
       subject: CaseSubject
       examType: IndexProblem['kind'] // '변시' | '모의'
       exam: IndexProblem['exam'] // 회차 원값 (변시 11, 모의 '24.6') — 모의 회차(월) 필터용
+      qno: string // '제2문의 1' — 판례 화면의 문항 버튼 라벨용
+      sub: string // '문2' 또는 ''
       year: number | null
     }
 
@@ -218,7 +220,7 @@ export function buildUnifiedCaseDigest(questions: Question[], caseIndex?: CaseIn
         seen.add(key)
         const source: CaseSource = {
           kind: 'caseStudy', cardId: card.id, problemId: p.id, cardTitle: card.title, problemLabel: problemLabel(p),
-          subject: card.subject, examType: p.kind, exam: p.exam, year: caseStudyExamYear(p),
+          subject: card.subject, examType: p.kind, exam: p.exam, qno: p.qno, sub: p.sub ?? '', year: caseStudyExamYear(p),
         }
         const found = groups.get(key)
         if (found) {
@@ -812,21 +814,105 @@ export function htmlToText(html: string): string {
     .trim()
 }
 
-/** 텍스트에서 그 판례번호가 적힌 자리 앞뒤 radius 자. 표기가 2자리/4자리로 달라도 key 로 찾는다 */
-export function excerptCaseNumber(text: string, caseNumber: string, radius = 100): string | null {
-  const found = caseNumberAt(text, normalizeCaseNumber(caseNumber))
-  if (!found) return null
-  const from = Math.max(0, found.at - radius)
-  const to = Math.min(text.length, found.at + found.len + radius)
-  return `${from > 0 ? '…' : ''}${text.slice(from, to).trim()}${to < text.length ? '…' : ''}`
+// ── 판례 화면의 출처 표시 ───────────────────────────────────────────
+
+type CaseStudySourceItem = Extract<CaseSource, { kind: 'caseStudy' }>
+
+/**
+ * 출처 라벨 끝의 괄호를 뗀다 ("2026년 8모(민법_변시)" → "2026년 8모"). 판례 화면 표시 전용 —
+ * 문제집 라벨 규칙(questionSource.sourceLabel)과 다른 화면은 그대로다
+ */
+export function stripSourceSuffix(label: string): string {
+  return label.replace(/\s*\([^()]*\)\s*$/, '')
 }
 
-/** 사례형 문항의 모범답안에서 그 판례가 나온 자리를 발췌한다. 못 찾으면 null */
-export function caseStudyExcerpt(
-  problem: { answer?: { blocks: { html: string }[] } } | undefined,
-  caseNumber: string,
-  radius = 100
-): string | null {
-  const text = (problem?.answer?.blocks ?? []).map((b) => htmlToText(b.html)).join(' ')
-  return text ? excerptCaseNumber(text, caseNumber, radius) : null
+/** 괄호를 뗀 라벨로 다시 묶는다. 같은 라벨이 된 묶음은 하나로 합치고(처음 나온 자리) 문제번호순으로 둔다 */
+export function stripBucketLabels(buckets: SourceBucket[]): SourceBucket[] {
+  const merged = new Map<string, Question[]>()
+  for (const b of buckets) {
+    const label = stripSourceSuffix(b.label)
+    merged.set(label, [...(merged.get(label) ?? []), ...b.questions])
+  }
+  return Array.from(merged, ([label, questions]) => ({
+    label,
+    questions: questions.length > 1 ? [...questions].sort((a, b) => Number(a.no) - Number(b.no)) : questions,
+  }))
+}
+
+/**
+ * 사례형 시험 라벨. 선택형 출처 라벨(sourceLabel)과 같은 모양으로 — "15회 변시", "2026년 1모".
+ * 모의 회차는 색인에 'YY.M'(두 자리 연도)으로 온다. 법전협 모의는 2000년대 시험이라 YY → 20YY 이고,
+ * 네 자리로 오면 그대로 쓴다
+ */
+export function caseStudyExamLabel(kind: IndexProblem['kind'], exam: number | string): string {
+  if (kind === '변시') return `${exam}회 변시`
+  const [y, m] = String(exam).split('.').map(Number)
+  if (!y || !m) return `모의 ${exam}`
+  return `${y < 100 ? 2000 + y : y}년 ${m}모`
+}
+
+/** 사례형 문항 버튼 라벨: "제2문의 3", 소문항이 있으면 "제2문의 1 문2" */
+export function caseStudyQuestionLabel(qno: string, sub?: string): string {
+  return [qno, sub].filter(Boolean).join(' ')
+}
+
+// 최근 시험일수록 크다. 변시는 1월 시행으로 친다
+function caseStudyExamRank(s: CaseStudySourceItem): number {
+  const month = s.examType === '모의' ? Number(String(s.exam).split('.')[1]) || 0 : 1
+  return (s.year ?? 0) * 100 + month
+}
+
+export interface CaseStudyBucket {
+  label: string
+  sources: CaseStudySourceItem[]
+}
+
+/** 사례형 출처를 시험(회차)별로 묶는다. 최근 시험이 위, 묶음 안은 문항 순 */
+export function groupCaseStudySources(sources: CaseStudySourceItem[]): CaseStudyBucket[] {
+  const coll = new Intl.Collator('ko', { numeric: true })
+  const sorted = [...sources].sort(
+    (a, b) =>
+      caseStudyExamRank(b) - caseStudyExamRank(a) ||
+      coll.compare(a.qno, b.qno) ||
+      coll.compare(a.sub, b.sub) ||
+      a.problemId.localeCompare(b.problemId)
+  )
+  const buckets = new Map<string, CaseStudySourceItem[]>()
+  for (const s of sorted) {
+    const label = caseStudyExamLabel(s.examType, s.exam)
+    buckets.set(label, [...(buckets.get(label) ?? []), s])
+  }
+  return Array.from(buckets, ([label, list]) => ({ label, sources: list }))
+}
+
+/** 텍스트에서 그 판례번호가 적힌 자리 전부 (2자리/4자리 표기 모두). 형식 밖 표기는 글자 사이 공백을 허용해 찾는다 */
+export function caseNumberSpans(text: string, caseNumber: string): { at: number; len: number }[] {
+  const key = normalizeCaseNumber(caseNumber)
+  if (!key) return []
+  const out: { at: number; len: number }[] = []
+  const re = new RegExp(CASE_NUMBER.source, 'g')
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    if (caseKey(m) === key) out.push({ at: m.index + m[1].length, len: m[0].length - m[1].length })
+  }
+  if (out.length > 0) return out
+  const loose = new RegExp(key.split('').map((ch) => ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*'), 'g')
+  for (let m = loose.exec(text); m; m = loose.exec(text)) out.push({ at: m.index, len: m[0].length })
+  return out
+}
+
+/**
+ * 사례형 문항의 모범답안에서 그 판례가 나온 문단(답안 블록 p 하나)을 **통째로** 돌려준다 —
+ * 앞뒤를 자르지 않는다. 같은 문단은 한 번만. 글자로만 바꾼 것이라 화면에 그대로 넣어도 된다
+ */
+export function caseStudyParagraphs(
+  problem: { answer?: { blocks: { t?: string; html: string }[] } } | undefined,
+  caseNumber: string
+): string[] {
+  const out: string[] = []
+  for (const b of problem?.answer?.blocks ?? []) {
+    if (b.t && b.t !== 'p') continue
+    const text = htmlToText(b.html)
+    if (text && !out.includes(text) && caseNumberSpans(text, caseNumber).length > 0) out.push(text)
+  }
+  return out
 }
