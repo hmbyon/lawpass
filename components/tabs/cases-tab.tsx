@@ -17,6 +17,7 @@ import {
   findCaseMentions, allExplanationText, previewMention, selectedUnitsOf, mergeUnitSelection,
   searchCases, inOrigin, CASE_STUDY_SUBJECT, caseStudyProblemCount, casesSummaryTail,
   stripBucketLabels, groupCaseStudySources, caseStudyExamLabel, caseStudyQuestionLabel, caseNumberSpans,
+  toggleExpanded, allVisibleExpanded, setVisibleExpanded, expandAllNeedsConfirm,
   type CaseGroup, type CaseSort, type CaseOrigin, type CaseSource,
 } from '@/lib/caseDigest'
 import type { Card, CaseIndex } from '@/lib/caseStudy/types'
@@ -446,6 +447,8 @@ function CaseCard({
   origin,
   unified,
   onOpenCaseCard,
+  expanded,
+  onToggleExpand,
 }: {
   group: CaseGroup
   // 출처에 파일명을 붙일지는 전체 문제집을 봐야 안다 (같은 회차의 다른 판본이 있는지)
@@ -459,9 +462,12 @@ function CaseCard({
   // 사례형 출처가 하나라도 있는 통합 화면인가. 아니면 카드가 예전과 한 글자도 다르지 않다
   unified: boolean
   onOpenCaseCard?: (cardId: string, problemId: string) => void
+  // 접힌 카드는 판례번호 줄(메타)까지만 그리고, 그 아래(출처·박스·문항 토글)는 마운트하지 않는다
+  expanded: boolean
+  onToggleExpand: () => void
 }) {
   // 카드에서 바로 보여줄 조각. 판례 목록을 훑는 사람이 매번 문제를 펼쳐 보게 할 이유가 없다
-  const preview = useMemo(() => previewMention(group), [group])
+  const preview = useMemo(() => (expanded ? previewMention(group) : null), [group, expanded])
   const showObjective = origin !== 'caseStudy'
   const caseStudySources = unified && origin !== 'objective'
     ? group.sources.filter((s): s is CaseStudySource => s.kind === 'caseStudy')
@@ -477,11 +483,17 @@ function CaseCard({
     : `${group.count}회 출제`
   return (
     <div className="bg-card border border-border rounded-xl p-3.5 space-y-2">
+      {/* 헤더(요지·횟수·판례번호 줄)를 누르면 펼치고 접는다. 키보드는 오른쪽 ▸/▾ 버튼이 맡는다(aria-expanded).
+          별은 헤더 클릭으로 번지지 않게 막는다 */}
+      <div className="space-y-2 cursor-pointer" onClick={onToggleExpand}>
       <div className="flex items-start gap-2">
         {/* 별을 누르면 즐겨찾기. 위쪽 "즐겨찾기만" 으로 모아 볼 수 있다 */}
         <button
           type="button"
-          onClick={() => onToggleFavorite(group.key)}
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleFavorite(group.key)
+          }}
           aria-pressed={favorite}
           aria-label={favorite ? '즐겨찾기 해제' : '즐겨찾기에 추가'}
           title={favorite ? '즐겨찾기 해제' : '즐겨찾기에 추가'}
@@ -498,6 +510,18 @@ function CaseCard({
           <p className="flex-1 text-sm text-muted-foreground leading-relaxed">요지 없음</p>
         )}
         <span className="shrink-0 text-xs font-semibold text-primary tabular-nums">{countLabel}</span>
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={expanded ? '판례 접기' : '판례 펼치기'}
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleExpand()
+          }}
+          className="shrink-0 -mt-0.5 w-5 text-sm leading-none text-muted-foreground hover:text-foreground"
+        >
+          {expanded ? '▾' : '▸'}
+        </button>
       </div>
 
       <p className="text-[11px] text-muted-foreground">
@@ -506,6 +530,10 @@ function CaseCard({
         <span className="text-foreground">{group.caseNumber}</span>
         {group.otherSummaries > 0 && ` · 다른 요약 ${group.otherSummaries}가지`}
       </p>
+      </div>
+
+      {expanded && (
+      <>
 
       {/* 해설에 실제로 적힌 문장 — 요지는 요약이라 표현이 다듬어져 있다.
           길이는 previewMention 이 결론 문장을 남기며 줄여 둔다. CSS 로 한 번 더 접으면
@@ -572,6 +600,8 @@ function CaseCard({
           </div>
         </>
       )}
+      </>
+      )}
     </div>
   )
 }
@@ -622,6 +652,15 @@ export function CasesTab({
   // 통합 화면이 아니면 늘 선택형 기준 — counts.objective 는 count 와 같아 숫자·정렬이 예전 그대로다
   const effectiveOrigin: CaseOrigin = unified ? origin : 'objective'
   const [openId, setOpenId] = useState<string | null>(null)
+  // 펼친 판례 카드(정규화한 판례번호). 이 화면에만 있는 메모리 상태라 필터·칩·검색·정렬을 바꿔도,
+  // 사례형 카드에 갔다 돌아와도 그대로다(판례 화면은 숨길 뿐 언마운트하지 않는다). 저장하지 않는다
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  const [confirmExpandAll, setConfirmExpandAll] = useState<number | null>(null)
+  function toggleCard(key: string) {
+    // 접을 때 그 카드 안에서 열어 둔 문항 토글도 닫는다 (openId 는 "판례key|…")
+    if (expanded.has(key) && openId?.startsWith(`${key}|`)) setOpenId(null)
+    setExpanded((prev) => toggleExpanded(prev, key))
+  }
   // 기본은 최근 5개년·출제횟수순. 탭 이름이 '기출판례'인 만큼 전체도 한 번에 볼 수 있게 둔다
   const [years, setYears] = useState<number | null>(5)
   const [subjects, setSubjects] = useState<Subject[]>([])
@@ -693,6 +732,10 @@ export function CasesTab({
   const caseStudyProblems = useMemo(() => caseStudyProblemCount(digest.groups), [digest.groups])
   const originTotal = useMemo(() => digest.groups.filter((g) => inOrigin(g, effectiveOrigin)).length, [digest.groups, effectiveOrigin])
   const hiddenByPeriod = searched.filter((g) => g.year !== null).length - dated.length
+  // 지금 목록에 보이는 카드 (과목별 묶음에 같은 판례가 여러 번 나와도 한 번)
+  const visibleKeys = useMemo(() => Array.from(new Set([...dated, ...undated].map((g) => g.key))), [dated, undated])
+  // 보이는 목록이 바뀌면 떠 있던 '모두 펼칠까요?' 확인은 숫자가 맞지 않으니 거둔다
+  useEffect(() => setConfirmExpandAll(null), [visibleKeys])
 
   /**
    * 과목을 고르지 않았으면 과목별로 나눠 세운다. 단원 분포와 같은 방식이고, 과목 순서도
@@ -1060,6 +1103,53 @@ export function CasesTab({
             {effectiveYears !== null && hiddenByPeriod > 0 && ` · ${periodLabel(effectiveYears)}보다 오래된 판례 ${hiddenByPeriod}건은 뺐습니다`}
           </p>
 
+          {/* 모두 펼치기/접기 — 지금 목록에 보이는 카드에만. 많으면(50장 초과) 한 번 묻고 펼친다 */}
+          {visibleKeys.length > 0 && (
+            <div className="flex flex-wrap items-center justify-end gap-2 text-[11px]">
+              {confirmExpandAll !== null ? (
+                <>
+                  <span className="text-muted-foreground">{confirmExpandAll}개 카드를 모두 펼칠까요?</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExpanded((prev) => setVisibleExpanded(prev, visibleKeys, true))
+                      setConfirmExpandAll(null)
+                    }}
+                    className="text-primary hover:underline"
+                  >
+                    펼치기
+                  </button>
+                  <button type="button" onClick={() => setConfirmExpandAll(null)} className="text-muted-foreground hover:text-foreground">
+                    취소
+                  </button>
+                </>
+              ) : allVisibleExpanded(expanded, visibleKeys) ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (openId && visibleKeys.some((k) => openId.startsWith(`${k}|`))) setOpenId(null)
+                    setExpanded((prev) => setVisibleExpanded(prev, visibleKeys, false))
+                  }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  모두 접기
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const n = expandAllNeedsConfirm(visibleKeys)
+                    if (n !== null) setConfirmExpandAll(n)
+                    else setExpanded((prev) => setVisibleExpanded(prev, visibleKeys, true))
+                  }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  모두 펼치기
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="space-y-2">
             {/* 선고일 미상 판례는 아래에 따로 나오므로, 그것까지 없을 때만 '없다'고 적는다 */}
             {dated.length === 0 && undated.length === 0 && (
@@ -1090,13 +1180,13 @@ export function CasesTab({
                         openId={openId}
                         onOpen={setOpenId}
                         favorite={favs.has(g.key)}
-                        onToggleFavorite={toggleFavorite} origin={effectiveOrigin} unified={unified} onOpenCaseCard={onOpenCaseCard}
+                        onToggleFavorite={toggleFavorite} origin={effectiveOrigin} unified={unified} onOpenCaseCard={onOpenCaseCard} expanded={expanded.has(g.key)} onToggleExpand={() => toggleCard(g.key)}
                       />
                     ))}
                   </div>
                 ))
               : dated.map((g) => (
-                  <CaseCard key={g.key} group={g} allQuestions={questions} openId={openId} onOpen={setOpenId} favorite={favs.has(g.key)} onToggleFavorite={toggleFavorite} origin={effectiveOrigin} unified={unified} onOpenCaseCard={onOpenCaseCard} />
+                  <CaseCard key={g.key} group={g} allQuestions={questions} openId={openId} onOpen={setOpenId} favorite={favs.has(g.key)} onToggleFavorite={toggleFavorite} origin={effectiveOrigin} unified={unified} onOpenCaseCard={onOpenCaseCard} expanded={expanded.has(g.key)} onToggleExpand={() => toggleCard(g.key)} />
                 ))}
           </div>
 
@@ -1112,7 +1202,7 @@ export function CasesTab({
                 </span>
               </p>
               {undated.map((g) => (
-                <CaseCard key={g.key} group={g} allQuestions={questions} openId={openId} onOpen={setOpenId} favorite={favs.has(g.key)} onToggleFavorite={toggleFavorite} origin={effectiveOrigin} unified={unified} onOpenCaseCard={onOpenCaseCard} />
+                <CaseCard key={g.key} group={g} allQuestions={questions} openId={openId} onOpen={setOpenId} favorite={favs.has(g.key)} onToggleFavorite={toggleFavorite} origin={effectiveOrigin} unified={unified} onOpenCaseCard={onOpenCaseCard} expanded={expanded.has(g.key)} onToggleExpand={() => toggleCard(g.key)} />
               ))}
             </div>
           )}

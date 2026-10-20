@@ -899,3 +899,36 @@ export function caseNumberSpans(text: string, caseNumber: string): { at: number;
   for (let m = loose.exec(text); m; m = loose.exec(text)) out.push({ at: m.index, len: m[0].length })
   return out
 }
+
+// ── 판례 카드 펼침 (판례 화면 메모리 상태) ──────────────────────────────
+
+/** 이보다 많은 카드를 한꺼번에 펼치려면 먼저 확인을 받는다 (사례형 카드를 줄줄이 불러오게 되므로) */
+export const EXPAND_ALL_CONFIRM = 50
+
+/** 카드 하나 펼치기/접기. 원본은 건드리지 않고 새 Set 을 돌려준다(React 상태용) */
+export function toggleExpanded(expanded: Set<string>, key: string): Set<string> {
+  const next = new Set(expanded)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  return next
+}
+
+/** 지금 보이는 카드가 전부 펼쳐져 있는가 — '모두 펼치기' ↔ '모두 접기' 버튼 문구를 정한다 */
+export function allVisibleExpanded(expanded: Set<string>, visibleKeys: string[]): boolean {
+  return visibleKeys.length > 0 && visibleKeys.every((k) => expanded.has(k))
+}
+
+/** 보이는 카드만 모두 펼치거나 접는다. 필터에 가려진 카드의 상태는 그대로 둔다 */
+export function setVisibleExpanded(expanded: Set<string>, visibleKeys: string[], expand: boolean): Set<string> {
+  const next = new Set(expanded)
+  for (const k of visibleKeys) {
+    if (expand) next.add(k)
+    else next.delete(k)
+  }
+  return next
+}
+
+/** 모두 펼치기 전에 확인이 필요한가 — 지금 목록에 보이는 카드가 EXPAND_ALL_CONFIRM 장을 넘으면 그 수, 아니면 null */
+export function expandAllNeedsConfirm(visibleKeys: string[]): number | null {
+  return visibleKeys.length > EXPAND_ALL_CONFIRM ? visibleKeys.length : null
+}

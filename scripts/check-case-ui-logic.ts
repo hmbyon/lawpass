@@ -12,6 +12,7 @@ import path from 'node:path'
 import {
   buildCaseDigest, buildUnifiedCaseDigest, caseNumberSpans, caseStudyExamLabel, caseStudyQuestionLabel,
   filterCases, groupCaseStudySources, htmlToText, originCount, searchCases, sortCases, stripBucketLabels, stripSourceSuffix,
+  EXPAND_ALL_CONFIRM, allVisibleExpanded, expandAllNeedsConfirm, setVisibleExpanded, toggleExpanded,
   type CaseGroup, type CaseOrigin, type CaseSort, type CaseSource,
 } from '../lib/caseDigest'
 import type { Block, CaseIndex } from '../lib/caseStudy/types'
@@ -205,6 +206,23 @@ assert.deepEqual(problemSummary({ brief: [' 甲이 乙에게 대여 ', ''], ques
 assert.deepEqual(problemSummary({ question: { paragraphs: ['첫 문단', '설문', '둘째', '셋째'], ask: '설문' } }), { lines: ['첫 문단', '둘째'], fromBrief: false })
 assert.deepEqual(problemSummary({}), { lines: [], fromBrief: false })
 
+// 11. 판례 카드 펼침: 토글, 보이는 카드만 모두 펼치기/접기, 50장 초과 확인
+const e0 = new Set<string>()
+const e1 = toggleExpanded(e0, 'A')
+assert.deepEqual([...e1], ['A'])
+assert.equal(e0.size, 0, '원본은 그대로(새 Set)')
+assert.deepEqual([...toggleExpanded(e1, 'A')], [], '다시 누르면 접힘')
+const vis = ['A', 'B', 'C']
+assert.equal(allVisibleExpanded(new Set(['A', 'B']), vis), false)
+assert.equal(allVisibleExpanded(new Set(['A', 'B', 'C', 'Z']), vis), true)
+assert.equal(allVisibleExpanded(new Set(), []), false, '보이는 카드가 없으면 "모두 펼치기"')
+// 필터에 가려진 Z 의 상태는 건드리지 않는다
+assert.deepEqual([...setVisibleExpanded(new Set(['Z', 'A']), vis, true)].sort(), ['A', 'B', 'C', 'Z'])
+assert.deepEqual([...setVisibleExpanded(new Set(['Z', 'A', 'B']), vis, false)], ['Z'])
+assert.equal(EXPAND_ALL_CONFIRM, 50)
+assert.equal(expandAllNeedsConfirm(Array.from({ length: 50 }, (_, i) => `k${i}`)), null, '50장은 바로')
+assert.equal(expandAllNeedsConfirm(Array.from({ length: 51 }, (_, i) => `k${i}`)), 51, '51장부터 확인')
+
 // 8. 시험 라벨·문항 버튼 라벨
 assert.equal(caseStudyExamLabel('변시', 11), '11회 변시')
 assert.equal(caseStudyExamLabel('변시', 15), '15회 변시')
@@ -244,7 +262,7 @@ assert.deepEqual(
   [['11회 변시', [5, 22]], ['2026년 8모', [3]]]
 )
 
-console.log('통과: 출처 칩 수·정렬 기준·선택형 칩 = 기존 화면(9조합)·선고일 미상·과목/유형 AND·검색·법리/사안포섭(a·b·c)·목차·판례 항목·답안 줄 펴기·하이라이트·긴 답안 접기·요약 대용·시험/문항 라벨·출처 묶기·괄호 제거')
+console.log('통과: 출처 칩 수·정렬 기준·선택형 칩 = 기존 화면(9조합)·선고일 미상·과목/유형 AND·검색·법리/사안포섭(a·b·c)·목차·판례 항목·답안 줄 펴기·하이라이트·긴 답안 접기·요약 대용·카드 펼침·시험/문항 라벨·출처 묶기·괄호 제거')
 
 // ── 실데이터 통계 (환경 변수가 있을 때만) ───────────────────────────
 const objDir = process.env.LAWPASS_OBJECTIVE_DIR
