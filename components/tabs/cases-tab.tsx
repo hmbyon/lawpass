@@ -16,12 +16,14 @@ import {
   buildUnifiedCaseDigest, filterCases, sortCases, periodLabel, PERIOD_OPTIONS, examYearLabel,
   findCaseMentions, allExplanationText, previewMention, selectedUnitsOf, mergeUnitSelection,
   searchCases, inOrigin, CASE_STUDY_SUBJECT, caseStudyProblemCount, casesSummaryTail,
-  stripBucketLabels, groupCaseStudySources, caseStudyExamLabel, caseStudyQuestionLabel, caseStudyParagraphs, caseNumberSpans,
+  stripBucketLabels, groupCaseStudySources, caseStudyExamLabel, caseStudyQuestionLabel, caseNumberSpans,
   type CaseGroup, type CaseSort, type CaseOrigin, type CaseSource,
 } from '@/lib/caseDigest'
 import type { Card, CaseIndex } from '@/lib/caseStudy/types'
 import { fetchCaseCard } from '@/lib/firebaseServices/caseStudy'
 import { caseJumpStatus } from '@/lib/caseStudy/group'
+import { answerOutline, caseCitations, outlineItemOf, problemSummary, type CaseCitation } from '@/lib/caseStudy/answerOutline'
+import type { Problem } from '@/lib/caseStudy/types'
 
 /**
  * 기출판례 — 해설에 인용된 판례를 판례 단위로 모아 보여준다.
@@ -192,7 +194,8 @@ function CaseStudyAnswerBox({ sources, caseNumber }: { sources: CaseStudySource[
         const seen = new Set<string>()
         const entries: { label: string; text: string }[] = []
         for (const { s, card } of list) {
-          for (const text of caseStudyParagraphs(card?.problems.find((p) => p.id === s.problemId), caseNumber)) {
+          // 박스에는 법리 부분만 — 같은 문단에 이어진 사안포섭은 문항 토글에서 따로 보인다
+          for (const { law: text } of caseCitations(card?.problems.find((p) => p.id === s.problemId), caseNumber)) {
             if (seen.has(text)) continue
             seen.add(text)
             entries.push({ label: answerLabel(s), text })
@@ -257,6 +260,121 @@ function CaseStudyAnswerBox({ sources, caseNumber }: { sources: CaseStudySource[
   )
 }
 
+// 목차가 길면 큰 목차와 판례가 나온 항목 주변만 먼저 보인다
+const OUTLINE_FOLD = 10
+
+/** 판례가 나온 목차 항목 아래: 법리 문단(파랑, 판례번호 굵게)과 사안포섭(따로 가른 영역) */
+function CitationBody({ citation, caseNumber }: { citation: CaseCitation; caseNumber: string }) {
+  return (
+    <div className="mt-1 space-y-1.5">
+      <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-2">
+        <p className="text-foreground whitespace-pre-wrap leading-relaxed">
+          <Highlighted text={citation.law} caseNumber={caseNumber} />
+        </p>
+      </div>
+      {citation.application && (
+        <div className="rounded-lg border border-dashed border-border bg-background/60 p-2 space-y-1">
+          <p className="text-[11px] font-semibold text-muted-foreground">
+            사안포섭{citation.application.title ? ` · ${citation.application.title}` : ''}
+          </p>
+          {citation.application.paragraphs.map((t, i) => (
+            <p key={i} className="text-foreground/90 whitespace-pre-wrap leading-relaxed">{t}</p>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * 펼친 사례형 문항: 문제 요약(사례 원문은 접어 둠) → 설문 → 답안 목차.
+ * 목차에서 판례가 나온 항목에만 배지와 그 답안 문단·사안포섭을 펼치고, 나머지 항목은 구조 파악용 제목만 회색으로 둔다
+ */
+function ProblemDetail({ problem, caseNumber }: { problem: Problem; caseNumber: string }) {
+  const [showOriginal, setShowOriginal] = useState(false)
+  const [showAllOutline, setShowAllOutline] = useState(false)
+  const summary = problemSummary(problem)
+  const ask = problem.question?.ask.trim()
+  // 원문 마지막 문단이 설문과 같은 글인 경우가 많다 — 설문은 따로 보이므로 겹치면 뺀다
+  const original = (problem.question?.paragraphs ?? []).filter((t) => t.trim() !== ask)
+  const outline = answerOutline(problem)
+  const citations = caseCitations(problem, caseNumber)
+  const hitsAt = new Map<number, CaseCitation[]>()
+  for (const c of citations) {
+    const k = outlineItemOf(outline, c.blockIndex)
+    hitsAt.set(k, [...(hitsAt.get(k) ?? []), c])
+  }
+  const near = (k: number) => [...hitsAt.keys()].some((h) => Math.abs(h - k) <= 1)
+  const folded = outline.length > OUTLINE_FOLD && !showAllOutline
+  const visible = outline.map((o, k) => !folded || o.level === 1 || near(k))
+  const hidden = visible.filter((v) => !v).length
+  const INDENT = ['', '', 'pl-3', 'pl-6']
+
+  return (
+    <>
+      {summary.lines.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[11px] font-semibold text-muted-foreground">문제 요약</p>
+          {summary.fromBrief ? (
+            <ul className="list-disc pl-4 space-y-0.5 text-foreground leading-relaxed">
+              {summary.lines.map((t, i) => <li key={i}>{t}</li>)}
+            </ul>
+          ) : (
+            summary.lines.map((t, i) => <p key={i} className="text-foreground whitespace-pre-wrap leading-relaxed">{t}</p>)
+          )}
+        </div>
+      )}
+      {original.length > 0 && (
+        <div className="space-y-1">
+          <button type="button" onClick={() => setShowOriginal((v) => !v)} className="text-[11px] text-muted-foreground hover:text-foreground">
+            {showOriginal ? '▾ 사례 원문 접기' : '▸ 사례 원문 보기'}
+          </button>
+          {showOriginal && original.map((t, i) => (
+            <p key={i} className="text-foreground whitespace-pre-wrap leading-relaxed">{t}</p>
+          ))}
+        </div>
+      )}
+      {problem.question?.ask && (
+        <p className="text-foreground font-medium border-l-2 border-sky-500 pl-2 leading-relaxed">{problem.question.ask}</p>
+      )}
+
+      <div className="space-y-1">
+        <p className="text-[11px] font-semibold text-muted-foreground">답안 목차</p>
+        {/* 목차보다 앞에 놓인 문단에서 나온 판례 */}
+        {(hitsAt.get(-1) ?? []).map((c, i) => (
+          <CitationBody key={`pre${i}`} citation={c} caseNumber={caseNumber} />
+        ))}
+        {outline.map((o, k) => {
+          if (!visible[k]) return null
+          const hits = hitsAt.get(k)
+          return (
+            <div key={o.blockIndex} className={INDENT[o.level]}>
+              <p className={`leading-snug ${hits ? 'text-foreground font-semibold' : o.level === 1 ? 'text-muted-foreground font-medium' : 'text-muted-foreground'}`}>
+                {o.title}
+                {o.pts && <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">{o.pts}</span>}
+                {hits && (
+                  <span className="ml-1.5 rounded border border-sky-500/40 bg-sky-500/10 px-1 py-px text-[10px] font-medium text-sky-700 dark:text-sky-300">
+                    이 판례가 나온 답안
+                  </span>
+                )}
+              </p>
+              {hits?.map((c, i) => <CitationBody key={i} citation={c} caseNumber={caseNumber} />)}
+            </div>
+          )
+        })}
+        {outline.length > OUTLINE_FOLD && (hidden > 0 || showAllOutline) && (
+          <button type="button" onClick={() => setShowAllOutline((v) => !v)} className="text-[11px] text-muted-foreground hover:text-foreground">
+            {showAllOutline ? '목차 접기' : `전체 목차 보기 (${hidden}개 더)`}
+          </button>
+        )}
+        {citations.length === 0 && (
+          <p className="text-[11px] text-muted-foreground">모범답안에서 이 판례가 나온 문단을 찾지 못했습니다</p>
+        )}
+      </div>
+    </>
+  )
+}
+
 /**
  * 사례형 문항 버튼 하나 — 선택형 "22번"(QuestionLine)과 같은 자리·같은 방식으로 그 자리에서 펼친다.
  * 펼치면 문제(사안 원문·설문)와 이 판례가 나온 답안 문단, 그리고 '카드 보기'(카드로 이동)를 보여준다.
@@ -302,7 +420,6 @@ function CaseStudyQuestionLine({
   }
 
   const problem = card && card !== 'error' ? card.problems.find((p) => p.id === source.problemId) : undefined
-  const paragraphs = problem ? caseStudyParagraphs(problem, caseNumber) : []
   return (
     <div>
       <button
@@ -329,29 +446,7 @@ function CaseStudyQuestionLine({
           ) : !problem ? (
             <p className="text-[11px] text-muted-foreground">이 카드에서 문항을 찾지 못했습니다</p>
           ) : (
-            <>
-              {/* 원문 마지막 문단이 설문과 같은 글인 경우가 많다 — 설문은 아래에 따로 보이므로 겹치면 뺀다 */}
-              {problem.question?.paragraphs
-                .filter((t) => t.trim() !== problem.question?.ask.trim())
-                .map((t, i) => (
-                  <p key={i} className="text-foreground whitespace-pre-wrap leading-relaxed">{t}</p>
-                ))}
-              {problem.question?.ask && (
-                <p className="text-foreground font-medium border-l-2 border-sky-500 pl-2 leading-relaxed">{problem.question.ask}</p>
-              )}
-              <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-2 space-y-1.5">
-                <p className="text-[11px] font-medium text-sky-700 dark:text-sky-300">이 판례가 나온 답안</p>
-                {paragraphs.length > 0 ? (
-                  paragraphs.map((t, i) => (
-                    <p key={i} className="text-foreground whitespace-pre-wrap leading-relaxed">
-                      <Highlighted text={t} caseNumber={caseNumber} />
-                    </p>
-                  ))
-                ) : (
-                  <p className="text-[11px] text-muted-foreground">모범답안에서 이 판례가 나온 문단을 찾지 못했습니다</p>
-                )}
-              </div>
-            </>
+            <ProblemDetail problem={problem} caseNumber={caseNumber} />
           )}
           {onOpenCard && (
             <div className="flex items-center gap-2">

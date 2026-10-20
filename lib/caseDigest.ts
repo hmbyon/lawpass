@@ -899,20 +899,3 @@ export function caseNumberSpans(text: string, caseNumber: string): { at: number;
   for (let m = loose.exec(text); m; m = loose.exec(text)) out.push({ at: m.index, len: m[0].length })
   return out
 }
-
-/**
- * 사례형 문항의 모범답안에서 그 판례가 나온 문단(답안 블록 p 하나)을 **통째로** 돌려준다 —
- * 앞뒤를 자르지 않는다. 같은 문단은 한 번만. 글자로만 바꾼 것이라 화면에 그대로 넣어도 된다
- */
-export function caseStudyParagraphs(
-  problem: { answer?: { blocks: { t?: string; html: string }[] } } | undefined,
-  caseNumber: string
-): string[] {
-  const out: string[] = []
-  for (const b of problem?.answer?.blocks ?? []) {
-    if (b.t && b.t !== 'p') continue
-    const text = htmlToText(b.html)
-    if (text && !out.includes(text) && caseNumberSpans(text, caseNumber).length > 0) out.push(text)
-  }
-  return out
-}

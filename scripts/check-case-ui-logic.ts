@@ -1,6 +1,6 @@
 /**
  * 기출판례 화면(CasesTab)의 출처 칩·정렬·발췌 로직 검증 (check:case-ui-logic).
- * 화면은 lib/caseDigest.ts 의 filterCases·sortCases(origin)·caseStudyParagraphs 등을 그대로 부르므로
+ * 화면은 lib/caseDigest.ts 의 filterCases·sortCases(origin)와 lib/caseStudy/answerOutline.ts 를 그대로 부르므로
  * 그 함수들을 화면과 같은 순서(필터 → 검색 → 기간 → 정렬)로 엮어 검사한다.
  *
  * 실데이터 통계는 check:case-unified 와 같이 환경 변수가 있을 때만 낸다:
@@ -10,11 +10,12 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
-  buildCaseDigest, buildUnifiedCaseDigest, caseNumberSpans, caseStudyExamLabel, caseStudyParagraphs, caseStudyQuestionLabel,
+  buildCaseDigest, buildUnifiedCaseDigest, caseNumberSpans, caseStudyExamLabel, caseStudyQuestionLabel,
   filterCases, groupCaseStudySources, htmlToText, originCount, searchCases, sortCases, stripBucketLabels, stripSourceSuffix,
   type CaseGroup, type CaseOrigin, type CaseSort, type CaseSource,
 } from '../lib/caseDigest'
-import type { CaseIndex } from '../lib/caseStudy/types'
+import type { Block, CaseIndex } from '../lib/caseStudy/types'
+import { answerOutline, caseCitations, outlineItemOf, problemSummary, splitCitation } from '../lib/caseStudy/answerOutline'
 import type { ExamType, Question, Subject } from '../lib/types'
 
 type Opts = { subjects?: Subject[]; units?: string[]; examTypes?: ExamType[]; years?: number | null; query?: string; sort?: CaseSort }
@@ -94,27 +95,67 @@ assert.deepEqual(screen(uni, { years: null, examTypes: ['모의고사'] }, 'case
 assert.deepEqual(screen(uni, { years: null, query: '2003다2' }, 'all').undated.map((g) => g.key), ['2003다2'])
 assert.deepEqual(screen(uni, { years: null, query: '03다2' }, 'all').undated.map((g) => g.key), ['2003다2'])
 
-// 7. 답안 문단: 블록 하나를 통째로("…" 없음), 2자리/4자리 표기, 같은 문단은 한 번, 한 문단에 두 번
+// 7. 법리/사안포섭 가르기 · 목차 · 판례가 나온 목차 항목 · 요약 대용
 assert.equal(htmlToText('가<mark class="case">95다8713</mark>나<br>다 &amp; &lt;b&gt;'), '가95다8713나 다 & <b>')
-const long = 'ㄱ'.repeat(300)
-const para = `판례(대판 1995. 4. 25. <mark class="case">95다8713</mark>)는 <b>그렇다</b>. ${long} 다시 1995다8713 참조.`
-const problem = { answer: { blocks: [
-  { t: 'h1', html: 'Ⅰ. 95다8713 쟁점' }, // 목차 줄은 문단이 아니다
-  { t: 'p', html: `<p>${long}</p>` },
-  { t: 'p', html: para },
-  { t: 'p', html: para }, // 같은 문단이 두 번 → 한 번
-  { t: 'p', html: '다른 문단 <mark class="case">2016다12345</mark>' },
+const B = (t: Block['t'], html: string, lv?: Block['lv'], pts?: string): Block => ({ t, html, lv, pts })
+const CITE = '(대법원 2022. 6. 30. 선고 <mark class="case">2022다200089</mark> 판결)'
+// (b) 같은 문단 안에서 인용 뒤에 포섭 — 인용 문장(괄호·마침표 포함)까지만 법리, 날짜 점에서 끊지 않는다
+const blocksB = [B('h2', '1. 상계의 요건', 'l2', '5점'), B('p', `양수인은 대항요건을 갖추기 전에도 상계할 수 있다${CITE}. 甲은행의 수동채권은 4억 원이다. 따라서 상계는 적법하다.`, 'l3')]
+const sb = splitCitation(blocksB, 1, '2022다200089')
+assert.equal(sb.kind, 'b')
+assert.equal(sb.law, '양수인은 대항요건을 갖추기 전에도 상계할 수 있다(대법원 2022. 6. 30. 선고 2022다200089 판결).')
+assert.deepEqual(sb.application, { paragraphs: ['甲은행의 수동채권은 4억 원이다. 따라서 상계는 적법하다.'] })
+// 인용이 문장 가운데 있으면 그 문장 끝까지가 법리 (날짜 점 "2014.3.27." 에서 끊지 않는다)
+const mid = splitCitation([B('p', '화해와 같은 효력이 있어(대판 2014.3.27. <mark class="case">2009다104960</mark>), 종전의 법률관계는 소멸한다(창설적 효력). 甲은 丙에게 청구할 수 없다.')], 0, '2009다104960')
+assert.equal(mid.kind, 'b')
+assert.equal(mid.law, '화해와 같은 효력이 있어(대판 2014.3.27. 2009다104960), 종전의 법률관계는 소멸한다(창설적 효력).')
+// 뒤 문장이 법리로 이어지면 자르지 않는다 (보수적)
+const keep = splitCitation([B('p', `법리다${CITE}. 이는 비법인사단에도 적용된다.`)], 0, '2022다200089')
+assert.equal(keep.kind, 'none')
+assert.ok(keep.law.endsWith('이는 비법인사단에도 적용된다.') && !keep.application)
+// (c) 인용 문장 자체가 포섭 — 문단 그대로
+const sc = splitCitation([B('p', `따라서 乙의 항소취하는 효력이 있다${CITE}. 甲은 다툴 수 없다.`)], 0, '2022다200089')
+assert.equal(sc.kind, 'c')
+assert.equal(sc.law, '따라서 乙의 항소취하는 효력이 있다(대법원 2022. 6. 30. 선고 2022다200089 판결). 甲은 다툴 수 없다.')
+// (a) 같은 목차의 다음 문단이 "사안에의 적용 :" 으로 시작
+const sa1 = splitCitation([B('p', `법리다${CITE}.`), B('p', '사안에의 적용 : 甲은 4억 원을 상계할 수 있다.')], 0, '2022다200089')
+assert.equal(sa1.kind, 'a')
+assert.deepEqual(sa1.application, { paragraphs: ['사안에의 적용 : 甲은 4억 원을 상계할 수 있다.'] })
+// (a) 같은 레벨 뒤 형제 목차 "3. 사안의 적용" (사이에 "2. 이유"), 더 큰 목차에서 멈춘다
+const blocksA = [
+  B('h1', 'Ⅱ. 시효중단'), B('h2', '1. 판례의 태도', 'l2', '3점'), B('p', `법리다${CITE}.`, 'l3'),
+  B('h2', '2. 이유', 'l2'), B('p', '이유 문단', 'l3'),
+  B('h2', '3. 사안의 적용', 'l2', '4점'), B('p', '甲의 응소는 시효를 중단한다.', 'l3'), B('h2', '(1) 세부', 'l3'), B('p', '세부 포섭', 'l3'),
+  B('h1', 'Ⅲ. 결론'), B('p', '결론 문단'),
+]
+const sa2 = splitCitation(blocksA, 2, '2022다200089')
+assert.equal(sa2.kind, 'a')
+assert.deepEqual(sa2.application, { title: '3. 사안의 적용', paragraphs: ['甲의 응소는 시효를 중단한다.', '세부 포섭'] })
+// 다음 큰 목차가 "결론"이면 사안포섭이 아니다
+assert.equal(splitCitation([B('h1', 'Ⅰ. 법리'), B('p', `법리다${CITE}.`), B('h1', 'Ⅱ. 결론'), B('p', '甲은 이긴다.')], 1, '2022다200089').kind, 'none')
+// 법리는 늘 비어 있지 않다
+for (const c of [sb, mid, keep, sc, sa1, sa2]) assert.ok(c.law.trim().length > 0)
+
+// 목차: 레벨(h1=1, l2=2, l3=3)·배점, 판례가 나온 항목(여러 곳, 2자리/4자리 표기)
+const prob = { answer: { blocks: [
+  B('h1', 'Ⅰ. 쟁점', undefined, '2점'), B('p', '쟁점 문단'),
+  B('h1', 'Ⅱ. 상계'), B('h2', '1. 요건', 'l2', '5점'), B('p', '상계 법리(대판 1995. 4. 25. <mark class="case">95다8713</mark>).', 'l3'),
+  B('h2', '(1) 세부', 'l3'), B('p', '다시 1995다8713 판결이 있다.', 'l3'),
 ] } }
-const ps = caseStudyParagraphs(problem, '1995다8713')
-assert.equal(ps.length, 1, '목차 줄·같은 문단 제외')
-assert.equal(ps[0], htmlToText(para), '블록 전체 그대로')
-assert.ok(!ps[0].startsWith('…') && !ps[0].endsWith('…') && ps[0].length > 300 && !ps[0].includes('<'))
-assert.equal(caseNumberSpans(ps[0], '1995다8713').length, 2, '한 문단에 두 번(2자리·4자리 표기) 모두 강조')
-assert.deepEqual(caseStudyParagraphs(problem, '16다12345'), ['다른 문단 2016다12345'], '줄여 쓴 key 로 4자리 본문')
-assert.deepEqual(caseStudyParagraphs(problem, '2020다9'), [])
-assert.deepEqual(caseStudyParagraphs(undefined, '95다8713'), [])
-const spans = caseNumberSpans('앞 95 다 8713 뒤', '1995다8713')
-assert.deepEqual(spans, [{ at: 2, len: 9 }], '띄어 쓴 표기도 자리 그대로')
+assert.deepEqual(answerOutline(prob).map((o) => [o.level, o.title, o.pts ?? '']), [[1, 'Ⅰ. 쟁점', '2점'], [1, 'Ⅱ. 상계', ''], [2, '1. 요건', '5점'], [3, '(1) 세부', '']])
+const cits = caseCitations(prob, '1995다8713')
+assert.deepEqual(cits.map((c) => outlineItemOf(answerOutline(prob), c.blockIndex)), [2, 3], '두 목차 항목 모두')
+assert.deepEqual(caseCitations(prob, '95다8713').map((c) => c.blockIndex), [4, 6], '2자리 표기 key 로도')
+assert.equal(outlineItemOf(answerOutline(prob), 0), -1, '목차 앞 문단')
+assert.deepEqual(caseCitations(prob, '2020다9'), [])
+assert.deepEqual(caseCitations(undefined, '95다8713'), [])
+// 같은 법리 문단은 한 번
+assert.equal(caseCitations({ answer: { blocks: [B('p', `법리다${CITE}.`), B('p', `법리다${CITE}.`)] } }, '2022다200089').length, 1)
+
+// 요약 대용: brief → 원문 앞 1~2문단(설문과 같은 문단 제외) → 없음
+assert.deepEqual(problemSummary({ brief: [' 甲이 乙에게 대여 ', ''], question: { paragraphs: ['원문'], ask: '설문' } }), { lines: ['甲이 乙에게 대여'], fromBrief: true })
+assert.deepEqual(problemSummary({ question: { paragraphs: ['첫 문단', '설문', '둘째', '셋째'], ask: '설문' } }), { lines: ['첫 문단', '둘째'], fromBrief: false })
+assert.deepEqual(problemSummary({}), { lines: [], fromBrief: false })
 
 // 8. 시험 라벨·문항 버튼 라벨
 assert.equal(caseStudyExamLabel('변시', 11), '11회 변시')
@@ -155,7 +196,7 @@ assert.deepEqual(
   [['11회 변시', [5, 22]], ['2026년 8모', [3]]]
 )
 
-console.log('통과: 출처 칩 수·정렬 기준·선택형 칩 = 기존 화면(9조합)·선고일 미상·과목/유형 AND·검색·답안 문단·시험/문항 라벨·출처 묶기·괄호 제거')
+console.log('통과: 출처 칩 수·정렬 기준·선택형 칩 = 기존 화면(9조합)·선고일 미상·과목/유형 AND·검색·법리/사안포섭(a·b·c)·목차·판례 항목·요약 대용·시험/문항 라벨·출처 묶기·괄호 제거')
 
 // ── 실데이터 통계 (환경 변수가 있을 때만) ───────────────────────────
 const objDir = process.env.LAWPASS_OBJECTIVE_DIR
@@ -170,7 +211,7 @@ if (!objDir || !caseDir) {
     if (Array.isArray(list)) for (const x of list) if (x && typeof x === 'object' && 'cases' in x) qs.push({ ...x, id: `${f}:${x.id}` })
   }
   const idx = read(path.join(caseDir, '_index.json')) as CaseIndex
-  const cards = new Map<string, { problems: { id: string; answer?: { blocks: { html: string }[] } }[] }>()
+  const cards = new Map<string, { problems: { id: string; answer?: { blocks: Block[] } }[] }>()
   for (const c of idx.cards) {
     const card = read(path.join(caseDir, `${c.id}.json`))
     cards.set(c.id, card)
@@ -186,14 +227,18 @@ if (!objDir || !caseDir) {
   for (const o of combos) assert.equal(sig(screen(realUni, o, 'objective'), 'objective'), sig(screen(realOld, o)), `실데이터 선택형 칩 = 기존 화면 ${JSON.stringify(o)}`)
   const def: Opts = {}
   const cnt = (origin: CaseOrigin) => { const r = screen(realUni, def, origin); return { dated: r.dated.length, undated: r.undated.length } }
-  // 사례형 출처마다 판례가 나온 답안 문단을 통째로 찾는 비율
-  let found = 0, total = 0, maxLen = 0
+  // 사례형 출처마다 법리/사안포섭 가르기 — 유형 분포, 박스(법리)가 빈 건수, 사안포섭을 따로 보여주는 건수
+  let found = 0, total = 0, maxLen = 0, emptyLaw = 0, withApp = 0
+  const kinds: Record<string, number> = { a: 0, b: 0, c: 0, none: 0 }
   for (const g of realUni) for (const s of g.sources) {
     if (s.kind !== 'caseStudy') continue
     total++
-    const ps = caseStudyParagraphs(cards.get(s.cardId)?.problems.find((p) => p.id === s.problemId), g.key)
-    if (ps.length) found++
-    for (const t of ps) maxLen = Math.max(maxLen, t.length)
+    const cs = caseCitations(cards.get(s.cardId)?.problems.find((p) => p.id === s.problemId), g.key)
+    if (cs.length) found++
+    kinds[cs[0]?.kind ?? 'none']++
+    if (cs.some((c) => !c.law.trim())) emptyLaw++
+    if (cs.some((c) => c.application)) withApp++
+    for (const c of cs) maxLen = Math.max(maxLen, c.law.length)
   }
   console.log('실데이터 통계 (기본 필터: 최근 5개년·출제횟수순)')
   for (const o of ['all', 'objective', 'caseStudy'] as CaseOrigin[]) {
@@ -201,5 +246,9 @@ if (!objDir || !caseDir) {
     console.log(`  ${o.padEnd(9)} 판례 ${c.dated + c.undated}건 (선고일 있음 ${c.dated} · 선고일 미상 ${c.undated})`)
   }
   console.log(`  선택형 칩 = 기존 화면: ${combos.length}조합 모두 동일`)
-  console.log(`  사례형 출처 답안 문단: ${total}건 중 ${found}건 찾음 (가장 긴 문단 ${maxLen}자, 자르지 않음)`)
+  console.log(`  사례형 출처 답안 문단: ${total}건 중 ${found}건 찾음 (가장 긴 법리 ${maxLen}자)`)
+  console.log(`  사안포섭 유형: (a) 따로 분리 ${kinds.a} · (b) 같은 문단에 이어짐 ${kinds.b} · (c) 인용 문장이 포섭 ${kinds.c} · 자르지 않음 ${kinds.none}`)
+  console.log(`  박스(법리)가 빈 건수 ${emptyLaw} · 사안포섭을 따로 보여주는 건수 ${withApp}`)
+  assert.equal(emptyLaw, 0)
+  assert.equal(found, total)
 }
