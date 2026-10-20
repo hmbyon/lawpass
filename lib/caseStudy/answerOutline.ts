@@ -180,3 +180,59 @@ export function problemSummary(problem: {
   const paras = (problem.question?.paragraphs ?? []).map((s) => s.trim()).filter((s) => s && s !== ask)
   return { lines: paras.slice(0, 2), fromBrief: false }
 }
+
+// ── 판례 화면 문항 토글: 모범답안 전체를 문서 순서대로 ─────────────────────
+
+/** 목차가 이보다 많으면 큰 목차와 판례 항목 주변만 먼저 보인다 */
+export const ANSWER_FOLD = 10
+
+export type AnswerRow =
+  | { kind: 'heading'; blockIndex: number; t: 'h1' | 'h2'; lv?: Block['lv']; title: string; pts?: string; hit: boolean; muted: boolean }
+  // highlightEnd: 문단 앞에서부터 이 길이까지가 법리(형광펜). 0 이면 하이라이트 없음
+  | { kind: 'paragraph'; blockIndex: number; lv?: Block['lv']; text: string; highlightEnd: number }
+
+/**
+ * 모범답안을 목차와 본문 순서 그대로 줄로 편다. 판례가 나온 문단에는 법리 부분(splitCitation 의 law —
+ * 문단 시작부터 인용 문장 끝까지) 길이를 하이라이트 범위로 붙이고, 같은 문단에 이어진 사안포섭은 칠하지 않는다.
+ * 그 문단이 속한 목차 항목은 hit.
+ *
+ * 목차가 ANSWER_FOLD 개를 넘고 showAll 이 아니면: 큰 목차(h1)와 판례 항목 ±1 목차만 제목을 보이고
+ * (판례 항목이 아니면 회색), 본문은 판례 항목과 목차 앞 문단만 연다. 숨긴 목차 수를 hiddenCount 로 돌려준다
+ */
+export function answerRows(
+  problem: { answer?: { blocks: Block[] } } | undefined,
+  caseNumber: string,
+  showAll = false
+): { rows: AnswerRow[]; hiddenCount: number; foldable: boolean } {
+  const blocks = problem?.answer?.blocks ?? []
+  const outline = answerOutline(problem)
+  const law = new Map<number, number>()
+  const hitItems = new Set<number>()
+  blocks.forEach((b, i) => {
+    if (b.t !== 'p' || caseNumberSpans(htmlToText(b.html), caseNumber).length === 0) return
+    law.set(i, splitCitation(blocks, i, caseNumber).law.length)
+    hitItems.add(outlineItemOf(outline, i))
+  })
+  const foldable = outline.length > ANSWER_FOLD
+  const folded = foldable && !showAll
+  const near = (k: number) => [...hitItems].some((h) => h >= 0 && Math.abs(h - k) <= 1)
+
+  const rows: AnswerRow[] = []
+  let hiddenCount = 0
+  let item = -1
+  blocks.forEach((b, i) => {
+    if (b.t !== 'p') {
+      item++
+      const hit = hitItems.has(item)
+      if (folded && !(outline[item].level === 1 || near(item))) {
+        hiddenCount++
+        return
+      }
+      rows.push({ kind: 'heading', blockIndex: i, t: b.t, lv: b.lv, title: htmlToText(b.html), pts: b.pts || undefined, hit, muted: folded && !hit })
+      return
+    }
+    if (folded && item >= 0 && !hitItems.has(item)) return
+    rows.push({ kind: 'paragraph', blockIndex: i, lv: b.lv, text: htmlToText(b.html), highlightEnd: law.get(i) ?? 0 })
+  })
+  return { rows, hiddenCount, foldable }
+}

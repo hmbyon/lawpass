@@ -15,7 +15,7 @@ import {
   type CaseGroup, type CaseOrigin, type CaseSort, type CaseSource,
 } from '../lib/caseDigest'
 import type { Block, CaseIndex } from '../lib/caseStudy/types'
-import { answerOutline, caseCitations, outlineItemOf, problemSummary, splitCitation } from '../lib/caseStudy/answerOutline'
+import { ANSWER_FOLD, answerOutline, answerRows, caseCitations, outlineItemOf, problemSummary, splitCitation } from '../lib/caseStudy/answerOutline'
 import type { ExamType, Question, Subject } from '../lib/types'
 
 type Opts = { subjects?: Subject[]; units?: string[]; examTypes?: ExamType[]; years?: number | null; query?: string; sort?: CaseSort }
@@ -152,6 +152,54 @@ assert.deepEqual(caseCitations(undefined, '95다8713'), [])
 // 같은 법리 문단은 한 번
 assert.equal(caseCitations({ answer: { blocks: [B('p', `법리다${CITE}.`), B('p', `법리다${CITE}.`)] } }, '2022다200089').length, 1)
 
+// 모범답안 줄 펴기: 목차와 본문을 문서 순서대로, 판례 문단은 법리(문단 시작~인용 문장 끝)만 하이라이트
+const rowsB = answerRows({ answer: { blocks: blocksB } }, '2022다200089')
+assert.deepEqual(rowsB.rows.map((r) => r.kind), ['heading', 'paragraph'])
+const pb = rowsB.rows[1]
+assert.ok(pb.kind === 'paragraph' && pb.highlightEnd > 0)
+if (pb.kind === 'paragraph') {
+  assert.equal(pb.text.slice(0, pb.highlightEnd), '양수인은 대항요건을 갖추기 전에도 상계할 수 있다(대법원 2022. 6. 30. 선고 2022다200089 판결).', '법리까지만')
+  assert.ok(pb.text.slice(pb.highlightEnd).trim().startsWith('甲은행의 수동채권은'), '같은 문단의 사안포섭은 칠하지 않는다')
+}
+const h0 = rowsB.rows[0]
+assert.ok(h0.kind === 'heading' && h0.hit && !h0.muted && h0.pts === '5점' && h0.lv === 'l2')
+// 한 문단에 두 번(2자리·4자리 표기) — 마지막 인용 문장까지 칠한다. 판례 없는 문단은 0
+const twice = answerRows({ answer: { blocks: [
+  B('h1', 'Ⅰ. 법리'), B('p', '앞 법리(대판 <mark class="case">95다8713</mark>). 이어 1995다8713 판결도 같다. 甲은 이긴다.'), B('p', '판례 없는 문단'),
+] } }, '1995다8713')
+const tp = twice.rows[1]
+assert.ok(tp.kind === 'paragraph')
+if (tp.kind === 'paragraph') assert.equal(tp.text.slice(0, tp.highlightEnd), '앞 법리(대판 95다8713). 이어 1995다8713 판결도 같다.')
+const plain = twice.rows[2]
+assert.ok(plain.kind === 'paragraph' && plain.highlightEnd === 0)
+// (a) 사안포섭 목차·문단도 원래 자리에 일반 본문으로 (따로 빼지 않는다)
+assert.deepEqual(answerRows({ answer: { blocks: blocksA } }, '2022다200089').rows.map((r) => (r.kind === 'heading' ? `H:${r.title}` : `P:${r.highlightEnd > 0 ? '★' : ''}${r.text.slice(0, 6)}`)), [
+  'H:Ⅱ. 시효중단', 'H:1. 판례의 태도', 'P:★법리다(대법', 'H:2. 이유', 'P:이유 문단', 'H:3. 사안의 적용', 'P:甲의 응소는', 'H:(1) 세부', 'P:세부 포섭', 'H:Ⅲ. 결론', 'P:결론 문단',
+])
+// 긴 답안 접기: 목차 ANSWER_FOLD 개 이하는 전부, 넘으면 큰 목차와 판례 항목 ±1 목차만 제목, 본문은 판례 항목만
+assert.equal(ANSWER_FOLD, 10)
+const many = (n: number, hitAt: number): Block[] => {
+  const out: Block[] = [B('p', '목차 앞 문단')]
+  for (let k = 0; k < n; k++) {
+    out.push(k % 4 === 0 ? B('h1', `Ⅰ${k}. 큰 목차`) : B('h2', `${k}. 소목차`, 'l2'))
+    out.push(B('p', k === hitAt ? `법리(대판 <mark class="case">2001다1</mark>).` : `본문 ${k}`, 'l3'))
+  }
+  return out
+}
+const ten = answerRows({ answer: { blocks: many(10, 6) } }, '2001다1')
+assert.equal(ten.foldable, false)
+assert.equal(ten.rows.length, 21, '10개 이하는 전부(목차 앞 문단 + 목차 10 + 본문 10)')
+const sixteen = answerRows({ answer: { blocks: many(16, 6) } }, '2001다1')
+assert.equal(sixteen.foldable, true)
+const heads = sixteen.rows.filter((r) => r.kind === 'heading').map((r) => r.kind === 'heading' && `${r.title}${r.hit ? '*' : ''}${r.muted ? '~' : ''}`)
+assert.deepEqual(heads, ['Ⅰ0. 큰 목차~', 'Ⅰ4. 큰 목차~', '5. 소목차~', '6. 소목차*', '7. 소목차~', 'Ⅰ8. 큰 목차~', 'Ⅰ12. 큰 목차~'])
+assert.equal(sixteen.hiddenCount, 16 - heads.length)
+assert.deepEqual(sixteen.rows.filter((r) => r.kind === 'paragraph').map((r) => r.kind === 'paragraph' && r.text.slice(0, 6)), ['목차 앞 문', '법리(대판 '], '본문은 판례 항목(과 목차 앞)만')
+const opened = answerRows({ answer: { blocks: many(16, 6) } }, '2001다1', true)
+assert.equal(opened.rows.length, 33)
+assert.equal(opened.hiddenCount, 0)
+assert.ok(opened.rows.every((r) => r.kind !== 'heading' || !r.muted), '펼치면 회색 없음')
+
 // 요약 대용: brief → 원문 앞 1~2문단(설문과 같은 문단 제외) → 없음
 assert.deepEqual(problemSummary({ brief: [' 甲이 乙에게 대여 ', ''], question: { paragraphs: ['원문'], ask: '설문' } }), { lines: ['甲이 乙에게 대여'], fromBrief: true })
 assert.deepEqual(problemSummary({ question: { paragraphs: ['첫 문단', '설문', '둘째', '셋째'], ask: '설문' } }), { lines: ['첫 문단', '둘째'], fromBrief: false })
@@ -196,7 +244,7 @@ assert.deepEqual(
   [['11회 변시', [5, 22]], ['2026년 8모', [3]]]
 )
 
-console.log('통과: 출처 칩 수·정렬 기준·선택형 칩 = 기존 화면(9조합)·선고일 미상·과목/유형 AND·검색·법리/사안포섭(a·b·c)·목차·판례 항목·요약 대용·시험/문항 라벨·출처 묶기·괄호 제거')
+console.log('통과: 출처 칩 수·정렬 기준·선택형 칩 = 기존 화면(9조합)·선고일 미상·과목/유형 AND·검색·법리/사안포섭(a·b·c)·목차·판례 항목·답안 줄 펴기·하이라이트·긴 답안 접기·요약 대용·시험/문항 라벨·출처 묶기·괄호 제거')
 
 // ── 실데이터 통계 (환경 변수가 있을 때만) ───────────────────────────
 const objDir = process.env.LAWPASS_OBJECTIVE_DIR
@@ -228,7 +276,7 @@ if (!objDir || !caseDir) {
   const def: Opts = {}
   const cnt = (origin: CaseOrigin) => { const r = screen(realUni, def, origin); return { dated: r.dated.length, undated: r.undated.length } }
   // 사례형 출처마다 법리/사안포섭 가르기 — 유형 분포, 박스(법리)가 빈 건수, 사안포섭을 따로 보여주는 건수
-  let found = 0, total = 0, maxLen = 0, emptyLaw = 0, withApp = 0
+  let found = 0, total = 0, maxLen = 0, emptyLaw = 0, withApp = 0, highlighted = 0
   const kinds: Record<string, number> = { a: 0, b: 0, c: 0, none: 0 }
   for (const g of realUni) for (const s of g.sources) {
     if (s.kind !== 'caseStudy') continue
@@ -239,6 +287,8 @@ if (!objDir || !caseDir) {
     if (cs.some((c) => !c.law.trim())) emptyLaw++
     if (cs.some((c) => c.application)) withApp++
     for (const c of cs) maxLen = Math.max(maxLen, c.law.length)
+    const prob = cards.get(s.cardId)?.problems.find((p) => p.id === s.problemId)
+    if (answerRows(prob, g.key, true).rows.some((r) => r.kind === 'paragraph' && r.highlightEnd > 0)) highlighted++
   }
   console.log('실데이터 통계 (기본 필터: 최근 5개년·출제횟수순)')
   for (const o of ['all', 'objective', 'caseStudy'] as CaseOrigin[]) {
@@ -249,6 +299,8 @@ if (!objDir || !caseDir) {
   console.log(`  사례형 출처 답안 문단: ${total}건 중 ${found}건 찾음 (가장 긴 법리 ${maxLen}자)`)
   console.log(`  사안포섭 유형: (a) 따로 분리 ${kinds.a} · (b) 같은 문단에 이어짐 ${kinds.b} · (c) 인용 문장이 포섭 ${kinds.c} · 자르지 않음 ${kinds.none}`)
   console.log(`  박스(법리)가 빈 건수 ${emptyLaw} · 사안포섭을 따로 보여주는 건수 ${withApp}`)
+  console.log(`  문항 토글 모범답안에서 법리 하이라이트가 잡힌 출처 ${highlighted}/${total}`)
   assert.equal(emptyLaw, 0)
+  assert.equal(highlighted, total)
   assert.equal(found, total)
 }

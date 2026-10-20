@@ -22,7 +22,7 @@ import {
 import type { Card, CaseIndex } from '@/lib/caseStudy/types'
 import { fetchCaseCard } from '@/lib/firebaseServices/caseStudy'
 import { caseJumpStatus } from '@/lib/caseStudy/group'
-import { answerOutline, caseCitations, outlineItemOf, problemSummary, type CaseCitation } from '@/lib/caseStudy/answerOutline'
+import { answerRows, caseCitations, problemSummary, type AnswerRow } from '@/lib/caseStudy/answerOutline'
 import type { Problem } from '@/lib/caseStudy/types'
 
 /**
@@ -194,7 +194,7 @@ function CaseStudyAnswerBox({ sources, caseNumber }: { sources: CaseStudySource[
         const seen = new Set<string>()
         const entries: { label: string; text: string }[] = []
         for (const { s, card } of list) {
-          // 박스에는 법리 부분만 — 같은 문단에 이어진 사안포섭은 문항 토글에서 따로 보인다
+          // 박스에는 법리 부분만 — 같은 문단에 이어진 사안포섭은 문항 토글의 모범답안에서 본문으로 이어진다
           for (const { law: text } of caseCitations(card?.problems.find((p) => p.id === s.problemId), caseNumber)) {
             if (seen.has(text)) continue
             seen.add(text)
@@ -260,55 +260,52 @@ function CaseStudyAnswerBox({ sources, caseNumber }: { sources: CaseStudySource[
   )
 }
 
-// 목차가 길면 큰 목차와 판례가 나온 항목 주변만 먼저 보인다
-const OUTLINE_FOLD = 10
+// 사례형 카드 화면(case-card-view AnswerBlock)과 같은 타이포·들여쓰기 — 박스 없이 본문 그대로
+const ANSWER_INDENT: Record<string, string> = { l2: 'pl-3', l3: 'pl-6' }
 
-/** 판례가 나온 목차 항목 아래: 법리 문단(파랑, 판례번호 굵게)과 사안포섭(따로 가른 영역) */
-function CitationBody({ citation, caseNumber }: { citation: CaseCitation; caseNumber: string }) {
+/** 답안 한 줄. 판례가 나온 문단은 법리 부분(문단 시작~인용 문장 끝)만 형광펜, 판례번호는 굵게 */
+function AnswerRowView({ row, caseNumber }: { row: AnswerRow; caseNumber: string }) {
+  const indent = row.lv ? ANSWER_INDENT[row.lv] : ''
+  if (row.kind === 'heading') {
+    const tone = row.muted ? 'text-muted-foreground font-normal' : 'text-foreground'
+    return (
+      <p className={`${row.t === 'h1' ? 'mt-3 first:mt-0 text-sm font-bold' : 'mt-2 text-[13px] font-semibold'} ${tone} ${indent}`}>
+        {row.title}
+        {row.pts && <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">{row.pts}</span>}
+        {row.hit && (
+          <span className="ml-1.5 rounded border border-sky-500/40 bg-sky-500/10 px-1 py-px text-[10px] font-medium text-sky-700 dark:text-sky-300">
+            이 판례가 나온 답안
+          </span>
+        )}
+      </p>
+    )
+  }
+  const end = row.highlightEnd
   return (
-    <div className="mt-1 space-y-1.5">
-      <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-2">
-        <p className="text-foreground whitespace-pre-wrap leading-relaxed">
-          <Highlighted text={citation.law} caseNumber={caseNumber} />
-        </p>
-      </div>
-      {citation.application && (
-        <div className="rounded-lg border border-dashed border-border bg-background/60 p-2 space-y-1">
-          <p className="text-[11px] font-semibold text-muted-foreground">
-            사안포섭{citation.application.title ? ` · ${citation.application.title}` : ''}
-          </p>
-          {citation.application.paragraphs.map((t, i) => (
-            <p key={i} className="text-foreground/90 whitespace-pre-wrap leading-relaxed">{t}</p>
-          ))}
-        </div>
+    <p className={`mt-1 text-[13px] leading-relaxed text-foreground/90 whitespace-pre-wrap ${indent}`}>
+      {end > 0 && (
+        <mark className="rounded-sm bg-yellow-200/70 px-0.5 text-foreground dark:bg-yellow-400/25 [box-decoration-break:clone]">
+          <Highlighted text={row.text.slice(0, end)} caseNumber={caseNumber} />
+        </mark>
       )}
-    </div>
+      <Highlighted text={row.text.slice(end)} caseNumber={caseNumber} />
+    </p>
   )
 }
 
 /**
- * 펼친 사례형 문항: 문제 요약(사례 원문은 접어 둠) → 설문 → 답안 목차.
- * 목차에서 판례가 나온 항목에만 배지와 그 답안 문단·사안포섭을 펼치고, 나머지 항목은 구조 파악용 제목만 회색으로 둔다
+ * 펼친 사례형 문항: 문제 요약 → 설문 → (접힌) 사례 원문 → 모범답안 전체 → 카드 보기.
+ * 답안은 목차와 본문을 순서 그대로 보이고 판례가 나온 법리 부분만 칠한다. 목차가 길면 판례 주변만 먼저
  */
 function ProblemDetail({ problem, caseNumber }: { problem: Problem; caseNumber: string }) {
   const [showOriginal, setShowOriginal] = useState(false)
-  const [showAllOutline, setShowAllOutline] = useState(false)
+  const [showAll, setShowAll] = useState(false)
   const summary = problemSummary(problem)
   const ask = problem.question?.ask.trim()
   // 원문 마지막 문단이 설문과 같은 글인 경우가 많다 — 설문은 따로 보이므로 겹치면 뺀다
   const original = (problem.question?.paragraphs ?? []).filter((t) => t.trim() !== ask)
-  const outline = answerOutline(problem)
-  const citations = caseCitations(problem, caseNumber)
-  const hitsAt = new Map<number, CaseCitation[]>()
-  for (const c of citations) {
-    const k = outlineItemOf(outline, c.blockIndex)
-    hitsAt.set(k, [...(hitsAt.get(k) ?? []), c])
-  }
-  const near = (k: number) => [...hitsAt.keys()].some((h) => Math.abs(h - k) <= 1)
-  const folded = outline.length > OUTLINE_FOLD && !showAllOutline
-  const visible = outline.map((o, k) => !folded || o.level === 1 || near(k))
-  const hidden = visible.filter((v) => !v).length
-  const INDENT = ['', '', 'pl-3', 'pl-6']
+  const { rows, hiddenCount, foldable } = answerRows(problem, caseNumber, showAll)
+  const found = rows.some((r) => r.kind === 'paragraph' && r.highlightEnd > 0)
 
   return (
     <>
@@ -324,6 +321,9 @@ function ProblemDetail({ problem, caseNumber }: { problem: Problem; caseNumber: 
           )}
         </div>
       )}
+      {problem.question?.ask && (
+        <p className="text-foreground font-medium border-l-2 border-sky-500 pl-2 leading-relaxed">{problem.question.ask}</p>
+      )}
       {original.length > 0 && (
         <div className="space-y-1">
           <button type="button" onClick={() => setShowOriginal((v) => !v)} className="text-[11px] text-muted-foreground hover:text-foreground">
@@ -334,42 +334,16 @@ function ProblemDetail({ problem, caseNumber }: { problem: Problem; caseNumber: 
           ))}
         </div>
       )}
-      {problem.question?.ask && (
-        <p className="text-foreground font-medium border-l-2 border-sky-500 pl-2 leading-relaxed">{problem.question.ask}</p>
-      )}
 
-      <div className="space-y-1">
-        <p className="text-[11px] font-semibold text-muted-foreground">답안 목차</p>
-        {/* 목차보다 앞에 놓인 문단에서 나온 판례 */}
-        {(hitsAt.get(-1) ?? []).map((c, i) => (
-          <CitationBody key={`pre${i}`} citation={c} caseNumber={caseNumber} />
-        ))}
-        {outline.map((o, k) => {
-          if (!visible[k]) return null
-          const hits = hitsAt.get(k)
-          return (
-            <div key={o.blockIndex} className={INDENT[o.level]}>
-              <p className={`leading-snug ${hits ? 'text-foreground font-semibold' : o.level === 1 ? 'text-muted-foreground font-medium' : 'text-muted-foreground'}`}>
-                {o.title}
-                {o.pts && <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">{o.pts}</span>}
-                {hits && (
-                  <span className="ml-1.5 rounded border border-sky-500/40 bg-sky-500/10 px-1 py-px text-[10px] font-medium text-sky-700 dark:text-sky-300">
-                    이 판례가 나온 답안
-                  </span>
-                )}
-              </p>
-              {hits?.map((c, i) => <CitationBody key={i} citation={c} caseNumber={caseNumber} />)}
-            </div>
-          )
-        })}
-        {outline.length > OUTLINE_FOLD && (hidden > 0 || showAllOutline) && (
-          <button type="button" onClick={() => setShowAllOutline((v) => !v)} className="text-[11px] text-muted-foreground hover:text-foreground">
-            {showAllOutline ? '목차 접기' : `전체 목차 보기 (${hidden}개 더)`}
+      <div className="border-t border-border pt-2">
+        <p className="mb-1 text-[11px] font-semibold text-muted-foreground">모범답안</p>
+        {rows.map((r) => <AnswerRowView key={r.blockIndex} row={r} caseNumber={caseNumber} />)}
+        {foldable && (hiddenCount > 0 || showAll) && (
+          <button type="button" onClick={() => setShowAll((v) => !v)} className="mt-2 text-[11px] text-muted-foreground hover:text-foreground">
+            {showAll ? '답안 접기' : `전체 답안 보기 (${hiddenCount}개 더)`}
           </button>
         )}
-        {citations.length === 0 && (
-          <p className="text-[11px] text-muted-foreground">모범답안에서 이 판례가 나온 문단을 찾지 못했습니다</p>
-        )}
+        {!found && <p className="mt-1 text-[11px] text-muted-foreground">모범답안에서 이 판례가 나온 문단을 찾지 못했습니다</p>}
       </div>
     </>
   )
