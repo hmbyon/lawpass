@@ -4,6 +4,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import type { Block, Card, Problem } from '@/lib/caseStudy/types'
 import { sanitizeCaseHtml } from '@/lib/caseStudy/sanitize'
 import { problemLabel } from '@/lib/caseStudy/group'
+import { DrawLayer, useDrawBoard, type DrawBoard } from '@/components/quiz/draw-layer'
+import { CaseQuestionText } from '@/components/case-study/case-question-text'
 
 interface Props {
   card: Card
@@ -105,8 +107,8 @@ function SeqFooter({ seq, onBack }: { seq: SeqNav; onBack: () => void }) {
 }
 
 function ProblemSection({
-  p, active, onJump, seq, onBack, onSolve,
-}: { p: Problem; active: boolean; onJump: Props['onJump']; seq?: SeqNav; onBack: () => void; onSolve?: Props['onSolve'] }) {
+  p, active, onJump, seq, onBack, onSolve, board,
+}: { p: Problem; active: boolean; onJump: Props['onJump']; seq?: SeqNav; onBack: () => void; onSolve?: Props['onSolve']; board: DrawBoard }) {
   const sub = [p.qno, p.sub].filter(Boolean).join(' ')
   return (
     // 지금 보고 있는 문항은 테두리·좌측 선으로 살짝 띄운다 — 긴 카드에서 어디를 읽던 중인지 보이게
@@ -140,34 +142,22 @@ function ProblemSection({
             답안은 카드 {p.stubFor.card} 에 있습니다 →
           </button>
         ) : (
-          <>
+          // 문제 본문·모범답안 위에 선택형과 같은 임시 펜(저장하지 않음)을 겹친다
+          <DrawLayer board={board} questionId={p.id} className="space-y-3">
             {p.brief && p.brief.length > 0 && (
               <ul className="list-disc pl-4 space-y-0.5 text-xs text-foreground/90">
                 {p.brief.map((s, i) => <li key={i}>{s}</li>)}
               </ul>
             )}
-            {p.question && (
-              <>
-                {p.question.paragraphs.length > 0 && (
-                  <details className="text-xs">
-                    <summary className="cursor-pointer text-muted-foreground hover:text-foreground">문제 원문</summary>
-                    <div className="mt-2 space-y-1.5 text-foreground/90 leading-relaxed">
-                      {p.question.paragraphs.map((s, i) => <p key={i}>{s}</p>)}
-                    </div>
-                  </details>
-                )}
-                {p.question.ask && (
-                  <p className="text-[13px] font-medium text-foreground border-l-2 border-primary pl-2.5">{p.question.ask}</p>
-                )}
-              </>
-            )}
+            {/* 문제 본문에는 형광펜(사용자별 저장)을 쓴다. 표시 모양은 예전과 같다 */}
+            {p.question && <CaseQuestionText p={p} />}
             {p.answer && (
               <div className="pt-2 border-t border-border">
                 {p.answer.blocks.map((b, i) => <AnswerBlock key={i} b={b} />)}
                 {p.answer.source && <p className="mt-3 text-[10px] text-muted-foreground">{p.answer.source}</p>}
               </div>
             )}
-          </>
+          </DrawLayer>
         )}
         {p.note && <p className="text-[11px] text-muted-foreground">{p.note}</p>}
         {active && seq && <SeqFooter seq={seq} onBack={onBack} />}
@@ -177,6 +167,8 @@ function ProblemSection({
 }
 
 export function CaseCardView({ card, focusProblemId, onBack, onPrev, onNext, onJump, onBackToCases, seqNav, onSolve }: Props) {
+  // 임시 펜 — 카드를 떠나면(이 컴포넌트가 사라지면) 그림도 사라진다. 문항마다 따로 그린다
+  const board = useDrawBoard()
   useEffect(() => {
     if (focusProblemId) document.getElementById(anchorId(focusProblemId))?.scrollIntoView({ block: 'start' })
     else window.scrollTo({ top: 0 })
@@ -260,7 +252,7 @@ export function CaseCardView({ card, focusProblemId, onBack, onPrev, onNext, onJ
         </div>
       )}
       {card.problems.map((p) => (
-        <ProblemSection key={p.id} p={p} active={p.id === focusProblemId} onJump={onJump} seq={seqNav} onBack={onBack} onSolve={onSolve} />
+        <ProblemSection key={p.id} p={p} active={p.id === focusProblemId} onJump={onJump} seq={seqNav} onBack={onBack} onSolve={onSolve} board={board} />
       ))}
       {card.notes.length > 0 && (
         <section className="bg-card border border-border rounded-xl px-4 py-3">

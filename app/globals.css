@@ -309,3 +309,9 @@ mark[data-erasing] {
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
 }
+/* 위의 .case-study mark 는 레이어 밖 규칙이라 Tailwind 유틸리티(레이어 안)를 이긴다. 사례형 문제 본문의
+   사용자 형광펜(선택형 renderHighlighted 의 mark)은 여백·모서리를 유틸리티 값으로 되돌려 선택형과 같게 그린다 */
+.case-study .case-hl mark {
+  padding: revert-layer;
+  border-radius: revert-layer;
+}

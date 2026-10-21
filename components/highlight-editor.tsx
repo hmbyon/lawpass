@@ -137,10 +137,17 @@ interface Props {
   onChanged?: () => void
   className?: string
   children: (api: HighlightEditorApi) => React.ReactNode
+  /**
+   * 표시를 다른 곳에 두는 화면(사례형 등)만 넘긴다. 둘 다 넘기지 않으면 예전처럼
+   * lawpass_highlights_{questionId} 에 읽고 쓴다(선택형 동기화 대상)
+   */
+  load?: () => Highlight[]
+  save?: (highlights: Highlight[]) => void
 }
 
-export function HighlightEditor({ questionId, onChanged, className, children }: Props) {
-  const [highlights, setHighlights] = useState<Highlight[]>(() => loadHighlights(questionId))
+export function HighlightEditor({ questionId, onChanged, className, children, load, save }: Props) {
+  const read = () => (load ? load() : loadHighlights(questionId))
+  const [highlights, setHighlights] = useState<Highlight[]>(read)
   const highlightsRef = useRef(highlights)
   highlightsRef.current = highlights
   const fieldRefs = useRef<Record<string, HTMLElement | null>>({})
@@ -161,9 +168,11 @@ export function HighlightEditor({ questionId, onChanged, className, children }: 
   const [toast, setToast] = useState<{ label: string; prev: Highlight[] | null } | null>(null)
 
   useEffect(() => {
-    setHighlights(loadHighlights(questionId))
+    setHighlights(read())
     setPopup(null)
     setToast(null)
+    // 문제가 바뀔 때만 다시 읽는다 (load 는 매 렌더 새 함수일 수 있다)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questionId])
 
   // 펜 자동표시 스위치는 선학습과 같은 값을 쓴다. 고른 적이 없으면 터치 기기만 켠다
@@ -190,7 +199,8 @@ export function HighlightEditor({ questionId, onChanged, className, children }: 
 
   function commit(next: Highlight[]) {
     setHighlights(next)
-    saveHighlights(questionId, next)
+    if (save) save(next)
+    else saveHighlights(questionId, next)
     onChanged?.()
   }
 
