@@ -19,6 +19,8 @@ export interface SeqItem {
 interface Props {
   index: CaseIndex
   onOpen: (cardId: string, problemId?: string, seq?: { items: SeqItem[]; at: number }) => void
+  // 회차별 시험 과목 묶음을 한 번에 풀이 화면으로. targets 는 답안이 있는 문항(stub 은 원본)이고 문 번호 순이다
+  onSolveGroup?: (title: string, targets: { card: string; problem: string }[]) => void
 }
 
 // 변시·모의·유사를 색으로 가른다. 변시는 앱 강조색, 모의는 하늘색, 유사는 초록 — 라이트·다크 모두 글자가 읽히게 반투명 배경.
@@ -131,7 +133,7 @@ function examOf(key: string): { kind: string; year: string | null } {
   return { kind, year: examYear(kind, rest.join('|')) }
 }
 
-export function CaseIndexView({ index, onOpen }: Props) {
+export function CaseIndexView({ index, onOpen, onSolveGroup }: Props) {
   const [subject, setSubject] = useState<SubjectFilter>('전체')
   const [sort, setSort] = useState<SortMode>('진도별')
   const [query, setQuery] = useState('')
@@ -343,6 +345,17 @@ export function CaseIndexView({ index, onOpen }: Props) {
                 <h4 className="mb-1.5 text-sm font-semibold text-foreground">
                   {name || '과목 없음'}
                   <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">{rows.length}문항</span>
+                  {onSolveGroup && (
+                    <button
+                      onClick={() => {
+                        const targets = rows.flatMap((row) => row.at.map((i) => items[i].target))
+                        onSolveGroup(`${examTitle(kind, exam)} ${name}`, targets.filter((t, k) => targets.findIndex((x) => x.problem === t.problem) === k))
+                      }}
+                      className="ml-2 rounded-md border border-primary/40 px-2 py-0.5 text-[11px] font-semibold text-primary hover:bg-primary/10 transition-colors"
+                    >
+                      한 번에 풀기
+                    </button>
+                  )}
                 </h4>
                 <div className="bg-card border border-border rounded-xl overflow-hidden mb-4">
                   <table className={`${TABLE} table-fixed`}>

@@ -57,6 +57,8 @@ export function CaseStudyBrowse({
   const [fromCases, setFromCases] = useState(false)
   // 풀이 화면(전체 화면 덮개). 열려 있는 동안 목록·카드는 뒤에 그대로 둔다
   const [solve, setSolve] = useState<{ title: string; problems: Problem[]; notice?: string } | null>(null)
+  const [solveLoading, setSolveLoading] = useState(false)
+  const [solveError, setSolveError] = useState('')
 
   // 외부 요청은 색인이 온 뒤 한 번만 연다(열고 나면 부모가 요청을 비운다)
   const requestNonce = request?.nonce
@@ -145,6 +147,29 @@ export function CaseStudyBrowse({
     return () => window.removeEventListener('keydown', onKey)
   }, [isOpen])
 
+  // 회차별 묶음 — 문항이 든 카드를 받아(캐시 우선) 그 문항들을 순서대로 모은다. 못 찾은 문항은 빼고 알린다
+  async function solveGroup(title: string, targets: { card: string; problem: string }[]) {
+    setSolveError('')
+    setSolveLoading(true)
+    try {
+      const cards = new Map<string, Card | null>()
+      for (const id of new Set(targets.map((t) => t.card))) {
+        if (!cache.current.has(id)) cache.current.set(id, await fetchCaseCard(mode, id))
+        cards.set(id, cache.current.get(id) ?? null)
+      }
+      const problems = targets
+        .map((t) => cards.get(t.card)?.problems.find((p) => p.id === t.problem))
+        .filter((p): p is Problem => !!p && !p.stubFor)
+      const lost = targets.length - problems.length
+      if (problems.length === 0) setSolveError('이 묶음의 문항을 카드에서 찾지 못했습니다')
+      else setSolve({ title, problems, notice: lost > 0 ? `문항 ${lost}개를 카드에서 찾지 못해 뺐습니다` : undefined })
+    } catch (e) {
+      setSolveError(`문항을 불러오지 못했습니다: ${String(e)}`)
+    } finally {
+      setSolveLoading(false)
+    }
+  }
+
   function back() {
     setOpen(null)
     setFromCases(false)
@@ -160,9 +185,15 @@ export function CaseStudyBrowse({
   return (
     <div className="case-study">
       {solve && <CaseSolve title={solve.title} problems={solve.problems} notice={solve.notice} onClose={() => setSolve(null)} />}
+      {solveLoading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80">
+          <p className="text-xs text-muted-foreground animate-pulse">문항을 불러오는 중…</p>
+        </div>
+      )}
       {/* 목록은 카드를 여는 동안에도 마운트해 둔다 — 돌아왔을 때 검색어·필터가 그대로다 */}
       <div className={open ? 'hidden' : undefined}>
-        <CaseIndexView index={index} onOpen={openCard} />
+        {solveError && <p className="mb-3 text-xs text-red-400">{solveError}</p>}
+        <CaseIndexView index={index} onOpen={openCard} onSolveGroup={solveGroup} />
       </div>
       {open &&
         (cardError ? (
