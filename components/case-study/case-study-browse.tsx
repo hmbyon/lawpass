@@ -1,12 +1,13 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Card, CaseIndex } from '@/lib/caseStudy/types'
+import type { Card, CaseIndex, Problem } from '@/lib/caseStudy/types'
 import { getAppMode } from '@/lib/appMode'
 import { fetchCaseCard, fetchCaseIndex } from '@/lib/firebaseServices/caseStudy'
 import { sortCards } from '@/lib/caseStudy/group'
 import { CaseIndexView, type SeqItem } from '@/components/case-study/case-index-view'
 import { CaseCardView } from '@/components/case-study/case-card-view'
+import { CaseSolve } from '@/components/case-study/case-solve'
 
 export function CaseErrorNotice({ error }: { error: unknown }) {
   // 규칙 배포 전에는 caseStudy 경로가 기본 거부라 조용히 빈 화면이 된다. 이유를 화면에 밝힌다
@@ -54,6 +55,8 @@ export function CaseStudyBrowse({
   const listScroll = useRef(0)
   // 판례 화면에서 '카드 보기'로 들어왔는가. 목록으로 돌아갈 때까지 '판례로 돌아가기'를 보인다
   const [fromCases, setFromCases] = useState(false)
+  // 풀이 화면(전체 화면 덮개). 열려 있는 동안 목록·카드는 뒤에 그대로 둔다
+  const [solve, setSolve] = useState<{ title: string; problems: Problem[]; notice?: string } | null>(null)
 
   // 외부 요청은 색인이 온 뒤 한 번만 연다(열고 나면 부모가 요청을 비운다)
   const requestNonce = request?.nonce
@@ -124,7 +127,8 @@ export function CaseStudyBrowse({
 
   // ← → 키: 회차별에서 들어왔으면 문항, 아니면 카드를 넘긴다. 입력창에 포커스가 있으면 건드리지 않는다
   const keys = useRef<{ prev?: () => void; next?: () => void }>({})
-  keys.current = { prev: seq ? prevProblem : prevCard, next: seq ? nextProblem : nextCard }
+  // 풀이 화면이 떠 있으면 뒤의 카드를 넘기지 않는다
+  keys.current = solve ? {} : { prev: seq ? prevProblem : prevCard, next: seq ? nextProblem : nextCard }
   const isOpen = !!open
   useEffect(() => {
     if (!isOpen) return
@@ -155,6 +159,7 @@ export function CaseStudyBrowse({
 
   return (
     <div className="case-study">
+      {solve && <CaseSolve title={solve.title} problems={solve.problems} notice={solve.notice} onClose={() => setSolve(null)} />}
       {/* 목록은 카드를 여는 동안에도 마운트해 둔다 — 돌아왔을 때 검색어·필터가 그대로다 */}
       <div className={open ? 'hidden' : undefined}>
         <CaseIndexView index={index} onOpen={openCard} />
@@ -187,6 +192,9 @@ export function CaseStudyBrowse({
             onNext={nextCard}
             onJump={jump}
             onBackToCases={fromCases ? onBackToCases : undefined}
+            onSolve={(p) =>
+              setSolve({ title: `${card.id} · ${p.examLabel} ${[p.qno, p.sub].filter(Boolean).join(' ')}`, problems: [p] })
+            }
             seqNav={
               seq && {
                 label: seq.items[seq.at].label,

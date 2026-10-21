@@ -13,6 +13,7 @@
     "check:case-fields": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseStudy/sanitize.ts scripts/check-case-fields.ts && node .tmp-check/scripts/check-case-fields.js",
     "check:case-unified": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseDigest.ts scripts/check-case-unified.ts && node .tmp-check/scripts/check-case-unified.js",
     "check:case-ui-logic": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseDigest.ts scripts/check-case-ui-logic.ts && node .tmp-check/scripts/check-case-ui-logic.js",
+    "check:case-solve": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseStudy/solve.ts scripts/check-case-solve.ts && node .tmp-check/scripts/check-case-solve.js",
     "check:case-nav": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseDigest.ts scripts/check-case-nav.ts && node .tmp-check/scripts/check-case-nav.js"
   },
   "dependencies": {

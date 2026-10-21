@@ -16,6 +16,8 @@ interface Props {
   onBackToCases?: () => void
   // 회차별 목록에서 들어왔을 때만 — 같은 회차의 문항을 ◀ ▶ 로 넘긴다
   seqNav?: SeqNav
+  // 문항 하나를 풀이 화면으로 연다 (stub·원문 없는 문항에는 버튼이 없다)
+  onSolve?: (p: Problem) => void
 }
 
 interface SeqNav {
@@ -50,7 +52,8 @@ function SafeHtml({ html, className }: { html: string; className?: string }) {
   return <span className={className} dangerouslySetInnerHTML={{ __html: clean }} />
 }
 
-function AnswerBlock({ b }: { b: Block }) {
+// 풀이 화면(case-solve)의 모범답안도 이것으로 그린다
+export function AnswerBlock({ b }: { b: Block }) {
   const indent = b.lv ? INDENT[b.lv] : ''
   const pts = b.pts && <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">{b.pts}</span>
   if (b.t === 'h1') {
@@ -102,8 +105,8 @@ function SeqFooter({ seq, onBack }: { seq: SeqNav; onBack: () => void }) {
 }
 
 function ProblemSection({
-  p, active, onJump, seq, onBack,
-}: { p: Problem; active: boolean; onJump: Props['onJump']; seq?: SeqNav; onBack: () => void }) {
+  p, active, onJump, seq, onBack, onSolve,
+}: { p: Problem; active: boolean; onJump: Props['onJump']; seq?: SeqNav; onBack: () => void; onSolve?: Props['onSolve'] }) {
   const sub = [p.qno, p.sub].filter(Boolean).join(' ')
   return (
     // 지금 보고 있는 문항은 테두리·좌측 선으로 살짝 띄운다 — 긴 카드에서 어디를 읽던 중인지 보이게
@@ -119,6 +122,14 @@ function ProblemSection({
         <span className="text-sm font-semibold text-foreground">{p.examLabel || sub}</span>
         {p.examLabel && sub && !p.examLabel.includes(p.qno) && <span className="text-xs text-muted-foreground">{sub}</span>}
         <span className="ml-auto shrink-0 text-xs font-semibold text-primary">{p.points}점</span>
+        {onSolve && !p.stubFor && p.question && (
+          <button
+            onClick={() => onSolve(p)}
+            className="shrink-0 self-center rounded-md border border-primary/40 px-2 py-0.5 text-[11px] font-semibold text-primary hover:bg-primary/10 transition-colors"
+          >
+            풀어보기
+          </button>
+        )}
       </header>
       <div className="px-4 py-3 space-y-3">
         {p.stubFor ? (
@@ -165,7 +176,7 @@ function ProblemSection({
   )
 }
 
-export function CaseCardView({ card, focusProblemId, onBack, onPrev, onNext, onJump, onBackToCases, seqNav }: Props) {
+export function CaseCardView({ card, focusProblemId, onBack, onPrev, onNext, onJump, onBackToCases, seqNav, onSolve }: Props) {
   useEffect(() => {
     if (focusProblemId) document.getElementById(anchorId(focusProblemId))?.scrollIntoView({ block: 'start' })
     else window.scrollTo({ top: 0 })
@@ -249,7 +260,7 @@ export function CaseCardView({ card, focusProblemId, onBack, onPrev, onNext, onJ
         </div>
       )}
       {card.problems.map((p) => (
-        <ProblemSection key={p.id} p={p} active={p.id === focusProblemId} onJump={onJump} seq={seqNav} onBack={onBack} />
+        <ProblemSection key={p.id} p={p} active={p.id === focusProblemId} onJump={onJump} seq={seqNav} onBack={onBack} onSolve={onSolve} />
       ))}
       {card.notes.length > 0 && (
         <section className="bg-card border border-border rounded-xl px-4 py-3">
