@@ -70,7 +70,7 @@ function mockValue(exam: number | string): number {
   return (y || 0) * 100 + (m || 0)
 }
 
-// 회차별: 변시 11→15회, 그다음 모의 최신순. 같은 문항이 stub 과 본 답안으로 두 번 나오면 한 번만 둔다
+// 회차별: 변시 11→15회, 그다음 모의 최신순, 맨 뒤에 그 밖의 유형(유사). 같은 문항이 stub 과 본 답안으로 두 번 나오면 한 번만 둔다
 export function groupByExam(cards: IndexCard[]): ExamGroup[] {
   const groups = new Map<string, ExamGroup & { kind: string; exam: number | string }>()
   const seen = new Set<string>()
@@ -95,7 +95,8 @@ export function groupByExam(cards: IndexCard[]): ExamGroup[] {
     g.items.sort((a, b) => coll.compare(a.problem.qno, b.problem.qno) || coll.compare(a.problem.sub ?? '', b.problem.sub ?? ''))
   }
   return list.sort((a, b) => {
-    if (a.kind !== b.kind) return a.kind === '변시' ? -1 : 1
+    const kindRank = (k: string) => (k === '변시' ? 0 : k === '모의' ? 1 : 2)
+    if (a.kind !== b.kind) return kindRank(a.kind) - kindRank(b.kind)
     return a.kind === '변시' ? Number(a.exam) - Number(b.exam) : mockValue(b.exam) - mockValue(a.exam)
   })
 }

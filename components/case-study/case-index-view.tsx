@@ -21,10 +21,12 @@ interface Props {
   onOpen: (cardId: string, problemId?: string, seq?: { items: SeqItem[]; at: number }) => void
 }
 
-// 변시·모의를 색으로 가른다. 변시는 앱 강조색, 모의는 하늘색 — 라이트·다크 모두 글자가 읽히게 반투명 배경
-const KIND_CHIP: Record<IndexProblem['kind'], string> = {
+// 변시·모의·유사를 색으로 가른다. 변시는 앱 강조색, 모의는 하늘색, 유사는 초록 — 라이트·다크 모두 글자가 읽히게 반투명 배경.
+// 키가 string 인 것은 색인에 타입 밖의 kind('유사')가 실제로 오기 때문이다
+const KIND_CHIP: Record<string, string> = {
   변시: 'border-primary/30 bg-primary/10 text-primary',
   모의: 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300',
+  유사: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
 }
 
 // '제2문의 1' → '2-1', '제1문' → '1' (레퍼런스 답안집의 짧은 표기)
@@ -41,6 +43,7 @@ function shortLabel(p: IndexProblem): string {
 
 // 회차 제목: '2022년 제11회 변호사시험', '2024년 6월 모의'. 색인에는 examLabel 이 없어 회차 값에서 만든다
 function examTitle(kind: IndexProblem['kind'], exam: number | string): string {
+  if ((kind as string) === '유사') return '유사 문제'
   if (kind === '변시') return `${2011 + Number(exam)}년 제${exam}회 변호사시험`
   const [y, m] = String(exam).split('.')
   return `20${y}년 ${m}월 모의`
@@ -67,6 +70,7 @@ function categoryLabel(category: string, subject: string): string {
 }
 
 function examShort(kind: IndexProblem['kind'], exam: number | string): string {
+  if ((kind as string) === '유사') return '유사'
   return kind === '변시' ? `변시 ${exam}회` : `모의 ${exam}`
 }
 
@@ -325,7 +329,7 @@ export function CaseIndexView({ index, onOpen }: Props) {
           <section key={g.key} className={newPart && gi > 0 ? 'pt-4' : undefined}>
             {newPart && (
               <h2 className="mb-3 text-base font-bold text-foreground pb-1.5 border-b-2 border-primary">
-                {kind === '변시' ? '변호사시험' : '법전협 모의고사'}
+                {kind === '변시' ? '변호사시험' : kind === '모의' ? '법전협 모의고사' : '유사 문제'}
               </h2>
             )}
             <h3 className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-foreground">
