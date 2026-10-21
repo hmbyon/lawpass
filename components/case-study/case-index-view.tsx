@@ -109,13 +109,29 @@ const TEXTBOOK: Record<string, string> = {
 const EXAM_SUBJECT: Record<string, string> = {
   헌법: '공법', 행정법: '공법', 민법: '민사법', 민소: '민사법', 상법: '민사법', 형법: '형사법', 형소: '형사법',
 }
-const EXAM_SUBJECT_ORDER = ['공법', '민사법', '형사법']
+const EXAM_SUBJECT_ORDER = ['공법', '형사법', '민사법']
 const examSubjectRank = (s: string) => (EXAM_SUBJECT_ORDER.includes(s) ? EXAM_SUBJECT_ORDER.indexOf(s) : EXAM_SUBJECT_ORDER.length)
+
+// 회차별 유형·연도 토글. 색인에는 examLabel 이 없어 연도를 회차 값에서 읽는다(변시 11회 → 2022, 모의 '23.10' → 2023).
+// 연도를 못 읽는 회차(예: kind '유사')는 연도 '전체'에서만 보인다
+type KindFilter = '전체' | '모의' | '변시'
+function examYear(kind: string, exam: number | string): string | null {
+  if (kind === '변시') return Number.isFinite(Number(exam)) ? String(2011 + Number(exam)) : null
+  const y = Number(String(exam).split('.')[0])
+  return kind === '모의' && Number.isFinite(y) && y > 0 ? String(2000 + y) : null
+}
+// 회차 묶음 키 '{kind}|{exam}'
+function examOf(key: string): { kind: string; year: string | null } {
+  const [kind, ...rest] = key.split('|')
+  return { kind, year: examYear(kind, rest.join('|')) }
+}
 
 export function CaseIndexView({ index, onOpen }: Props) {
   const [subject, setSubject] = useState<SubjectFilter>('전체')
   const [sort, setSort] = useState<SortMode>('진도별')
   const [query, setQuery] = useState('')
+  const [kindFilter, setKindFilter] = useState<KindFilter>('전체')
+  const [year, setYear] = useState('전체')
 
   const subjects = useMemo(() => ['전체', ...new Set(sortCards(index.cards).map((c) => c.subject))], [index])
   const cards = useMemo(() => filterCards(index, subject, query), [index, subject, query])
@@ -131,7 +147,16 @@ export function CaseIndexView({ index, onOpen }: Props) {
     }
     return out
   }, [byChapter])
-  const byExam = useMemo(() => (sort === '회차별' ? groupByExam(cards) : []), [cards, sort])
+  const allExams = useMemo(() => (sort === '회차별' ? groupByExam(cards) : []), [cards, sort])
+  const years = useMemo(
+    () => ['전체', ...[...new Set(allExams.map((g) => examOf(g.key).year).filter((y): y is string => !!y))].sort((a, b) => Number(b) - Number(a))],
+    [allExams]
+  )
+  // 한 회차 묶음은 유형·회차가 하나뿐이라 묶음 단위로 거른다 (유형 AND 연도)
+  const byExam = allExams.filter((g) => {
+    const e = examOf(g.key)
+    return (kindFilter === '전체' || e.kind === kindFilter) && (year === '전체' || e.year === year)
+  })
   // 회차별 유형·카드 열 — 답안이 있는 카드의 제목. 그 카드가 필터에 걸려 빠져도 제목은 보여야 하므로 전체 색인에서 찾는다
   const byId = useMemo(() => new Map(index.cards.map((c) => [c.id, c])), [index])
 
@@ -158,9 +183,25 @@ export function CaseIndexView({ index, onOpen }: Props) {
             onChange={(s) => setSort(s[0] ?? sort)}
           />
         </div>
+        {sort === '회차별' && (
+          <>
+            <FilterChips<KindFilter>
+              options={['전체', '모의', '변시']}
+              selected={[kindFilter]}
+              single
+              onChange={(s) => setKindFilter(s[0] ?? '전체')}
+            />
+            <FilterChips<string>
+              options={years}
+              selected={[year]}
+              single
+              onChange={(s) => setYear(s[0] ?? '전체')}
+            />
+          </>
+        )}
       </div>
 
-      {cards.length === 0 && (
+      {(cards.length === 0 || (sort === '회차별' && byExam.length === 0)) && (
         <p className="text-center text-xs text-muted-foreground py-8">
           {index.cards.length === 0 ? '아직 올라온 카드가 없습니다' : '조건에 맞는 카드가 없습니다'}
         </p>
