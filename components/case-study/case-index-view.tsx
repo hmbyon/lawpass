@@ -142,7 +142,23 @@ export function CaseIndexView({ index, onOpen, onSolveGroup }: Props) {
 
   const subjects = useMemo(() => ['전체', ...new Set(sortCards(index.cards).map((c) => c.subject))], [index])
   const cards = useMemo(() => filterCards(index, subject, query), [index, subject, query])
-  const byChapter = useMemo(() => (sort === '진도별' ? groupByChapter(cards) : []), [cards, sort])
+  // 진도별 단원(분류) 토글 — 과목을 하나 골랐을 때만. 순서는 진도별 목록의 분류 순서 그대로이고,
+  // 칩 글자는 목록 제목과 같게 과목 접두어를 뗀다. 아무것도 안 고르면 전체 단원이다
+  const [units, setUnits] = useState<string[]>([])
+  const unitOptions = useMemo(() => {
+    if (subject === '전체') return []
+    const seen = new Map<string, string>() // 칩 글자 → category 값
+    for (const c of sortCards(index.cards)) {
+      if (c.subject === subject && ![...seen.values()].includes(c.category)) seen.set(categoryLabel(c.category, subject), c.category)
+    }
+    return [...seen.entries()]
+  }, [index, subject])
+  const showUnits = sort === '진도별' && unitOptions.length > 1
+  const byChapter = useMemo(() => {
+    if (sort !== '진도별') return []
+    const picked = new Set(unitOptions.filter(([label]) => units.includes(label)).map(([, category]) => category))
+    return groupByChapter(picked.size > 0 ? cards.filter((c) => picked.has(c.category)) : cards)
+  }, [cards, sort, units, unitOptions])
   // 진도별 1단계 구획 = 과목. 카드가 과목 → 교재 순으로 정렬돼 있어 같은 과목의 분류는 연달아 나온다
   const bySubject = useMemo(() => {
     const out: { subject: string; categories: typeof byChapter }[] = []
@@ -181,7 +197,10 @@ export function CaseIndexView({ index, onOpen, onSolveGroup }: Props) {
             options={subjects}
             selected={[subject]}
             single
-            onChange={(s) => setSubject(s[0] ?? '전체')}
+            onChange={(s) => {
+              setSubject(s[0] ?? '전체')
+              setUnits([])
+            }}
           />
           <FilterChips<SortMode>
             options={['진도별', '회차별']}
@@ -190,6 +209,24 @@ export function CaseIndexView({ index, onOpen, onSolveGroup }: Props) {
             onChange={(s) => setSort(s[0] ?? sort)}
           />
         </div>
+        {showUnits && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-muted-foreground">범위 (복수 선택)</label>
+              <button
+                onClick={() => setUnits([])}
+                className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                  units.length === 0
+                    ? 'border-primary text-primary'
+                    : 'border-border text-muted-foreground hover:text-foreground hover:border-primary/40'
+                }`}
+              >
+                전체
+              </button>
+            </div>
+            <FilterChips options={unitOptions.map(([label]) => label)} selected={units} onChange={setUnits} />
+          </div>
+        )}
         {sort === '회차별' && (
           <>
             <FilterChips<KindFilter>
@@ -208,7 +245,7 @@ export function CaseIndexView({ index, onOpen, onSolveGroup }: Props) {
         )}
       </div>
 
-      {(cards.length === 0 || (sort === '회차별' && byExam.length === 0)) && (
+      {(cards.length === 0 || (sort === '회차별' && byExam.length === 0) || (sort === '진도별' && byChapter.length === 0)) && (
         <p className="text-center text-xs text-muted-foreground py-8">
           {index.cards.length === 0 ? '아직 올라온 카드가 없습니다' : '조건에 맞는 카드가 없습니다'}
         </p>
