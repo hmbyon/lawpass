@@ -35,8 +35,9 @@ function shortQno(qno: string): string {
   return m ? (m[2] ? `${m[1]}-${m[2]}` : m[1]) : qno
 }
 
-// 진도별 버튼 라벨: 변시 '11회 2-1 문1', 모의 '24.6모 2-2 문1'
+// 진도별 버튼 라벨: 변시 '11회 2-1 문1', 모의 '24.6모 2-2 문1', 유사 '유사 제1문'(회차가 없어 문항 번호를 줄이지 않는다)
 function shortLabel(p: IndexProblem): string {
+  if ((p.kind as string) === '유사') return ['유사', p.qno, p.sub].filter(Boolean).join(' ')
   const exam = p.kind === '변시' ? `${p.exam}회` : `${p.exam}모`
   return [exam, shortQno(p.qno), p.sub].filter(Boolean).join(' ')
 }
