@@ -632,6 +632,98 @@ function applyBold(
 }
 
 /**
+ * 기본 서식 구간 — 형광펜과 별개로 글에 원래 붙어 있는 서식(사례형 모범답안의 조문·판례 칠, 밑줄, 굵게).
+ * 원래 태그·클래스로 그리고, 서로 안긴 구간은 실제로 안겨 그린다(엇갈린 구간은 앞의 것을 남기고 뒤의 것을 자른다).
+ * 형광펜 조각 안에서 그리므로, 형광펜 경계에 걸린 서식은 두 조각으로 나뉘어 그려진다
+ */
+export interface FormatRange {
+  id: string
+  start: number
+  end: number
+  tag: 'mark' | 'u' | 'b'
+  className?: string
+}
+
+interface FormatLayer {
+  formats: FormatRange[] // start 오름차순, 같으면 긴 것 먼저
+  onRemove?: (id: string) => void
+}
+
+function renderFormats(
+  text: string,
+  lo: number,
+  hi: number,
+  list: FormatRange[],
+  layer: FormatLayer,
+  leaf: (from: number, to: number) => React.ReactNode,
+  keyPrefix: string
+): React.ReactNode[] {
+  const nodes: React.ReactNode[] = []
+  let cursor = lo
+  let i = 0
+  while (i < list.length) {
+    const f = list[i]
+    const s = Math.max(f.start, lo)
+    const e = Math.min(f.end, hi)
+    // 이 구간 안에 안긴 것들 — 정렬 순서상 바로 뒤에 붙어 온다
+    let j = i + 1
+    while (j < list.length && list[j].start < f.end) j++
+    if (s < cursor || e <= s) {
+      i++
+      continue
+    }
+    if (s > cursor) nodes.push(leaf(cursor, s))
+    const children = renderFormats(text, s, e, list.slice(i + 1, j), layer, leaf, `${keyPrefix}_${f.id}`)
+    const onRemove = layer.onRemove
+    nodes.push(
+      React.createElement(
+        f.tag,
+        {
+          key: `${keyPrefix}_${f.id}_${s}`,
+          className: f.className,
+          onClick: onRemove
+            ? (ev: React.MouseEvent) => {
+                ev.stopPropagation()
+                onRemove(f.id)
+              }
+            : undefined,
+          title: onRemove ? '클릭하면 지워집니다 (지우개)' : undefined,
+          style: onRemove ? { cursor: `url("${ERASER_CURSOR_SVG}") 4 20, pointer` } : undefined,
+        },
+        children
+      )
+    )
+    cursor = e
+    i = j
+  }
+  if (cursor < hi) nodes.push(leaf(cursor, hi))
+  return nodes
+}
+
+// 기본 서식 층이 없으면 예전 그대로 applyBold 다
+function applyFormatted(
+  slice: string,
+  absStart: number,
+  bolds: BoldRange[],
+  field: string,
+  layer?: FormatLayer
+): React.ReactNode {
+  if (!layer || !slice) return applyBold(slice, absStart, bolds, field)
+  const absEnd = absStart + slice.length
+  const list = layer.formats.filter((f) => f.end > absStart && f.start < absEnd)
+  if (list.length === 0) return applyBold(slice, absStart, bolds, field)
+  return renderFormats(
+    slice,
+    absStart,
+    absEnd,
+    list,
+    layer,
+    (from, to) => applyBold(slice.slice(from - absStart, to - absStart), from, bolds, `${field}_${from}`),
+    `${field}_f${absStart}`
+  )
+}
+
+/**
  * 지우개 hover 신호.
  *
  * 기본은 빨간 취소선인데, 이미 취소선이 그어진 스타일(취소선이 켜진 하이라이트)에는 그어봐야 달라지는 것이
@@ -689,19 +781,20 @@ function withBrackets(
   field: string,
   brackets: Highlight[],
   includeEnd: boolean,
-  onRemove?: (id: string) => void
+  onRemove?: (id: string) => void,
+  layer?: FormatLayer
 ): React.ReactNode {
   const absEnd = absStart + slice.length
   const inside = brackets
     .filter((b) => b.start >= absStart && (b.start < absEnd || (includeEnd && b.start >= absEnd)))
     .sort((a, b) => a.start - b.start)
-  if (inside.length === 0) return applyBold(slice, absStart, bolds, field)
+  if (inside.length === 0) return applyFormatted(slice, absStart, bolds, field, layer)
 
   const nodes: React.ReactNode[] = []
   let cursor = absStart
   for (const b of inside) {
     const at = Math.min(b.start, absEnd)
-    if (at > cursor) nodes.push(applyBold(slice.slice(cursor - absStart, at - absStart), cursor, bolds, field))
+    if (at > cursor) nodes.push(applyFormatted(slice.slice(cursor - absStart, at - absStart), cursor, bolds, field, layer))
     nodes.push(
       <span
         key={`${field}_br_${b.id}`}
@@ -726,7 +819,7 @@ function withBrackets(
     )
     cursor = Math.max(cursor, at)
   }
-  if (cursor < absEnd) nodes.push(applyBold(slice.slice(cursor - absStart), cursor, bolds, field))
+  if (cursor < absEnd) nodes.push(applyFormatted(slice.slice(cursor - absStart), cursor, bolds, field, layer))
   return nodes
 }
 
@@ -735,14 +828,21 @@ export function renderHighlighted(
   field: string,
   highlights: Highlight[],
   onRemove?: (id: string) => void,
-  bolds: BoldRange[] = []
+  bolds: BoldRange[] = [],
+  // 기본 서식 층(사례형 모범답안). 넘기지 않으면 예전과 똑같이 그린다
+  formats?: FormatRange[],
+  onRemoveFormat?: (id: string) => void
 ) {
+  const layer: FormatLayer | undefined =
+    formats && formats.length > 0
+      ? { formats: [...formats].sort((a, b) => a.start - b.start || b.end - a.end), onRemove: onRemoveFormat }
+      : undefined
   const fieldHighlights = highlights
     .filter((h) => h.field === field && h.start < h.end && h.end <= text.length)
     .sort((a, b) => a.start - b.start)
   const brackets = highlights.filter((h) => h.field === field && h.bracket && h.start === h.end && h.start <= text.length)
 
-  if (fieldHighlights.length === 0) return withBrackets(text, 0, bolds, field, brackets, true, onRemove)
+  if (fieldHighlights.length === 0) return withBrackets(text, 0, bolds, field, brackets, true, onRemove, layer)
   // 지우개가 지우는 덩어리(§ removeHighlightRun) 계산용. 렌더에 쓰는 것과 같은 목록이어야 한다
   const runList = fieldListOf(highlights, field)
 
@@ -792,10 +892,10 @@ export function renderHighlighted(
     // (highlightClassName 은 빈 목록을 형광펜으로 되돌리므로 따로 처리한다)
     const ownStyles = styles.filter((st) => !(joined && st === 'circle') && !(joinedCross && st === 'cross'))
     const underlineInside = !joined && styles.includes('underline') && styles.includes('circle')
-    const content = withBrackets(text.slice(h.start, h.end), h.start, bolds, field, brackets, false, onRemove)
+    const content = withBrackets(text.slice(h.start, h.end), h.start, bolds, field, brackets, false, onRemove, layer)
     if (h.start > cursor) {
       flushGroup()
-      nodes.push(withBrackets(text.slice(cursor, h.start), cursor, bolds, field, brackets, false, onRemove))
+      nodes.push(withBrackets(text.slice(cursor, h.start), cursor, bolds, field, brackets, false, onRemove, layer))
     }
     const mark = (
       <mark
@@ -847,6 +947,6 @@ export function renderHighlighted(
   }
   flushGroup()
   // 맨 뒤 조각. 표시가 글 끝까지 닿아 있어도 글 끝에 끼운 괄호는 그려야 한다
-  nodes.push(withBrackets(text.slice(cursor), cursor, bolds, field, brackets, true, onRemove))
+  nodes.push(withBrackets(text.slice(cursor), cursor, bolds, field, brackets, true, onRemove, layer))
   return nodes
 }

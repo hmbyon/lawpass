@@ -149,14 +149,8 @@ function ProblemSection({
                 {p.brief.map((s, i) => <li key={i}>{s}</li>)}
               </ul>
             )}
-            {/* 문제 본문에는 형광펜(사용자별 저장)을 쓴다. 표시 모양은 예전과 같다 */}
-            {p.question && <CaseQuestionText p={p} />}
-            {p.answer && (
-              <div className="pt-2 border-t border-border">
-                {p.answer.blocks.map((b, i) => <AnswerBlock key={i} b={b} />)}
-                {p.answer.source && <p className="mt-3 text-[10px] text-muted-foreground">{p.answer.source}</p>}
-              </div>
-            )}
+            {/* 문제 본문·모범답안에 형광펜(사용자별 저장)을 쓴다. 표시 모양은 예전과 같다 */}
+            <CaseQuestionText p={p} />
           </DrawLayer>
         )}
         {p.note && <p className="text-[11px] text-muted-foreground">{p.note}</p>}

@@ -309,9 +309,10 @@ mark[data-erasing] {
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
 }
-/* 위의 .case-study mark 는 레이어 밖 규칙이라 Tailwind 유틸리티(레이어 안)를 이긴다. 사례형 문제 본문의
-   사용자 형광펜(선택형 renderHighlighted 의 mark)은 여백·모서리를 유틸리티 값으로 되돌려 선택형과 같게 그린다 */
-.case-study .case-hl mark {
+/* 위의 .case-study mark 는 레이어 밖 규칙이라 Tailwind 유틸리티(레이어 안)를 이긴다. 사례형 문제 본문·모범답안의
+   사용자 형광펜(선택형 renderHighlighted 의 mark)은 여백·모서리를 유틸리티 값으로 되돌려 선택형과 같게 그린다.
+   모범답안의 기존 서식(mark.law·case·res)은 빼서 위의 얇은 모양을 그대로 둔다 */
+.case-study .case-hl mark:not(.law):not(.case):not(.res) {
   padding: revert-layer;
   border-radius: revert-layer;
 }
