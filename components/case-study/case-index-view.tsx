@@ -104,6 +104,14 @@ const TEXTBOOK: Record<string, string> = {
   민법: '송영곤', 민소: '송영곤', 상법: '공태용', 형법: '변사기', 형소: '변사기', 행정법: '핸드북', 헌법: '핸드북',
 }
 
+// 회차별 — 과목 → 시험 과목. 같은 번호 문항(제1문)이 시험 과목마다 따로 있어 회차 아래를 이걸로 한 번 더 나눈다.
+// 목록에 없는 과목은 그 이름 그대로 한 묶음이 되어 맨 뒤에 온다
+const EXAM_SUBJECT: Record<string, string> = {
+  헌법: '공법', 행정법: '공법', 민법: '민사법', 민소: '민사법', 상법: '민사법', 형법: '형사법', 형소: '형사법',
+}
+const EXAM_SUBJECT_ORDER = ['공법', '민사법', '형사법']
+const examSubjectRank = (s: string) => (EXAM_SUBJECT_ORDER.includes(s) ? EXAM_SUBJECT_ORDER.indexOf(s) : EXAM_SUBJECT_ORDER.length)
+
 export function CaseIndexView({ index, onOpen }: Props) {
   const [subject, setSubject] = useState<SubjectFilter>('전체')
   const [sort, setSort] = useState<SortMode>('진도별')
@@ -246,19 +254,32 @@ export function CaseIndexView({ index, onOpen }: Props) {
         const kind = g.key.split('|')[0] as IndexProblem['kind']
         const exam = g.items[0]?.problem.exam ?? ''
         const newPart = gi === 0 || byExam[gi - 1].key.split('|')[0] !== kind
-        // ◀ ▶ 문항 이동이 따라갈 순서 — 이 회차 표의 표시 순서(문항 순, 소문항 순) 그대로다
-        const seq: SeqItem[] = g.items.map(({ problem: p, target }) => ({
+        // 시험 과목(답안이 있는 카드의 과목 기준) 순으로 세운다. 같은 시험 과목 안에서는 문항 순 그대로다(안정 정렬)
+        const examSubjectOf = (it: (typeof g.items)[number]) => {
+          const subject = byId.get(it.target.card)?.subject ?? ''
+          return EXAM_SUBJECT[subject] ?? subject
+        }
+        const items = [...g.items].sort((a, b) => {
+          const sa = examSubjectOf(a), sb = examSubjectOf(b)
+          return examSubjectRank(sa) - examSubjectRank(sb) || sa.localeCompare(sb)
+        })
+        // ◀ ▶ 문항 이동이 따라갈 순서 — 이 회차 표의 표시 순서(시험 과목 순, 문항 순, 소문항 순) 그대로다
+        const seq: SeqItem[] = items.map(({ problem: p, target }) => ({
           card: target.card,
           problem: target.problem,
           label: `${examShort(kind, exam)} · ${[p.qno, p.sub].filter(Boolean).join(' ')}`,
         }))
-        // 한 행 = 한 문항. 같은 문항의 소문항은 같은 행의 버튼으로 모은다
-        const rows: { qno: string; at: number[] }[] = []
-        g.items.forEach(({ problem: p }, i) => {
-          const last = rows[rows.length - 1]
-          if (last && last.qno === p.qno) last.at.push(i)
-          else rows.push({ qno: p.qno, at: [i] })
+        // 시험 과목마다 표 하나. 한 행 = 한 문항, 같은 문항의 소문항은 같은 행의 버튼으로 모은다
+        const parts: { name: string; rows: { qno: string; at: number[] }[] }[] = []
+        items.forEach((it, i) => {
+          const name = examSubjectOf(it)
+          let part = parts[parts.length - 1]
+          if (!part || part.name !== name) parts.push((part = { name, rows: [] }))
+          const last = part.rows[part.rows.length - 1]
+          if (last && last.qno === it.problem.qno) last.at.push(i)
+          else part.rows.push({ qno: it.problem.qno, at: [i] })
         })
+        const rowCount = parts.reduce((n, part) => n + part.rows.length, 0)
         return (
           <section key={g.key} className={newPart && gi > 0 ? 'pt-4' : undefined}>
             {newPart && (
@@ -269,73 +290,81 @@ export function CaseIndexView({ index, onOpen }: Props) {
             <h3 className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-foreground">
               <KindBadge kind={kind} />
               {examTitle(kind, exam)}
-              <span className="text-[11px] font-normal text-muted-foreground">{rows.length}문항</span>
+              <span className="text-[11px] font-normal text-muted-foreground">{rowCount}문항</span>
             </h3>
-            <div className="bg-card border border-border rounded-xl overflow-hidden mb-4">
-              <table className={`${TABLE} table-fixed`}>
-                <colgroup>
-                  <col className="w-32" />
-                  <col className="w-[38%]" />
-                  <col />
-                </colgroup>
-                <thead className="max-sm:hidden">
-                  <tr>
-                    <th className={TH}>문항</th>
-                    <th className={TH}>답안 (소문항·배점)</th>
-                    <th className={TH}>유형 · 카드</th>
-                  </tr>
-                </thead>
-                <tbody className="max-sm:block max-sm:divide-y max-sm:divide-border">
-                  {rows.map((row) => {
-                    const targets = row.at.map((i) => g.items[i].target)
-                    // 유형·카드 열과 과목 태그는 답안이 있는 카드 기준 (stub 은 대상 카드)
-                    const cardIds = [...new Set(targets.map((t) => t.card))]
-                    const subjects = [...new Set(cardIds.map((id) => byId.get(id)?.subject).filter(Boolean))]
-                    return (
-                      <tr key={row.qno} className="max-sm:block max-sm:space-y-1.5 max-sm:px-3 max-sm:py-2.5">
-                        <td className={`${TD} max-sm:block`}>
-                          <div className="flex flex-wrap items-center gap-1">
-                            <span className="whitespace-nowrap text-[13px] text-foreground">{row.qno}</span>
-                            {subjects.map((s) => (
-                              <span key={s} className="rounded border border-border px-1 text-[10px] text-muted-foreground">{s}</span>
-                            ))}
-                          </div>
-                        </td>
-                        <td className={`${TD} max-sm:block`}>
-                          <div className="flex flex-wrap gap-1">
-                            {row.at.map((i) => {
-                              const { problem: p } = g.items[i]
-                              return (
-                                <button
-                                  key={i}
-                                  onClick={() => onOpen(seq[i].card, seq[i].problem, { items: seq, at: i })}
-                                  title={p.stubFor ? `답안은 카드 ${seq[i].card} 에 있습니다` : undefined}
-                                  className={`${BTN} ${KIND_CHIP[kind]}`}
-                                >
-                                  {p.sub || '전체'}
-                                  <span className="text-[10px] opacity-75">{p.points}점</span>
-                                </button>
-                              )
-                            })}
-                          </div>
-                        </td>
-                        <td className={`${TD} max-sm:block text-muted-foreground leading-relaxed`}>
-                          {cardIds.map((id, k) => (
-                            <Fragment key={id}>
-                              {k > 0 && <span className="mx-1">/</span>}
-                              <span className="text-foreground/90">{byId.get(id)?.title ?? ''}</span>{' '}
-                              <button onClick={() => onOpen(id)} className="tabular-nums text-primary hover:underline">
-                                [{id}]
-                              </button>
-                            </Fragment>
-                          ))}
-                        </td>
+            {parts.map(({ name, rows }) => (
+              <Fragment key={name}>
+                <h4 className="mb-1.5 text-sm font-semibold text-foreground">
+                  {name || '과목 없음'}
+                  <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">{rows.length}문항</span>
+                </h4>
+                <div className="bg-card border border-border rounded-xl overflow-hidden mb-4">
+                  <table className={`${TABLE} table-fixed`}>
+                    <colgroup>
+                      <col className="w-32" />
+                      <col className="w-[38%]" />
+                      <col />
+                    </colgroup>
+                    <thead className="max-sm:hidden">
+                      <tr>
+                        <th className={TH}>문항</th>
+                        <th className={TH}>답안 (소문항·배점)</th>
+                        <th className={TH}>유형 · 카드</th>
                       </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody className="max-sm:block max-sm:divide-y max-sm:divide-border">
+                      {rows.map((row) => {
+                        const targets = row.at.map((i) => items[i].target)
+                        // 유형·카드 열과 과목 태그는 답안이 있는 카드 기준 (stub 은 대상 카드)
+                        const cardIds = [...new Set(targets.map((t) => t.card))]
+                        const subjects = [...new Set(cardIds.map((id) => byId.get(id)?.subject).filter(Boolean))]
+                        return (
+                          <tr key={row.qno} className="max-sm:block max-sm:space-y-1.5 max-sm:px-3 max-sm:py-2.5">
+                            <td className={`${TD} max-sm:block`}>
+                              <div className="flex flex-wrap items-center gap-1">
+                                <span className="whitespace-nowrap text-[13px] text-foreground">{row.qno}</span>
+                                {subjects.map((s) => (
+                                  <span key={s} className="rounded border border-border px-1 text-[10px] text-muted-foreground">{s}</span>
+                                ))}
+                              </div>
+                            </td>
+                            <td className={`${TD} max-sm:block`}>
+                              <div className="flex flex-wrap gap-1">
+                                {row.at.map((i) => {
+                                  const { problem: p } = items[i]
+                                  return (
+                                    <button
+                                      key={i}
+                                      onClick={() => onOpen(seq[i].card, seq[i].problem, { items: seq, at: i })}
+                                      title={p.stubFor ? `답안은 카드 ${seq[i].card} 에 있습니다` : undefined}
+                                      className={`${BTN} ${KIND_CHIP[kind]}`}
+                                    >
+                                      {p.sub || '전체'}
+                                      <span className="text-[10px] opacity-75">{p.points}점</span>
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </td>
+                            <td className={`${TD} max-sm:block text-muted-foreground leading-relaxed`}>
+                              {cardIds.map((id, k) => (
+                                <Fragment key={id}>
+                                  {k > 0 && <span className="mx-1">/</span>}
+                                  <span className="text-foreground/90">{byId.get(id)?.title ?? ''}</span>{' '}
+                                  <button onClick={() => onOpen(id)} className="tabular-nums text-primary hover:underline">
+                                    [{id}]
+                                  </button>
+                                </Fragment>
+                              ))}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </Fragment>
+            ))}
           </section>
         )
       })}
