@@ -3,7 +3,7 @@
  * 카드 내용은 저장소에 두지 않는다 — 관리자가 가져오기 화면으로 Firestore 에 올린다
  */
 
-export type CaseSubject = '민법' | '민소'
+export type CaseSubject = string
 
 // 모범답안 한 줄. h1 = Ⅰ.Ⅱ. 큰목차, h2 = 소목차, p = 본문.
 // html 은 mark(law|case|res)·u·b·br 만 쓴다 — 렌더 전에 sanitize.ts 를 반드시 거친다

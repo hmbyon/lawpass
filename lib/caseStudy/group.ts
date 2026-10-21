@@ -1,9 +1,11 @@
 // 상대 경로: lib/caseDigest.ts 를 거쳐 check:* 스크립트(tsc CLI, 경로 별칭 없음)에서도 컴파일된다
 import type { CaseIndex, IndexCard, IndexProblem } from './types'
 
-export type SubjectFilter = '전체' | '민법' | '민소'
+export type SubjectFilter = '전체' | string
 
-const SUBJECT_ORDER = ['민법', '민소']
+const SUBJECT_ORDER = ['민법', '민소', '상법', '형법', '형소', '헌법', '행정법']
+// 목록에 없는 과목은 맨 뒤로
+const subjectRank = (s: string) => (SUBJECT_ORDER.includes(s) ? SUBJECT_ORDER.indexOf(s) : SUBJECT_ORDER.length)
 
 export function problemLabel(p: Pick<IndexProblem, 'kind' | 'exam' | 'qno' | 'sub'>): string {
   const exam = p.kind === '변시' ? `변시 ${p.exam}회` : `모의 ${p.exam}`
@@ -22,7 +24,7 @@ export function answerTarget(card: IndexCard, p: IndexProblem): { card: string; 
 export function sortCards(cards: IndexCard[]): IndexCard[] {
   return [...cards].sort(
     (a, b) =>
-      SUBJECT_ORDER.indexOf(a.subject) - SUBJECT_ORDER.indexOf(b.subject) ||
+      subjectRank(a.subject) - subjectRank(b.subject) ||
       a.order[0] - b.order[0] ||
       a.order[1] - b.order[1]
   )

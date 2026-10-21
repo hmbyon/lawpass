@@ -4,7 +4,7 @@ import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import type { CaseIndex, IndexCard, IndexProblem } from '@/lib/caseStudy/types'
 import { FilterChips } from '@/components/filter-chips'
 import {
-  answerTarget, filterCards, groupByChapter, groupByExam, type SubjectFilter,
+  answerTarget, filterCards, groupByChapter, groupByExam, sortCards, type SubjectFilter,
 } from '@/lib/caseStudy/group'
 
 type SortMode = '진도별' | '회차별'
@@ -99,11 +99,17 @@ const TH = 'border border-border bg-muted px-2 py-1.5 text-left font-semibold te
 const TD = 'border border-border px-2 py-2 align-top max-sm:border-0 max-sm:p-0'
 const DASH = <span className="text-muted-foreground">—</span>
 
+// 마지막 열(쪽수) 제목 — 과목마다 기준 교재가 다르다
+const TEXTBOOK: Record<string, string> = {
+  민법: '송영곤', 민소: '송영곤', 상법: '공태용', 형법: '변사기', 형소: '변사기', 행정법: '핸드북', 헌법: '핸드북',
+}
+
 export function CaseIndexView({ index, onOpen }: Props) {
   const [subject, setSubject] = useState<SubjectFilter>('전체')
   const [sort, setSort] = useState<SortMode>('진도별')
   const [query, setQuery] = useState('')
 
+  const subjects = useMemo(() => ['전체', ...new Set(sortCards(index.cards).map((c) => c.subject))], [index])
   const cards = useMemo(() => filterCards(index, subject, query), [index, subject, query])
   const byChapter = useMemo(() => (sort === '진도별' ? groupByChapter(cards) : []), [cards, sort])
   // 진도별 1단계 구획 = 과목. 카드가 과목 → 교재 순으로 정렬돼 있어 같은 과목의 분류는 연달아 나온다
@@ -132,7 +138,7 @@ export function CaseIndexView({ index, onOpen }: Props) {
         />
         <div className="flex flex-wrap items-center justify-between gap-2">
           <FilterChips<SubjectFilter>
-            options={['전체', '민법', '민소']}
+            options={subjects}
             selected={[subject]}
             single
             onChange={(s) => setSubject(s[0] ?? '전체')}
@@ -185,7 +191,7 @@ export function CaseIndexView({ index, onOpen }: Props) {
                           <th className={TH}>유형</th>
                           <th className={TH}>변시</th>
                           <th className={TH}>모의</th>
-                          <th className={TH}>송영곤</th>
+                          <th className={TH}>{TEXTBOOK[subj.subject] ?? '교재'}</th>
                         </tr>
                       </thead>
                       <tbody className="max-sm:block max-sm:divide-y max-sm:divide-border">
