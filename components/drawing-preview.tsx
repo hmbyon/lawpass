@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { getQuestionDrawing } from '@/lib/store'
 import { paintStroke } from '@/components/drawing-pad'
+import type { DrawingStroke } from '@/lib/types'
 
 // 그림판(DrawingPad)과 같은 4:3. 좌표가 폭 대비 비율이라 폭만 알면 어느 화면에서도 같은 그림이 나온다
 const ASPECT = 3 / 4
@@ -11,8 +12,9 @@ const ASPECT = 3 / 4
  * 선학습 그림판에 그려 둔 그림을 보기만 하는 판. 오답노트 상세에서 쓴다.
  * 저장된 그림이 없으면 아무것도 그리지 않는다. 고치려면 선학습에서 그 문제의 그림판을 연다
  */
-export function DrawingPreview({ questionId }: { questionId: string }) {
-  const strokes = useMemo(() => getQuestionDrawing(questionId)?.strokes ?? [], [questionId])
+// strokes 를 넘기면 그것을 그린다(사례형 풀이 기록 등). 넘기지 않으면 예전처럼 선택형 저장소에서 읽는다
+export function DrawingPreview({ questionId, strokes: given }: { questionId: string; strokes?: DrawingStroke[] }) {
+  const strokes = useMemo(() => given ?? getQuestionDrawing(questionId)?.strokes ?? [], [questionId, given])
   const boxRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const hasInk = strokes.some((s) => !s.erase && s.points.length >= 2)

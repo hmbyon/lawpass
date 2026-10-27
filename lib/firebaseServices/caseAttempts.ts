@@ -1,6 +1,7 @@
 import { db } from '@/lib/firebase'
-import { collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore'
 import type { CaseAttempt } from '@/lib/caseStudy/solve'
+import type { DrawingStroke } from '@/lib/types'
 
 /**
  * 사례형 풀이 기록 — 사용자 본인 트리 아래 시도(attempt)마다 문서 하나.
@@ -25,4 +26,32 @@ export async function fetchCaseDraft(uid: string, mode: string, setKey: string):
   const snap = await getDocs(query(attemptsRef(uid, mode), where('setKey', '==', setKey)))
   const drafts = snap.docs.map((d) => d.data() as CaseAttempt).filter((a) => a.status === 'draft')
   return drafts.sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null
+}
+
+/**
+ * 풀이 그림판 — 시도 문서 아래 문항마다 문서 하나.
+ *
+ *   users/{uid}/{mode}/caseAttempts/attempts/{attemptId}/drawings/{problemId}   { strokes, savedAt }
+ *
+ * 시도에 매여 있어 같은 문항을 다시 풀면(새 시도) 빈 그림판으로 시작하고, 이전 그림은 그 시도에 남는다
+ */
+export interface CaseAttemptDrawing {
+  strokes: DrawingStroke[]
+  savedAt: number
+}
+
+const drawingRef = (uid: string, mode: string, attemptId: string, problemId: string) =>
+  doc(attemptsRef(uid, mode), attemptId, 'drawings', problemId)
+
+export async function fetchCaseAttemptDrawing(
+  uid: string, mode: string, attemptId: string, problemId: string
+): Promise<CaseAttemptDrawing | null> {
+  const snap = await getDoc(drawingRef(uid, mode, attemptId, problemId))
+  return snap.exists() ? (snap.data() as CaseAttemptDrawing) : null
+}
+
+export async function saveCaseAttemptDrawing(
+  uid: string, mode: string, attemptId: string, problemId: string, drawing: CaseAttemptDrawing
+): Promise<void> {
+  await setDoc(drawingRef(uid, mode, attemptId, problemId), drawing)
 }

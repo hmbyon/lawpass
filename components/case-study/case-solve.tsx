@@ -7,6 +7,8 @@ import { getAppMode } from '@/lib/appMode'
 import { boxesOf, filledCount, formatElapsed, setKeyOf, type AnswerBox, type CaseAttempt } from '@/lib/caseStudy/solve'
 import { fetchCaseDraft, saveCaseAttempt } from '@/lib/firebaseServices/caseAttempts'
 import { AnswerBlock } from '@/components/case-study/case-card-view'
+import { DrawLayer, useDrawBoard } from '@/components/quiz/draw-layer'
+import { CaseSolvePad, CaseSolvePadPreview } from '@/components/case-study/case-solve-pad'
 
 interface Props {
   problems: Problem[] // 푸는 순서대로. stub 은 넣지 않는다(호출부가 원본 문항으로 바꿔 넣는다)
@@ -108,6 +110,9 @@ export function CaseSolve({ problems, title, notice, onClose }: Props) {
   const [tab, setTab] = useState(0)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [confirming, setConfirming] = useState(false)
+  // 그림 — 문제 위 임시 펜(저장 안 함, 선택형 DrawLayer)과 저장되는 그림판(시도·문항마다, 선택형 DrawingPad)
+  const board = useDrawBoard()
+  const [padOpen, setPadOpen] = useState(false)
   const latest = useRef<CaseAttempt | null>(null)
   latest.current = attempt
   const dirty = useRef(false)
@@ -273,6 +278,11 @@ export function CaseSolve({ problems, title, notice, onClose }: Props) {
             분
           </label>
         )}
+        {!submitted && (
+          <button onClick={() => setPadOpen(true)} className={btn} title="이 문항에 딸린 그림판 — 저장됩니다">
+            🎨 그림판
+          </button>
+        )}
         {saveLabel && (
           <span className={`text-[11px] ${saveState === 'error' ? 'text-red-400' : 'text-muted-foreground'}`}>{saveLabel}</span>
         )}
@@ -326,9 +336,14 @@ export function CaseSolve({ problems, title, notice, onClose }: Props) {
             <>
               <h2 className="mb-3 text-sm font-bold text-foreground">내 답안 · {problemTitle(p)}</h2>
               <MyAnswer boxes={boxes[tab]} texts={texts} />
+              {/* 이 시도에 그린 그림판 — 보기만 한다 */}
+              <CaseSolvePadPreview key={p.id} attemptId={attempt.id} problemId={p.id} />
             </>
           ) : (
-            <QuestionPane p={p} />
+            // 선택형 CBT 처럼 문제 위에 임시로 긋는다(저장하지 않음)
+            <DrawLayer board={board} questionId={p.id} keepHint="남길 그림은 🎨 그림판에 그리세요">
+              <QuestionPane p={p} />
+            </DrawLayer>
           )}
         </section>
         {/* 오른쪽: 제출 전에는 답안 칸, 제출 후에는 모범답안 (제출 전에는 그리지 않는다) */}
@@ -370,6 +385,19 @@ export function CaseSolve({ problems, title, notice, onClose }: Props) {
           )}
         </section>
       </div>
+
+      {/* 문항마다 그림판 하나 — 탭을 옮겨도 그리던 것이 남게 모두 걸어 두고 지금 문항 것만 연다.
+          덮개 안에 두어야 덮개(z-50) 위로 뜬다 */}
+      {problems.map((q, i) => (
+        <CaseSolvePad
+          key={q.id}
+          attemptId={attempt.id}
+          problemId={q.id}
+          no={i + 1}
+          open={!submitted && padOpen && i === tab}
+          onClose={() => setPadOpen(false)}
+        />
+      ))}
     </div>
   )
 }

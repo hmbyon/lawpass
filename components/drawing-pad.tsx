@@ -160,15 +160,28 @@ interface Props {
    * 0 보다 크다. 부모가 이 값으로 문제 카드를 왼쪽 여백 쪽으로 밀어 지문을 가리지 않게 한다
    */
   onReserveChange: (px: number) => void
+  /**
+   * 그림을 다른 곳에 두는 화면(사례형 풀이 등)만 넘긴다. 넘기지 않으면 예전처럼 선택형 문제 저장소
+   * (getQuestionDrawing·saveQuestionDrawing)에 읽고 쓴다. save 는 저장했으면 true
+   */
+  load?: () => DrawingStroke[]
+  save?: (strokes: DrawingStroke[]) => boolean
+  /** false 면 넓은 화면에서도 붙박이 패널 없이 띄운 창으로만 연다(기본 true = 예전 그대로) */
+  dockable?: boolean
 }
 
-export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, dockW, onDockWChange, onReserveChange }: Props) {
+export function DrawingPad({
+  questionId, questionNo, open, onClose, onSaved, dockW, onDockWChange, onReserveChange,
+  load, save: saveStrokes, dockable = true,
+}: Props) {
+  const persist = (s: DrawingStroke[]) => (saveStrokes ? saveStrokes(s) : saveQuestionDrawing(questionId, { strokes: s }))
   // 저장된 그림을 그대로 불러와 이어 그린다
-  const [strokes, setStrokes] = useState<DrawingStroke[]>(() => getQuestionDrawing(questionId)?.strokes ?? [])
+  const [strokes, setStrokes] = useState<DrawingStroke[]>(() => (load ? load() : getQuestionDrawing(questionId)?.strokes ?? []))
   const [tool, setTool] = useState<Tool>('pen')
   const [width, setWidth] = useState(0)
 
-  const docked = useDockedPad()
+  const wide = useDockedPad()
+  const docked = dockable && wide
   // 붙박이 패널을 잠시 치워 둘 수 있게 한다. 늘 떠 있는 것은 치울 길도 있어야 한다
   const [folded, setFolded] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -508,7 +521,7 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
       if (!wasDocked) return
       // 저장한 뒤로 달라진 것이 없으면 아무 일도 하지 않는다
       if (last === savedStrokes.current) return
-      saveQuestionDrawing(questionId, { strokes: last })
+      persist(last)
       savedStrokes.current = last
       notify()
     }
@@ -600,7 +613,7 @@ export function DrawingPad({ questionId, questionNo, open, onClose, onSaved, doc
 
   // 저장은 여기 한 번뿐이다. 획마다 저장하면 한 장 그리는 동안 로컬 쓰기가 수백 번 돈다
   function save() {
-    const stored = saveQuestionDrawing(questionId, { strokes })
+    const stored = persist(strokes)
     // 저장소에 이 문제가 없으면 저장되지 않은 것이다. '저장됨'이라고 말하지 않고 알린다
     setSaveFailed(!stored)
     // 지금 것을 저장했다고 적어 둔다. 자동 저장이 같은 그림을 또 쓰지 않게 하는 표시다
