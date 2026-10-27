@@ -3,8 +3,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ImportPanel } from '@/components/case-study/import-panel'
 import { CaseStudyBrowse, type CaseOpenRequest } from '@/components/case-study/case-study-browse'
+import { CaseCbt } from '@/components/case-study/case-cbt'
 
-type CaseTab = 'import' | 'browse'
+type CaseTab = 'import' | 'cbt' | 'browse'
 
 // 사례형 화면의 탭 줄 + 본문. 탭 줄 클래스는 app-shell 의 객관식 nav 와 같다
 export function CaseStudyShell({
@@ -26,6 +27,8 @@ export function CaseStudyShell({
   }, [openNonce])
   const tabs: { id: CaseTab; label: string; icon: string }[] = [
     ...(isAdmin ? [{ id: 'import' as const, label: '가져오기', icon: '📥' }] : []),
+    // 선택형 탭 줄처럼 첫 탭(가져오기) 다음에 둔다. 처음 열리는 탭은 그대로 답안·목차다
+    { id: 'cbt', label: 'CBT 실전', icon: '⚡' },
     { id: 'browse', label: '답안·목차', icon: '📚' },
   ]
   // 카드 안의 고정 바(문항 이동)가 앱 헤더·이 탭 줄에 가려지지 않도록, 탭 줄이 끝나는 높이를
@@ -74,6 +77,7 @@ export function CaseStudyShell({
       <main ref={mainRef} className="flex-1 max-w-3xl mx-auto w-full px-4 py-5">
         {/* 일반 사용자에게는 가져오기 트리 자체가 없다 */}
         {tab === 'import' && isAdmin && <ImportPanel />}
+        {tab === 'cbt' && <CaseCbt />}
         {tab === 'browse' && (
           <CaseStudyBrowse request={openRequest} onRequestDone={onOpenRequestDone} onBackToCases={onBackToCases} />
         )}

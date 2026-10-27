@@ -64,7 +64,7 @@ export interface ExamGroup {
   items: { problem: IndexProblem; target: { card: string; problem: string } }[]
 }
 
-function mockValue(exam: number | string): number {
+export function mockValue(exam: number | string): number {
   // '25.10' 은 숫자로 읽으면 25.1 이 되어 25.8 보다 앞선다. 연·월을 나눠 센다
   const [y, m] = String(exam).split('.').map(Number)
   return (y || 0) * 100 + (m || 0)

@@ -67,12 +67,12 @@ function Numbered({ mark, width, children }: { mark: string; width: string; chil
 }
 
 // 분류 제목에 과목이 접두어로 붙어 온 경우('민소 · 병합소송') 과목 구획 아래에서는 떼고 보인다. 표시용일 뿐 값은 그대로다
-function categoryLabel(category: string, subject: string): string {
+export function categoryLabel(category: string, subject: string): string {
   const prefix = `${subject} · `
   return category.startsWith(prefix) ? category.slice(prefix.length) : category
 }
 
-function examShort(kind: IndexProblem['kind'], exam: number | string): string {
+export function examShort(kind: IndexProblem['kind'], exam: number | string): string {
   if ((kind as string) === '유사') return '유사'
   return kind === '변시' ? `변시 ${exam}회` : `모의 ${exam}`
 }
@@ -113,16 +113,16 @@ const TEXTBOOK: Record<string, string> = {
 
 // 회차별 — 과목 → 시험 과목. 같은 번호 문항(제1문)이 시험 과목마다 따로 있어 회차 아래를 이걸로 한 번 더 나눈다.
 // 목록에 없는 과목은 그 이름 그대로 한 묶음이 되어 맨 뒤에 온다
-const EXAM_SUBJECT: Record<string, string> = {
+export const EXAM_SUBJECT: Record<string, string> = {
   헌법: '공법', 행정법: '공법', 민법: '민사법', 민소: '민사법', 상법: '민사법', 형법: '형사법', 형소: '형사법',
 }
-const EXAM_SUBJECT_ORDER = ['공법', '형사법', '민사법']
-const examSubjectRank = (s: string) => (EXAM_SUBJECT_ORDER.includes(s) ? EXAM_SUBJECT_ORDER.indexOf(s) : EXAM_SUBJECT_ORDER.length)
+export const EXAM_SUBJECT_ORDER = ['공법', '형사법', '민사법']
+export const examSubjectRank = (s: string) => (EXAM_SUBJECT_ORDER.includes(s) ? EXAM_SUBJECT_ORDER.indexOf(s) : EXAM_SUBJECT_ORDER.length)
 
 // 회차별 유형·연도 토글. 색인에는 examLabel 이 없어 연도를 회차 값에서 읽는다(변시 11회 → 2022, 모의 '23.10' → 2023).
 // 연도를 못 읽는 회차(예: kind '유사')는 연도 '전체'에서만 보인다
 type KindFilter = '전체' | '모의' | '변시'
-function examYear(kind: string, exam: number | string): string | null {
+export function examYear(kind: string, exam: number | string): string | null {
   if (kind === '변시') return Number.isFinite(Number(exam)) ? String(2011 + Number(exam)) : null
   const y = Number(String(exam).split('.')[0])
   return kind === '모의' && Number.isFinite(y) && y > 0 ? String(2000 + y) : null
