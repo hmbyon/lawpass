@@ -132,7 +132,8 @@ export function CaseQuestionText({ p }: { p: Problem }) {
               </p>
             )}
             {p.answer && (
-              <div className="pt-2 border-t border-border">
+              // case-ans: 모범답안에서만 거는 형광펜 보정(globals.css) — 동그라미가 기존 칠을 끊지 않게
+              <div className="case-ans pt-2 border-t border-border">
                 {blocks.map(({ b, field, text, formats }, i) => {
                   const indent = b.lv ? INDENT[b.lv] : ''
                   const pts = b.pts && <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">{b.pts}</span>

@@ -51,6 +51,12 @@ const inner = (html: string) => html.replace(/^<span>/, '').replace(/<\/span>$/,
   // 형광펜이 서식 경계에 걸려도 글자는 한 번씩만 나온다
   const hs: Highlight[] = [{ id: 'h1', field: 'f', start: 5, end: 19, color: 'yellow', styles: ['fill'] }]
   assert.equal(plain(draw(text, hs, formats)), text)
+  // 괄호는 기존 서식 안에 들어가 그 자리에서 서식이 끊기지 않는다(서식 조각이 하나로 남는다)
+  const br: Highlight[] = [{ id: 'k1', field: 'f', start: 6, end: 6, color: 'red', bracket: '[' }]
+  const withBr = draw(text, br, formats)
+  assert.equal(withBr.match(/<mark class="law">/g)?.length, 1, '괄호 때문에 조문 칠이 둘로 갈렸다')
+  assert.match(withBr, /<mark class="law">[^]*hl-bracket[^]*<\/mark>/)
+  assert.equal(plain(withBr), text)
   // 같은 범위를 감싼 두 태그는 원래 안긴 순서대로 그린다
   const same = '<u><mark class="res">적법함</mark></u>.'
   assert.deepEqual(tokens(inner(draw(parseBlockHtml(same).text, [], parseBlockHtml(same).formats))), tokens(same))

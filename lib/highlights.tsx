@@ -700,27 +700,21 @@ function renderFormats(
   return nodes
 }
 
-// 기본 서식 층이 없으면 예전 그대로 applyBold 다
+// 기본 서식 층이 없으면 예전 그대로 applyBold 다. leaf 는 서식 사이사이 글자 조각을 그린다(기본은 굵게만)
 function applyFormatted(
   slice: string,
   absStart: number,
   bolds: BoldRange[],
   field: string,
-  layer?: FormatLayer
+  layer?: FormatLayer,
+  leaf?: (from: number, to: number) => React.ReactNode
 ): React.ReactNode {
-  if (!layer || !slice) return applyBold(slice, absStart, bolds, field)
+  const draw = leaf ?? ((from: number, to: number) => applyBold(slice.slice(from - absStart, to - absStart), from, bolds, `${field}_${from}`))
+  if (!layer || !slice) return leaf ? draw(absStart, absStart + slice.length) : applyBold(slice, absStart, bolds, field)
   const absEnd = absStart + slice.length
   const list = layer.formats.filter((f) => f.end > absStart && f.start < absEnd)
-  if (list.length === 0) return applyBold(slice, absStart, bolds, field)
-  return renderFormats(
-    slice,
-    absStart,
-    absEnd,
-    list,
-    layer,
-    (from, to) => applyBold(slice.slice(from - absStart, to - absStart), from, bolds, `${field}_${from}`),
-    `${field}_f${absStart}`
-  )
+  if (list.length === 0) return leaf ? draw(absStart, absEnd) : applyBold(slice, absStart, bolds, field)
+  return renderFormats(slice, absStart, absEnd, list, layer, draw, `${field}_f${absStart}`)
 }
 
 /**
@@ -785,6 +779,13 @@ function withBrackets(
   layer?: FormatLayer
 ): React.ReactNode {
   const absEnd = absStart + slice.length
+  // 기본 서식 층이 있으면 서식을 바깥에, 괄호를 그 안에 둔다. 괄호가 서식 조각 사이에 끼면 그 자리에서
+  // 서식 배경(조문·판례 칠)이 끊긴다. 층이 없으면(선택형) 아래 예전 길 그대로다
+  if (layer && slice) {
+    return applyFormatted(slice, absStart, bolds, field, layer, (from, to) =>
+      withBrackets(slice.slice(from - absStart, to - absStart), from, bolds, field, brackets, includeEnd && to === absEnd, onRemove)
+    )
+  }
   const inside = brackets
     .filter((b) => b.start >= absStart && (b.start < absEnd || (includeEnd && b.start >= absEnd)))
     .sort((a, b) => a.start - b.start)

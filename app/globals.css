@@ -316,3 +316,15 @@ mark[data-erasing] {
   padding: revert-layer;
   border-radius: revert-layer;
 }
+/* 모범답안: 사용자 형광펜이 기존 칠(mark.law·case·res)을 바깥에서 감싸므로, 동그라미의 좌우 여백(0.3em)과
+   테두리(2px)만큼 기존 칠이 끊기고 글자가 벌어졌다. 그만큼 바깥 여백을 음수로 돌려 글자 배치를 원래대로 두고
+   동그라미는 이웃 글자 위로 겹쳐 그린다(동그라미는 배경이 없어 이웃의 칠이 그대로 비친다).
+   형광펜 안으로 잘려 들어간 기존 칠 조각은 여백·모서리를 없애 바깥 조각과 이어 붙인다.
+   문제 본문과 선택형에는 걸리지 않는다(.case-ans 는 모범답안 영역에만 있다) */
+.case-study .case-ans .rounded-\[50\%\] {
+  margin-inline: calc(-0.3em - 2px);
+}
+.case-study .case-ans mark:not(.law):not(.case):not(.res) :is(mark.law, mark.case, mark.res) {
+  padding: 0;
+  border-radius: 0;
+}
