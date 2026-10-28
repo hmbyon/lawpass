@@ -15,6 +15,9 @@ interface Props {
   title: string
   notice?: string // 묶음에서 일부 문항을 찾지 못했을 때 등 — 헤더 밑에 한 줄
   onClose: () => void
+  // CBT 실전에서 정한 값. 넘기지 않으면(풀어보기·한 번에 풀기) 예전 그대로 — 목표 없이 시작하고 스톱워치를 보인다
+  initialTargetMinutes?: number | null // 새 시도의 목표(분). 이어 쓰는 임시저장에 목표가 없을 때도 이 값을 넣는다
+  showTimer?: boolean // false 면 스톱워치를 숨긴다(시간은 그대로 재고 저장한다)
 }
 
 const AUTOSAVE_MS = 5000
@@ -97,7 +100,7 @@ function MyAnswer({ boxes, texts }: { boxes: AnswerBox[]; texts: string[] }) {
   )
 }
 
-export function CaseSolve({ problems, title, notice, onClose }: Props) {
+export function CaseSolve({ problems, title, notice, onClose, initialTargetMinutes = null, showTimer = true }: Props) {
   const mode = getAppMode()
   const uid = auth.currentUser?.uid ?? null
   const setKey = setKeyOf(problems.map((p) => p.id))
@@ -131,7 +134,7 @@ export function CaseSolve({ problems, title, notice, onClose }: Props) {
       setResumed(!!best)
       setAttempt(
         best
-          ? { ...best, answers: fitAnswers(problems, boxes, best.answers) }
+          ? { ...best, answers: fitAnswers(problems, boxes, best.answers), targetMinutes: best.targetMinutes ?? initialTargetMinutes }
           : {
               id: crypto.randomUUID(),
               setKey,
@@ -139,7 +142,7 @@ export function CaseSolve({ problems, title, notice, onClose }: Props) {
               answers: fitAnswers(problems, boxes),
               status: 'draft',
               elapsedSeconds: 0,
-              targetMinutes: null,
+              targetMinutes: initialTargetMinutes,
               startedAt: now,
               updatedAt: now,
               submittedAt: null,
@@ -263,9 +266,11 @@ export function CaseSolve({ problems, title, notice, onClose }: Props) {
       <header className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
         <button onClick={close} className={`${btn} text-muted-foreground`}>← 나가기</button>
         <h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{title}</h1>
-        <span className={`tabular-nums text-sm font-semibold ${over ? 'text-red-400' : 'text-foreground'}`} title="경과 시간">
-          ⏱ {formatElapsed(attempt.elapsedSeconds)}
-        </span>
+        {showTimer && (
+          <span className={`tabular-nums text-sm font-semibold ${over ? 'text-red-400' : 'text-foreground'}`} title="경과 시간">
+            ⏱ {formatElapsed(attempt.elapsedSeconds)}
+          </span>
+        )}
         {!submitted && (
           <label className="flex items-center gap-1 text-xs text-muted-foreground">
             목표

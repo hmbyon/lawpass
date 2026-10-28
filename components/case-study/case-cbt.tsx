@@ -100,7 +100,14 @@ export function CaseCbt() {
   const [years, setYears] = useState<string[]>([])
   const [units, setUnits] = useState<string[]>([])
   const [picked, setPicked] = useState<Set<string>>(new Set())
-  const [solve, setSolve] = useState<{ title: string; problems: Problem[]; notice?: string } | null>(null)
+  const [solve, setSolve] = useState<{
+    title: string; problems: Problem[]; notice?: string; targetMinutes: number | null; showTimer: boolean
+  } | null>(null)
+  // 목표 시간 — 고른 문항 배점 합 × 0.6분(변시 사례형 1점당 0.6분)을 제안하고, 직접 고치면 그 값을 쓴다
+  const [customMinutes, setCustomMinutes] = useState<string | null>(null)
+  const [useTimer, setUseTimer] = useState(true)
+  // 랜덤 출제는 필터·문항 수가 바뀔 때 미리 뽑아 둔다(목표 시간 제안이 실제로 풀 문항을 보게). 시작하면 다시 뽑는다
+  const [seed, setSeed] = useState(0)
   const [loading, setLoading] = useState(false)
   const [startError, setStartError] = useState('')
   const cache = useRef(new Map<string, Card | null>())
@@ -159,6 +166,16 @@ export function CaseCbt() {
   )
   const chosenInList = filtered.filter((it) => picked.has(it.p.id))
   const allPicked = filtered.length > 0 && chosenInList.length === filtered.length
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const drawn = useMemo(() => new Set([...filtered].sort(() => Math.random() - 0.5).slice(0, count)), [filtered, count, seed])
+  // 풀이 화면에는 목록 순서(회차·문 번호)로 넣는다
+  const chosen = pickMode === '랜덤 출제' ? filtered.filter((it) => drawn.has(it)) : chosenInList
+  // 배점이 없는 문항은 계산에서 뺀다. ×6÷10 으로 셈해 0.6 소수 오차로 1분이 더 올라가지 않게 한다
+  const scoredPoints = chosen.reduce((n, it) => n + (it.p.points > 0 ? it.p.points : 0), 0)
+  const unscored = chosen.filter((it) => !(it.p.points > 0)).length
+  const suggestedMinutes = Math.ceil((scoredPoints * 6) / 10)
+  const minutesText = customMinutes ?? (suggestedMinutes > 0 ? String(suggestedMinutes) : '')
+  const targetMinutes = parseInt(minutesText, 10) > 0 ? parseInt(minutesText, 10) : null
 
   function changeSubjects(next: string[]) {
     setSubjects(next)
@@ -200,9 +217,6 @@ export function CaseCbt() {
 
   // 고른 문항이 든 카드를 받아(한 번 받은 것은 다시 쓰지 않는다) 회차·문 번호 순으로 풀이 화면에 넣는다
   async function start() {
-    // 랜덤 출제는 누를 때 필터 결과에서 뽑는다. 풀이 화면에는 목록 순서(회차·문 번호)로 넣는다
-    const drawn = new Set([...filtered].sort(() => Math.random() - 0.5).slice(0, count))
-    const chosen = pickMode === '랜덤 출제' ? filtered.filter((it) => drawn.has(it)) : chosenInList
     if (chosen.length === 0) return
     setStartError('')
     setLoading(true)
@@ -215,12 +229,16 @@ export function CaseCbt() {
         .filter((p): p is Problem => !!p && !p.stubFor)
       const lost = chosen.length - problems.length
       if (problems.length === 0) setStartError('고른 문항을 카드에서 찾지 못했습니다')
-      else
+      else {
         setSolve({
           title: `CBT 실전 · ${problems.length}문항`,
           problems,
           notice: lost > 0 ? `문항 ${lost}개를 카드에서 찾지 못해 뺐습니다` : undefined,
+          targetMinutes: useTimer ? targetMinutes : null,
+          showTimer: useTimer,
         })
+        setSeed((n) => n + 1)
+      }
     } catch (e) {
       setStartError(`문항을 불러오지 못했습니다: ${String(e)}`)
     } finally {
@@ -237,11 +255,20 @@ export function CaseCbt() {
   const allYearsSelected = yearOptions.length > 0 && yearOptions.every((y) => years.includes(y))
   const allMonthsSelected = monthOptions.length > 0 && monthOptions.every((m) => months.includes(m))
   const random = pickMode === '랜덤 출제'
-  const startCount = random ? Math.min(count, filtered.length) : chosenInList.length
+  const startCount = chosen.length
 
   return (
     <div className="case-study space-y-5 max-w-2xl mx-auto">
-      {solve && <CaseSolve title={solve.title} problems={solve.problems} notice={solve.notice} onClose={() => setSolve(null)} />}
+      {solve && (
+        <CaseSolve
+          title={solve.title}
+          problems={solve.problems}
+          notice={solve.notice}
+          initialTargetMinutes={solve.targetMinutes}
+          showTimer={solve.showTimer}
+          onClose={() => setSolve(null)}
+        />
+      )}
       {loading && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80">
           <p className="text-xs text-muted-foreground animate-pulse">문항을 불러오는 중…</p>
@@ -387,7 +414,6 @@ export function CaseCbt() {
               </button>
             ))}
           </div>
-          <p className="text-xs text-muted-foreground">목표 시간은 풀이 화면 위쪽의 목표(분)에 적습니다</p>
         </div>
       )}
 
@@ -429,6 +455,44 @@ export function CaseCbt() {
           )}
         </div>
       )}
+
+      {/* 타이머 — 목표 시간은 고른 문항 배점 합 × 0.6분을 제안한다. 시간이 지나도 자동 제출하지 않는다 */}
+      <div className="bg-card border border-border rounded-xl p-4 space-y-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={useTimer}
+              onChange={(e) => setUseTimer(e.target.checked)}
+              className="accent-[oklch(0.65_0.2_290)] w-4 h-4"
+            />
+            <span className="text-sm text-foreground">타이머 사용{targetMinutes !== null && ` (${targetMinutes}분)`}</span>
+          </label>
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+            목표
+            <input
+              type="number"
+              min={1}
+              inputMode="numeric"
+              value={minutesText}
+              disabled={!useTimer}
+              onChange={(e) => setCustomMinutes(e.target.value)}
+              className="w-16 rounded-md border border-border bg-muted px-1.5 py-0.5 text-xs text-foreground disabled:opacity-40"
+            />
+            분
+          </label>
+        </div>
+        {useTimer && (
+          <p className="text-xs text-muted-foreground">
+            {customMinutes !== null
+              ? '직접 정한 목표 시간입니다'
+              : scoredPoints > 0
+                ? `고른 문항 배점 ${scoredPoints}점 × 0.6분`
+                : '문항을 고르면 배점에 맞춰 목표 시간을 제안합니다'}
+            {unscored > 0 && ` · 배점이 없는 문항 ${unscored}개는 계산에서 뺐습니다`}
+          </p>
+        )}
+      </div>
 
       {/* 결과 */}
       <div className="bg-card border border-border rounded-xl p-4 flex items-center justify-between text-sm">
