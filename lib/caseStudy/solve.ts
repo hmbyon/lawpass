@@ -60,7 +60,15 @@ export interface CaseAttempt {
   // 제출 후 조문 점검(선택 필드, lib/caseStudy/statuteCheck). 문항 id → 자동 판정 사본·직접 고친 값.
   // 없으면(예전 시도) 열 때 자동 판정으로 보여 준다
   statuteChecks?: Record<string, { auto: Record<string, StatuteMark>; manual: Record<string, StatuteMark> }>
+  // 제출 후 AI 점검(선택 필드, lib/caseStudy/aiCheck). 문항 id → 점검 결과. answerHash 가 지금 답안과 다르면 오래된 결과
+  aiChecks?: Record<string, {
+    model: string
+    checkedAt: number
+    answerHash: string
+    items: Record<string, { verdict: AiVerdict; evidence: string; note: string; userVerdict?: AiVerdict }>
+  }>
 }
+export type AiVerdict = '담김' | '부분' | '누락' | '확인불가'
 export type StatuteMark = 'ok' | 'partial' | 'missing'
 
 export const setKeyOf = (problemIds: string[]) => problemIds.join(',')

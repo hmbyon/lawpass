@@ -13,7 +13,7 @@
 // 연결 테스트가 이 모델로 요청을 보내므로, 이름이 틀리면 테스트가 '모델을 찾을 수 없음'으로 알려 준다
 export const GEMINI_MODEL = 'gemini-3.1-flash-lite'
 
-const API = 'https://generativelanguage.googleapis.com/v1beta'
+export const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta'
 const storageKey = (uid: string) => `lawpass_gemini_key_${uid}`
 
 export function getGeminiKey(uid: string): string | null {
@@ -57,15 +57,22 @@ export type GeminiTestResult = { ok: true } | { ok: false; reason: string }
 export async function testGeminiKey(key: string): Promise<GeminiTestResult> {
   let res: Response
   try {
-    res = await fetch(`${API}/models/${GEMINI_MODEL}:generateContent`, {
+    res = await fetch(`${GEMINI_API}/models/${GEMINI_MODEL}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify({ contents: [{ parts: [{ text: 'ping' }] }], generationConfig: { maxOutputTokens: 1 } }),
     })
   } catch {
-    return { ok: false, reason: '네트워크에 연결할 수 없습니다. 인터넷 연결을 확인해 주세요.' }
+    return { ok: false, reason: GEMINI_NETWORK_ERROR }
   }
   if (res.ok) return { ok: true }
+  return { ok: false, reason: await geminiErrorReason(res) }
+}
+
+export const GEMINI_NETWORK_ERROR = '네트워크에 연결할 수 없습니다. 인터넷 연결을 확인해 주세요.'
+
+/** 실패한 Gemini 응답을 사용자 말로 — 연결 테스트와 AI 점검(lib/caseStudy/aiCheck)이 같이 쓴다. 키는 문구에 넣지 않는다 */
+export async function geminiErrorReason(res: Response): Promise<string> {
   let detail = ''
   try {
     const body = (await res.json()) as { error?: { message?: string; status?: string; details?: { reason?: string }[] } }
@@ -73,14 +80,14 @@ export async function testGeminiKey(key: string): Promise<GeminiTestResult> {
   } catch {
     // 본문이 없어도 상태 코드로 가른다
   }
-  if (res.status === 429) return { ok: false, reason: '사용 한도를 넘었습니다. 잠시 뒤 다시 시도하거나 요금제·한도를 확인해 주세요.' }
+  if (res.status === 429) return '사용 한도를 넘었습니다. 잠시 뒤 다시 시도하거나 요금제·한도를 확인해 주세요.'
   if (/API_KEY_INVALID|API key not valid/i.test(detail) || res.status === 401) {
-    return { ok: false, reason: '키가 올바르지 않습니다. 복사한 키를 다시 확인해 주세요.' }
+    return '키가 올바르지 않습니다. 복사한 키를 다시 확인해 주세요.'
   }
   if (res.status === 403) {
-    return { ok: false, reason: '이 키로는 Gemini API를 쓸 수 없습니다. 키의 사용 제한이나 API 사용 설정을 확인해 주세요.' }
+    return '이 키로는 Gemini API를 쓸 수 없습니다. 키의 사용 제한이나 API 사용 설정을 확인해 주세요.'
   }
-  if (res.status === 404) return { ok: false, reason: `점검에 쓰는 모델(${GEMINI_MODEL})을 찾을 수 없습니다. 앱 업데이트가 필요합니다.` }
-  if (res.status >= 500) return { ok: false, reason: 'Gemini 서버에 문제가 있습니다. 잠시 뒤 다시 시도해 주세요.' }
-  return { ok: false, reason: `요청이 거절되었습니다 (${res.status}).` }
+  if (res.status === 404) return `점검에 쓰는 모델(${GEMINI_MODEL})을 찾을 수 없습니다. 앱 업데이트가 필요합니다.`
+  if (res.status >= 500) return 'Gemini 서버에 문제가 있습니다. 잠시 뒤 다시 시도해 주세요.'
+  return `요청이 거절되었습니다 (${res.status}).`
 }

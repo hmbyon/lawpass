@@ -16,6 +16,7 @@
     "check:case-solve": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseStudy/solve.ts scripts/check-case-solve.ts && node .tmp-check/scripts/check-case-solve.js",
     "check:case-answer-formats": "tsc --jsx react-jsx --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseStudy/answerFormats.ts scripts/check-case-answer-formats.ts && node .tmp-check/scripts/check-case-answer-formats.js",
     "check:case-statute-check": "tsc --jsx react-jsx --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseStudy/answerFormats.ts lib/caseStudy/statuteCheck.ts scripts/check-case-statute-check.ts && node .tmp-check/scripts/check-case-statute-check.js",
+    "check:case-ai-check": "tsc --jsx react-jsx --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseStudy/aiCheck.ts scripts/check-case-ai-check.ts && node .tmp-check/scripts/check-case-ai-check.js",
     "check:case-nav": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseDigest.ts scripts/check-case-nav.ts && node .tmp-check/scripts/check-case-nav.js"
   },
   "dependencies": {
