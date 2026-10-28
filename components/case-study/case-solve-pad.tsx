@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DrawingStroke } from '@/lib/types'
 import { auth } from '@/lib/firebase'
 import { getAppMode } from '@/lib/appMode'
@@ -69,16 +69,55 @@ function useAttemptDrawing(attemptId: string, problemId: string) {
     if (uid) saveCaseAttemptDrawing(uid, mode, attemptId, problemId, d).catch(() => {})
     return ok || !!uid
   }
-  return { version, load, save }
+  // 그리는 대로 이 기기에만 적는다. 원격에는 창을 닫거나 문항·화면을 떠날 때 upload 로 한 번 올린다
+  const keep = (strokes: DrawingStroke[]) => writeLocal(key, { strokes, savedAt: Date.now() })
+  const upload = () => {
+    const d = readLocal(key)
+    if (uid && d) saveCaseAttemptDrawing(uid, mode, attemptId, problemId, d).catch(() => {})
+  }
+  return { version, load, save, keep, upload }
 }
 
 const noop = () => {}
+const hasInk = (strokes: DrawingStroke[]) => strokes.some((s) => !s.erase && s.points.length >= 2)
 
-/** 풀이 화면의 저장되는 그림판(선택형 DrawingPad). 사례형은 답안 칸을 가리지 않게 늘 띄운 창으로 연다 */
+/**
+ * 풀이 화면의 저장되는 그림판(선택형 DrawingPad). 사례형은 답안 칸을 가리지 않게 늘 띄운 창으로 연다.
+ * "완료"를 누르지 않아도 남는다: 획이 바뀔 때마다 이 기기에 적고, 창이 닫힐 때(닫기·문항 이동·제출)와
+ * 풀이 화면을 나가거나 탭을 닫을 때 원격에 올린다. onDrawn 은 그린 것이 생기면 알린다(시도를 남기게)
+ */
 export function CaseSolvePad({
-  attemptId, problemId, no, open, onClose,
-}: { attemptId: string; problemId: string; no: number; open: boolean; onClose: () => void }) {
-  const { version, load, save } = useAttemptDrawing(attemptId, problemId)
+  attemptId, problemId, no, open, onClose, onDrawn,
+}: { attemptId: string; problemId: string; no: number; open: boolean; onClose: () => void; onDrawn?: () => void }) {
+  const { version, load, save, keep, upload } = useAttemptDrawing(attemptId, problemId)
+  // 원격에 아직 안 올린 그림이 있는가
+  const unsent = useRef(false)
+  const uploadRef = useRef(upload)
+  uploadRef.current = upload
+  const flush = () => {
+    if (!unsent.current) return
+    unsent.current = false
+    uploadRef.current()
+  }
+  const change = (strokes: DrawingStroke[]) => {
+    // 불러온 그림 그대로이거나 이미 적은 그림이면 아무것도 하지 않는다
+    if (JSON.stringify(strokes) === JSON.stringify(load())) return
+    keep(strokes)
+    unsent.current = true
+    if (hasInk(strokes)) onDrawn?.()
+  }
+  useEffect(() => {
+    if (!open) flush()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+  useEffect(() => {
+    window.addEventListener('pagehide', flush)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      flush()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   return (
     <DrawingPad
       key={version}
@@ -91,8 +130,12 @@ export function CaseSolvePad({
       onDockWChange={noop}
       onReserveChange={noop}
       load={load}
-      save={save}
+      save={(strokes) => {
+        unsent.current = false
+        return save(strokes)
+      }}
       dockable={false}
+      onChange={change}
     />
   )
 }
@@ -103,7 +146,7 @@ export function CaseSolvePadPreview({ attemptId, problemId }: { attemptId: strin
   // 원격 그림을 받아 오면(version) 다시 읽는다
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const strokes = useMemo(load, [version, attemptId, problemId])
-  if (!strokes.some((s) => !s.erase && s.points.length >= 2)) return null
+  if (!hasInk(strokes)) return null
   return (
     <section className="mt-5">
       <h3 className="mb-1 text-xs font-semibold text-foreground">내 그림</h3>

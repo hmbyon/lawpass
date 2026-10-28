@@ -218,9 +218,15 @@ export function CaseSolve({ problems, title, notice, onClose }: Props) {
     })
   }
 
+  // 그림만 그려도 쓴 것으로 친다 — 몇 초 뒤 임시저장에 실리고, 나갈 때도 시도를 남긴다
+  function drew() {
+    dirty.current = true
+    touched.current = true
+  }
+
   function close() {
     const a = latest.current
-    // 쓴 것이 있을 때만 남긴다 — 열어 보기만 한 시도로 기록이 쌓이지 않게
+    // 쓴 것(글자 또는 그림)이 있을 때만 남긴다 — 열어 보기만 한 시도로 기록이 쌓이지 않게
     if (a && a.status === 'draft' && (touched.current || resumed)) save(a)
     onClose()
   }
@@ -396,6 +402,7 @@ export function CaseSolve({ problems, title, notice, onClose }: Props) {
           no={i + 1}
           open={!submitted && padOpen && i === tab}
           onClose={() => setPadOpen(false)}
+          onDrawn={drew}
         />
       ))}
     </div>

@@ -168,11 +168,13 @@ interface Props {
   save?: (strokes: DrawingStroke[]) => boolean
   /** false 면 넓은 화면에서도 붙박이 패널 없이 띄운 창으로만 연다(기본 true = 예전 그대로) */
   dockable?: boolean
+  /** 획이 바뀔 때마다 알린다(완료를 누르지 않아도 그리던 것을 남기려는 화면만 넘긴다). 넘기지 않으면 예전 그대로 */
+  onChange?: (strokes: DrawingStroke[]) => void
 }
 
 export function DrawingPad({
   questionId, questionNo, open, onClose, onSaved, dockW, onDockWChange, onReserveChange,
-  load, save: saveStrokes, dockable = true,
+  load, save: saveStrokes, dockable = true, onChange,
 }: Props) {
   const persist = (s: DrawingStroke[]) => (saveStrokes ? saveStrokes(s) : saveQuestionDrawing(questionId, { strokes: s }))
   // 저장된 그림을 그대로 불러와 이어 그린다
@@ -188,6 +190,10 @@ export function DrawingPad({
   const [saveFailed, setSaveFailed] = useState(false)
   // 획을 긋거나 지운 것, 전체 지우기까지 한 걸음씩 되돌린다 (그림판은 문제마다 새로 마운트되므로 문제를 넘기면 기록도 비워진다)
   const { canUndo, undo } = useStrokeHistory(strokes, setStrokes, questionId)
+  useEffect(() => {
+    onChange?.(strokes)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [strokes])
   // 띄운 창의 자리와 폭. 높이는 4:3 이라 폭이 정한다 — 폭 하나만 붙들면 된다
   const [win, setWin] = useState<{ x: number; y: number; w: number } | null>(null)
   // 붙박이 패널의 폭은 부모가 쥔다(props). null 이면 화면에 맞춘 기본 폭(아래 클래스의 clamp)을 쓴다.
