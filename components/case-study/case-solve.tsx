@@ -170,14 +170,16 @@ export function CaseSolve({ problems, title, notice, onClose, initialTargetMinut
     else writeLocal(key, null)
     if (!uid) {
       setSaveState('saved')
-      return
+      return true
     }
     setSaveState('saving')
     try {
       await saveCaseAttempt(uid, mode, next)
       setSaveState('saved')
+      return true
     } catch {
       setSaveState('error')
+      return false
     }
   }
 
@@ -254,6 +256,16 @@ export function CaseSolve({ problems, title, notice, onClose, initialTargetMinut
     latest.current = next // 다시 그리기 전에 점을 또 눌러도 앞의 고침을 잃지 않게
     setAttempt(next)
     save(next)
+  }
+
+  // AI 점검 결과·직접 고친 값 — 점검이 끝났을 때와 직접 고쳤을 때만 선택 필드(aiChecks)에 덧붙여 저장한다
+  function saveAiCheck(problemId: string, rec: NonNullable<CaseAttempt['aiChecks']>[string]) {
+    const a = latest.current
+    if (!a) return Promise.resolve(false)
+    const next: CaseAttempt = { ...a, aiChecks: { ...a.aiChecks, [problemId]: rec } }
+    latest.current = next
+    setAttempt(next)
+    return save(next)
   }
 
   if (!attempt) {
@@ -379,6 +391,8 @@ export function CaseSolve({ problems, title, notice, onClose, initialTargetMinut
                 texts={texts}
                 record={attempt.statuteChecks?.[p.id]}
                 onChange={(rec) => saveStatuteCheck(p.id, rec)}
+                aiRecord={attempt.aiChecks?.[p.id]}
+                onAiChange={(rec) => saveAiCheck(p.id, rec)}
               />
             </>
           ) : (

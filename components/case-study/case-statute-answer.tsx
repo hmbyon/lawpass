@@ -7,6 +7,9 @@ import {
   answerRefs, insertAfterLawMarks, judgeStatutes, modelStatutes, nextStatus, statuteLabel,
   type StatuteCheckRecord, type StatuteStatus,
 } from '@/lib/caseStudy/statuteCheck'
+import { extractAiItems, type AiCheckRecord } from '@/lib/caseStudy/aiCheck'
+import { aiDotTargets, finalVerdict, insertAfterMarks } from '@/lib/caseStudy/aiCheckView'
+import { AiCheckPanel, AiPopover, aiDotsHtml } from '@/components/case-study/case-ai-check'
 
 // 모범답안 블록의 들여쓰기 — case-card-view 의 AnswerBlock 과 같다
 const INDENT: Record<string, string> = { l2: 'pl-3', l3: 'pl-6' }
@@ -30,18 +33,30 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
  * 자동 판정은 늘 내 답안에서 다시 계산하고, 직접 고친 값만 기록(record.manual)에서 읽는다
  */
 export function CaseStatuteAnswer({
-  p, texts, record, onChange,
+  p, texts, record, onChange, aiRecord, onAiChange,
 }: {
   p: Problem
   texts: string[] // 이 문항의 내 답안 칸들
   record?: StatuteCheckRecord
   onChange: (next: StatuteCheckRecord) => void
+  // AI 점검(판례 취지·결론) 결과와 저장. 저장했으면 true
+  aiRecord?: AiCheckRecord
+  onAiChange: (next: AiCheckRecord) => Promise<boolean>
 }) {
   const [missingOnly, setMissingOnly] = useState(false)
+  const [aiMissingOnly, setAiMissingOnly] = useState(false)
+  const [popover, setPopover] = useState<{ key: string; at: DOMRect } | null>(null)
   const blocks = p.answer?.blocks ?? []
   const clean = useMemo(() => blocks.map((b) => sanitizeCaseHtml(b.html)), [blocks])
   const model = useMemo(() => modelStatutes(clean), [clean])
   const auto = useMemo(() => judgeStatutes(model.items, answerRefs(texts)), [model, texts])
+  // AI 점검 항목은 화면과 같은 sanitize 된 html(clean)에서 뽑는다 — 항목 키의 블록 해시가 화면 블록과 맞게
+  const aiItems = useMemo(() => extractAiItems(clean), [clean])
+  const aiTargets = useMemo(() => aiDotTargets(clean, aiItems), [clean, aiItems])
+  const aiMissingBlocks = new Set(
+    aiRecord ? aiItems.filter((it) => aiRecord.items[it.key] && finalVerdict(aiRecord.items[it.key]) === '누락').map((it) => it.block) : []
+  )
+  const aiMissingCount = aiMissingBlocks.size
   const manual = record?.manual ?? {}
   const status = (key: string): StatuteStatus => manual[key] ?? auto[key] ?? 'missing'
 
@@ -102,17 +117,42 @@ export function CaseStatuteAnswer({
         <p className="mb-3 text-[11px] text-muted-foreground">이 모범답안에는 점검할 조문 표시가 없습니다</p>
       )}
 
+      <AiCheckPanel
+        p={p}
+        texts={texts}
+        clean={clean}
+        items={aiItems}
+        record={aiRecord}
+        onChange={onAiChange}
+        missingOnly={aiMissingOnly}
+        onMissingOnly={setAiMissingOnly}
+      />
+
       {/* 점은 html 안에 넣고 여기서 한 번에 받는다(조문 표시 자체에는 아무 동작도 걸지 않는다) */}
       <div
         onClick={(e) => {
+          const ai = (e.target as HTMLElement).closest<HTMLElement>('[data-ai]')
+          if (ai?.dataset.ai) {
+            setPopover({ key: ai.dataset.ai, at: ai.getBoundingClientRect() })
+            return
+          }
           const el = (e.target as HTMLElement).closest<HTMLElement>('[data-statute]')
           if (el?.dataset.statute) cycle(el.dataset.statute)
         }}
       >
         {blocks.map((b, i) => {
           const sectionKeys = keysIn(i, sectionEnd[i])
-          if (missingOnly && !sectionKeys.some((k) => status(k) === 'missing')) return null
-          const html = insertAfterLawMarks(clean[i], (li) => dots(model.marks[i][li] ?? []))
+          // 빠진 것만 보기: 켠 토글 중 하나에라도 걸리는 블록(제목은 그 아래 구역)을 보인다
+          if (missingOnly || aiMissingOnly) {
+            const statuteHit = missingOnly && sectionKeys.some((k) => status(k) === 'missing')
+            let aiHit = false
+            for (let j = i; aiMissingOnly && j < sectionEnd[i]; j++) aiHit ||= aiMissingBlocks.has(j)
+            if (!statuteHit && !aiHit) return null
+          }
+          const html = insertAfterMarks(
+            insertAfterLawMarks(clean[i], (li) => dots(model.marks[i][li] ?? [])),
+            (kind, nth) => aiDotsHtml(aiTargets[i]?.[`${kind}:${nth}`], aiItems, aiRecord)
+          )
           const body = <span dangerouslySetInnerHTML={{ __html: html }} />
           const indent = b.lv ? INDENT[b.lv] : ''
           const pts = b.pts && <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">{b.pts}</span>
@@ -148,7 +188,20 @@ export function CaseStatuteAnswer({
         {missingOnly && counts.missing === 0 && (
           <p className="py-4 text-center text-xs text-muted-foreground">빠진 조문이 없습니다</p>
         )}
+        {aiMissingOnly && aiMissingCount === 0 && (
+          <p className="py-4 text-center text-xs text-muted-foreground">AI가 빠졌다고 본 것이 없습니다</p>
+        )}
       </div>
+      {popover && aiRecord && (
+        <AiPopover
+          at={popover.at}
+          itemKey={popover.key}
+          items={aiItems}
+          record={aiRecord}
+          onChange={onAiChange}
+          onClose={() => setPopover(null)}
+        />
+      )}
       {p.answer?.source && <p className="mt-3 text-[10px] text-muted-foreground">{p.answer.source}</p>}
     </div>
   )
