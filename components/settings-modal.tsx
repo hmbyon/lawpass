@@ -8,6 +8,7 @@ import { ADMIN_EMAIL } from '@/lib/admin'
 import { AdminFeedbackPanel } from '@/components/admin-feedback-panel'
 import { AdminPoolPanel } from '@/components/admin-pool-panel'
 import { SharedPoolList } from '@/components/shared-pool-list'
+import { GeminiKeySettings } from '@/components/gemini-key-settings'
 import type { AppMode } from '@/lib/appMode'
 import { EXAMPASS_ENTRY_ENABLED } from '@/lib/featureFlags'
 import { db } from '@/lib/firebase'
@@ -207,6 +208,9 @@ export function SettingsModal({
               </div>
             </div>
           </div>
+
+          {/* AI 점검용 Gemini API 키 — 이 기기 브라우저에만 저장 */}
+          {userId && <GeminiKeySettings userId={userId} />}
 
           {/* 공유받은 문제집 — 받을 것이 없는 사람에게는 스스로 아무것도 그리지 않으므로
               여기서 감싸지 않는다 (빈 카드가 남지 않게) */}
