@@ -117,6 +117,7 @@ export const EXAM_SUBJECT: Record<string, string> = {
   헌법: '공법', 행정법: '공법', 민법: '민사법', 민소: '민사법', 상법: '민사법', 형법: '형사법', 형소: '형사법',
 }
 export const EXAM_SUBJECT_ORDER = ['공법', '형사법', '민사법']
+const examSubjectOf = (subject: string) => EXAM_SUBJECT[subject] ?? subject
 export const examSubjectRank = (s: string) => (EXAM_SUBJECT_ORDER.includes(s) ? EXAM_SUBJECT_ORDER.indexOf(s) : EXAM_SUBJECT_ORDER.length)
 
 // 회차별 유형·연도 토글. 색인에는 examLabel 이 없어 연도를 회차 값에서 읽는다(변시 11회 → 2022, 모의 '23.10' → 2023).
@@ -140,8 +141,25 @@ export function CaseIndexView({ index, onOpen, onSolveGroup }: Props) {
   const [kindFilter, setKindFilter] = useState<KindFilter>('전체')
   const [year, setYear] = useState('전체')
 
-  const subjects = useMemo(() => ['전체', ...new Set(sortCards(index.cards).map((c) => c.subject))], [index])
-  const cards = useMemo(() => filterCards(index, subject, query), [index, subject, query])
+  // 과목 2단 선택 — 윗줄 시험 과목(공법·형사법·민사법), 고른 시험 과목 아래에 그 묶음의 과목. 사례 CBT 실전과 같은 묶음·순서다.
+  // 아무것도 안 고르면 전체, 시험 과목만 고르면 그 묶음 전체
+  const [group, setGroup] = useState<string | null>(null)
+  const groups = useMemo(() => {
+    const subjectsInOrder = [...new Set(sortCards(index.cards).map((c) => c.subject))]
+    const names = [...new Set(subjectsInOrder.map(examSubjectOf))].sort(
+      (a, b) => examSubjectRank(a) - examSubjectRank(b) || a.localeCompare(b)
+    )
+    return names.map((label) => ({ label, subjects: subjectsInOrder.filter((s) => examSubjectOf(s) === label) }))
+  }, [index])
+  const cards = useMemo(
+    () => filterCards(index, subject, query).filter((c) => group === null || examSubjectOf(c.subject) === group),
+    [index, subject, query, group]
+  )
+  function pickSubject(nextGroup: string | null, next: SubjectFilter) {
+    setGroup(nextGroup)
+    setSubject(next)
+    setUnits([])
+  }
   // 진도별 단원(분류) 토글 — 과목을 하나 골랐을 때만. 순서는 진도별 목록의 분류 순서 그대로이고,
   // 칩 글자는 목록 제목과 같게 과목 접두어를 뗀다. 아무것도 안 고르면 전체 단원이다
   const [units, setUnits] = useState<string[]>([])
@@ -192,16 +210,34 @@ export function CaseIndexView({ index, onOpen, onSolveGroup }: Props) {
           placeholder="제목 · 장 · 문항(예: 변시 13회 제2문)으로 검색"
           className="w-full bg-muted border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
         />
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <FilterChips<SubjectFilter>
-            options={subjects}
-            selected={[subject]}
-            single
-            onChange={(s) => {
-              setSubject(s[0] ?? '전체')
-              setUnits([])
-            }}
-          />
+        <div className={`grid gap-2 items-start ${groups.length >= 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+          {groups.map((g) => (
+            <div key={g.label} className="space-y-2">
+              <button
+                onClick={() => pickSubject(group === g.label ? null : g.label, '전체')}
+                className={`w-full py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                  group === g.label
+                    ? subject === '전체'
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-primary/20 text-primary border-primary/50'
+                    : 'bg-muted text-muted-foreground border-border hover:border-primary/40'
+                }`}
+              >
+                {g.label}
+              </button>
+              {group === g.label && (
+                <FilterChips<SubjectFilter>
+                  options={g.subjects}
+                  selected={[subject]}
+                  single
+                  centered
+                  onChange={(s) => pickSubject(g.label, s[0] ?? '전체')}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-end">
           <FilterChips<SortMode>
             options={['진도별', '회차별']}
             selected={[sort]}
