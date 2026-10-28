@@ -6,7 +6,7 @@ import { auth } from '@/lib/firebase'
 import { getAppMode } from '@/lib/appMode'
 import { boxesOf, filledCount, formatElapsed, setKeyOf, type AnswerBox, type CaseAttempt } from '@/lib/caseStudy/solve'
 import { fetchCaseDraft, saveCaseAttempt } from '@/lib/firebaseServices/caseAttempts'
-import { AnswerBlock } from '@/components/case-study/case-card-view'
+import { CaseStatuteAnswer } from '@/components/case-study/case-statute-answer'
 import { DrawLayer, useDrawBoard } from '@/components/quiz/draw-layer'
 import { CaseSolvePad, CaseSolvePadPreview } from '@/components/case-study/case-solve-pad'
 
@@ -246,6 +246,16 @@ export function CaseSolve({ problems, title, notice, onClose, initialTargetMinut
     save(done)
   }
 
+  // 조문 점검에서 직접 고친 값 — 시도 문서의 선택 필드(statuteChecks)에만 덧붙여 저장한다
+  function saveStatuteCheck(problemId: string, rec: NonNullable<CaseAttempt['statuteChecks']>[string]) {
+    const a = latest.current
+    if (!a) return
+    const next: CaseAttempt = { ...a, statuteChecks: { ...a.statuteChecks, [problemId]: rec } }
+    latest.current = next // 다시 그리기 전에 점을 또 눌러도 앞의 고침을 잃지 않게
+    setAttempt(next)
+    save(next)
+  }
+
   if (!attempt) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-background">
@@ -362,14 +372,14 @@ export function CaseSolve({ problems, title, notice, onClose, initialTargetMinut
           {submitted ? (
             <>
               <h2 className="mb-3 text-sm font-bold text-foreground">모범답안 · {problemTitle(p)}</h2>
-              {p.answer ? (
-                <div>
-                  {p.answer.blocks.map((b, i) => <AnswerBlock key={i} b={b} />)}
-                  {p.answer.source && <p className="mt-3 text-[10px] text-muted-foreground">{p.answer.source}</p>}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">모범답안이 없습니다</p>
-              )}
+              {/* 모범답안 + 조문 점검(조문 표시마다 상태 점) */}
+              <CaseStatuteAnswer
+                key={p.id}
+                p={p}
+                texts={texts}
+                record={attempt.statuteChecks?.[p.id]}
+                onChange={(rec) => saveStatuteCheck(p.id, rec)}
+              />
             </>
           ) : (
             <div className="space-y-4">

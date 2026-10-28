@@ -57,7 +57,11 @@ export interface CaseAttempt {
   startedAt: number
   updatedAt: number
   submittedAt: number | null
+  // 제출 후 조문 점검(선택 필드, lib/caseStudy/statuteCheck). 문항 id → 자동 판정 사본·직접 고친 값.
+  // 없으면(예전 시도) 열 때 자동 판정으로 보여 준다
+  statuteChecks?: Record<string, { auto: Record<string, StatuteMark>; manual: Record<string, StatuteMark> }>
 }
+export type StatuteMark = 'ok' | 'partial' | 'missing'
 
 export const setKeyOf = (problemIds: string[]) => problemIds.join(',')
 
