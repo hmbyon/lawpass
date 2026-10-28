@@ -6,10 +6,11 @@ import { getAppMode } from '@/lib/appMode'
 import { fetchCaseCard, fetchCaseIndex } from '@/lib/firebaseServices/caseStudy'
 import { answerTarget, mockValue, sortCards } from '@/lib/caseStudy/group'
 import { FilterChips } from '@/components/filter-chips'
+import { EXAM_MONTH_OPTIONS, examMonthLabel, type ExamMonthLabel } from '@/lib/questionSource'
 import { CaseSolve } from '@/components/case-study/case-solve'
 import { CaseErrorNotice } from '@/components/case-study/case-study-browse'
 import {
-  EXAM_SUBJECT, EXAM_SUBJECT_ORDER, categoryLabel, examShort, examSubjectRank, examYear,
+  EXAM_SUBJECT, categoryLabel, examShort, examSubjectRank, examYear,
 } from '@/components/case-study/case-index-view'
 
 // 풀 수 있는 문항 하나. stub 은 답안이 있는 원본 문항(카드)으로 바꿔 한 번만 넣는다
@@ -18,10 +19,27 @@ interface Item {
   p: IndexProblem
   kind: string // 색인에는 타입 밖의 '유사'도 온다
   year: string | null
+  month: ExamMonthLabel | null // 모의 회차(6·8·10모). 모의가 아니거나 exam 에서 못 읽으면 null
   examSubject: string
 }
 
+// 시험 유형 — 값은 색인의 kind, 칩 글자는 선택형과 같은 문구('유사'는 사례에만 있다)
 const KINDS = ['변시', '모의', '유사']
+const KIND_LABEL: Record<string, string> = { 변시: '변호사시험', 모의: '모의고사', 유사: '유사 문제' }
+const kindOf = (label: string) => KINDS.find((k) => KIND_LABEL[k] === label) ?? label
+// 과목 칸 순서 — 이 탭만 선택형과 같게 민사법 → 형사법 → 공법(답안·목차와 회차별 정렬은 공법부터 그대로)
+const GROUP_ORDER = ['민사법', '형사법', '공법']
+const groupRank = (g: string) => (GROUP_ORDER.includes(g) ? GROUP_ORDER.indexOf(g) : GROUP_ORDER.length)
+// 랜덤 출제 문항 수. 사례 한 문항이 길어 선택형(10~70)보다 훨씬 적게 둔다
+const COUNT_OPTIONS = [1, 2, 3, 5]
+type PickMode = '랜덤 출제' | '직접 선택'
+
+// 모의 exam 은 '23.6'·'24.10' 처럼 '연.월'이다. 6·8·10 이 아니면 회차로 치지 않는다
+function mockMonth(kind: string, exam: number | string): ExamMonthLabel | null {
+  if (kind !== '모의') return null
+  const m = Number(String(exam).split('.')[1])
+  return m === 6 || m === 8 || m === 10 ? examMonthLabel(m) : null
+}
 const unitKey = (subject: string, category: string) => `${subject}|${category}`
 const examSubjectOf = (subject: string) => EXAM_SUBJECT[subject] ?? subject
 const coll = new Intl.Collator('ko', { numeric: true })
@@ -51,7 +69,9 @@ function buildItems(index: CaseIndex): Item[] {
       if (!card || !target || target.stubFor) continue
       seen.add(t.problem)
       const kind = target.kind as string
-      out.push({ card, p: target, kind, year: examYear(kind, target.exam), examSubject: examSubjectOf(card.subject) })
+      out.push({
+        card, p: target, kind, year: examYear(kind, target.exam), month: mockMonth(kind, target.exam), examSubject: examSubjectOf(card.subject),
+      })
     }
   }
   return out.sort(compareItems)
@@ -64,9 +84,9 @@ const smallBtn = (on: boolean) =>
   `${SMALL_BTN} ${on ? 'border-primary text-primary' : 'border-border text-muted-foreground hover:text-foreground hover:border-primary/40'}`
 
 /**
- * 사례형 CBT 실전 — 선택형 CBT 실전과 같은 필터(과목 / 시험 유형 / 연도 / 범위)로 문항을 골라 풀이 화면으로 연다.
- * 필터는 아무것도 고르지 않으면 전체다. 선택형 필터(QuizFilter)는 선택형 문항에 묶여 있어 칩(FilterChips)과
- * 같은 마크업으로 같은 모양을 만든다
+ * 사례형 CBT 실전 — 선택형 CBT 실전(QuizFilter)과 같은 순서·문구의 필터(과목 / 시험 유형 / 모의고사 회차 / 연도 / 범위)로
+ * 문항을 골라 풀이 화면으로 연다. 필터는 아무것도 고르지 않으면 전체다. 문항은 랜덤 출제(문항 수)나 목록에서 직접 고른다.
+ * 선택형 필터는 선택형 문항에 묶여 있어 칩(FilterChips)과 같은 마크업으로 같은 모양을 만든다
  */
 export function CaseCbt() {
   const mode = getAppMode()
@@ -74,6 +94,9 @@ export function CaseCbt() {
   const [indexError, setIndexError] = useState<unknown>(null)
   const [subjects, setSubjects] = useState<string[]>([])
   const [kinds, setKinds] = useState<string[]>([])
+  const [months, setMonths] = useState<ExamMonthLabel[]>([])
+  const [pickMode, setPickMode] = useState<PickMode>('랜덤 출제')
+  const [count, setCount] = useState(1)
   const [years, setYears] = useState<string[]>([])
   const [units, setUnits] = useState<string[]>([])
   const [picked, setPicked] = useState<Set<string>>(new Set())
@@ -88,25 +111,31 @@ export function CaseCbt() {
 
   const items = useMemo(() => (index ? buildItems(index) : []), [index])
 
-  // 과목: 시험 과목 묶음(공법·형사법·민사법) 아래에 그 묶음의 카드 과목. 순서는 진도별 과목 순서다
+  // 과목: 시험 과목 묶음(민사법·형사법·공법) 아래에 그 묶음의 카드 과목. 세부 과목 순서는 진도별 과목 순서다
   const groups = useMemo(() => {
     const subjectsInOrder = [...new Set(sortCards(index?.cards ?? []).map((c) => c.subject))]
     const names = [...new Set(subjectsInOrder.map(examSubjectOf))].sort(
-      (a, b) => examSubjectRank(a) - examSubjectRank(b) || a.localeCompare(b)
+      (a, b) => groupRank(a) - groupRank(b) || a.localeCompare(b)
     )
     return names.map((label) => ({ label, subjects: subjectsInOrder.filter((s) => examSubjectOf(s) === label) }))
   }, [index])
 
-  // 범위(단원 = 카드 category): 고른 과목마다 한 줄. 순서는 진도별 목록 그대로, 글자는 과목 접두어를 뗀다
+  // 범위(단원 = 카드 category): 과목마다 한 줄(과목을 안 골랐으면 전체 과목, 과목 칸 순서). 단원 순서는 진도별 목록 그대로,
+  // 글자는 과목 접두어를 뗀다
   const unitRows = useMemo(() => {
     const ordered = sortCards(index?.cards ?? [])
-    return subjects.map((s) => {
+    const all = groups.flatMap((g) => g.subjects)
+    return all.filter((s) => subjects.length === 0 || subjects.includes(s)).map((s) => {
       const cats = [...new Set(ordered.filter((c) => c.subject === s).map((c) => c.category))]
       return { subject: s, options: cats.map((c) => ({ key: unitKey(s, c), label: categoryLabel(c, s) })) }
     })
-  }, [index, subjects])
+  }, [index, subjects, groups])
 
   const kindOptions = useMemo(() => KINDS.filter((k) => items.some((it) => it.kind === k)), [items])
+  const monthOptions = useMemo(
+    () => EXAM_MONTH_OPTIONS.filter((m) => items.some((it) => it.month === m)),
+    [items]
+  )
   const yearOptions = useMemo(
     () => [...new Set(items.map((it) => it.year).filter((y): y is string => !!y))].sort((a, b) => Number(b) - Number(a)),
     [items]
@@ -118,15 +147,18 @@ export function CaseCbt() {
         (it) =>
           (subjects.length === 0 || subjects.includes(it.card.subject)) &&
           (kinds.length === 0 || kinds.includes(it.kind)) &&
+          // 회차는 모의고사를 골랐을 때 모의 문항에만 건다. 월을 못 읽은 문항은 거르지 않는다(선택형과 같다)
+          (!kinds.includes('모의') || months.length === 0 || it.kind !== '모의' || it.month === null || months.includes(it.month)) &&
           (years.length === 0 || (it.year !== null && years.includes(it.year))) &&
           (units.length === 0 ||
-            !units.some((u) => u.startsWith(`${it.card.subject}|`)) || // 이 과목에서 고른 범위가 없으면 그 과목 전체
-            units.includes(unitKey(it.card.subject, it.card.category)))
+            units.includes(unitKey(it.card.subject, it.card.category)) ||
+            // 고른 과목인데 그 과목에서 고른 범위가 없으면 그 과목 전체
+            (subjects.includes(it.card.subject) && !units.some((u) => u.startsWith(`${it.card.subject}|`))))
       ),
-    [items, subjects, kinds, years, units]
+    [items, subjects, kinds, months, years, units]
   )
-  const chosen = filtered.filter((it) => picked.has(it.p.id))
-  const allPicked = filtered.length > 0 && chosen.length === filtered.length
+  const chosenInList = filtered.filter((it) => picked.has(it.p.id))
+  const allPicked = filtered.length > 0 && chosenInList.length === filtered.length
 
   function changeSubjects(next: string[]) {
     setSubjects(next)
@@ -137,6 +169,13 @@ export function CaseCbt() {
   function toggleGroup(groupSubjects: string[]) {
     const all = groupSubjects.every((s) => subjects.includes(s))
     changeSubjects(all ? subjects.filter((s) => !groupSubjects.includes(s)) : [...new Set([...subjects, ...groupSubjects])])
+  }
+
+  // 모의고사를 켜면 회차를 모두 켜고, 끄면 비운다(선택형과 같다)
+  function changeKinds(next: string[]) {
+    if (next.includes('모의') && !kinds.includes('모의')) setMonths(monthOptions)
+    else if (!next.includes('모의')) setMonths([])
+    setKinds(next)
   }
 
   function togglePick(id: string) {
@@ -161,6 +200,9 @@ export function CaseCbt() {
 
   // 고른 문항이 든 카드를 받아(한 번 받은 것은 다시 쓰지 않는다) 회차·문 번호 순으로 풀이 화면에 넣는다
   async function start() {
+    // 랜덤 출제는 누를 때 필터 결과에서 뽑는다. 풀이 화면에는 목록 순서(회차·문 번호)로 넣는다
+    const drawn = new Set([...filtered].sort(() => Math.random() - 0.5).slice(0, count))
+    const chosen = pickMode === '랜덤 출제' ? filtered.filter((it) => drawn.has(it)) : chosenInList
     if (chosen.length === 0) return
     setStartError('')
     setLoading(true)
@@ -193,6 +235,9 @@ export function CaseCbt() {
   }
 
   const allYearsSelected = yearOptions.length > 0 && yearOptions.every((y) => years.includes(y))
+  const allMonthsSelected = monthOptions.length > 0 && monthOptions.every((m) => months.includes(m))
+  const random = pickMode === '랜덤 출제'
+  const startCount = random ? Math.min(count, filtered.length) : chosenInList.length
 
   return (
     <div className="case-study space-y-5 max-w-2xl mx-auto">
@@ -205,7 +250,9 @@ export function CaseCbt() {
 
       <div>
         <h2 className="text-lg font-bold text-foreground mb-1">CBT 실전 모드</h2>
-        <p className="text-sm text-muted-foreground">문항을 골라 실전처럼 답안을 작성합니다. 필터를 고르지 않으면 전체입니다.</p>
+        <p className="text-sm text-muted-foreground">
+          사례형 문항을 무작위로 뽑거나 목록에서 골라 실전처럼 답안을 작성합니다. 필터를 고르지 않으면 전체입니다.
+        </p>
       </div>
 
       {/* 과목 — 각 시험 과목 버튼 아래에 그 묶음의 과목 칩 */}
@@ -239,8 +286,26 @@ export function CaseCbt() {
       {/* 시험 유형 */}
       <div className="bg-card border border-border rounded-xl p-4 space-y-2">
         <label className={LABEL}>시험 유형 (복수 선택)</label>
-        <FilterChips options={KINDS} selected={kinds} onChange={setKinds} available={kindOptions} />
+        <FilterChips
+          options={KINDS.map((k) => KIND_LABEL[k])}
+          selected={kinds.map((k) => KIND_LABEL[k])}
+          onChange={(labels) => changeKinds(labels.map(kindOf))}
+          available={kindOptions.map((k) => KIND_LABEL[k])}
+        />
       </div>
+
+      {/* 모의고사 회차 — '모의고사'를 고른 동안에만 보인다 */}
+      {kinds.includes('모의') && (
+        <div className={SECTION}>
+          <div className="flex items-center justify-between">
+            <label className={LABEL}>모의고사 회차 (복수 선택)</label>
+            <button onClick={() => setMonths(allMonthsSelected ? [] : monthOptions)} className={smallBtn(allMonthsSelected)}>
+              전체
+            </button>
+          </div>
+          <FilterChips options={[...EXAM_MONTH_OPTIONS]} selected={months} onChange={setMonths} available={monthOptions} />
+        </div>
+      )}
 
       {/* 연도 — '유사' 문항은 연도가 없어 연도를 고르면 빠진다 */}
       {yearOptions.length > 0 && (
@@ -262,7 +327,7 @@ export function CaseCbt() {
         </div>
       )}
 
-      {/* 범위 — 고른 과목마다 단원 줄. 한 과목에서 아무것도 안 고르면 그 과목 전체 */}
+      {/* 범위 — 과목마다 단원 줄. 고른 과목에서 아무것도 안 고르면 그 과목 전체 */}
       {unitRows.length > 0 && (
         <div className={SECTION}>
           <div className="flex items-center justify-between">
@@ -291,50 +356,101 @@ export function CaseCbt() {
         </div>
       )}
 
-      {/* 문항 목록 */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <label className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-muted text-xs text-foreground cursor-pointer">
-          <input type="checkbox" checked={allPicked} onChange={toggleAll} disabled={filtered.length === 0} className="accent-primary" />
-          <span className="font-medium">전체 선택</span>
-          <span className="ml-auto tabular-nums text-muted-foreground">
-            {chosen.length} / {filtered.length}문항
-          </span>
-        </label>
-        {filtered.length === 0 ? (
-          <p className="text-center text-xs text-muted-foreground py-8">조건에 맞는 문항이 없습니다</p>
-        ) : (
-          <ul className="max-h-[28rem] overflow-y-auto divide-y divide-border">
-            {filtered.map((it) => (
-              <li key={it.p.id}>
-                <label className="flex items-start gap-2 px-4 py-2 cursor-pointer hover:bg-muted/50">
-                  <input
-                    type="checkbox"
-                    checked={picked.has(it.p.id)}
-                    onChange={() => togglePick(it.p.id)}
-                    className="mt-0.5 accent-primary"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[13px] leading-snug text-foreground">{it.card.title}</span>
-                    <span className="block text-[11px] text-muted-foreground">
-                      {it.kind === '유사' ? '유사' : examShort(it.p.kind, it.p.exam)} · {[it.p.qno, it.p.sub].filter(Boolean).join(' ')} ·{' '}
-                      {it.card.subject} · {it.card.id}
-                    </span>
-                  </span>
-                  <span className="shrink-0 tabular-nums text-xs font-semibold text-primary">{it.p.points}점</span>
-                </label>
-              </li>
+      {/* 출제 방식 — 필터 결과에서 무작위로 뽑거나 목록에서 직접 고른다 */}
+      <div className={SECTION}>
+        <label className={LABEL}>출제 방식</label>
+        <FilterChips<PickMode>
+          options={['랜덤 출제', '직접 선택']}
+          selected={[pickMode]}
+          single
+          onChange={(m) => setPickMode(m[0] ?? pickMode)}
+        />
+      </div>
+
+      {/* 문항 수 — 랜덤 출제. 필터 결과보다 많은 수는 고를 수 없다 */}
+      {random && (
+        <div className={SECTION}>
+          <label className={LABEL}>문항 수</label>
+          <div className="grid grid-cols-4 gap-2">
+            {COUNT_OPTIONS.map((n) => (
+              <button
+                key={n}
+                onClick={() => setCount(n)}
+                disabled={n > filtered.length}
+                className={`py-2 rounded-lg text-sm font-medium border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                  count === n
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-muted text-muted-foreground border-border hover:border-primary/40'
+                }`}
+              >
+                {n}문항
+              </button>
             ))}
-          </ul>
+          </div>
+          <p className="text-xs text-muted-foreground">목표 시간은 풀이 화면 위쪽의 목표(분)에 적습니다</p>
+        </div>
+      )}
+
+      {/* 문항 목록 — 직접 선택 */}
+      {!random && (
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <label className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-muted text-xs text-foreground cursor-pointer">
+            <input type="checkbox" checked={allPicked} onChange={toggleAll} disabled={filtered.length === 0} className="accent-primary" />
+            <span className="font-medium">전체 선택</span>
+            <span className="ml-auto tabular-nums text-muted-foreground">
+              {chosenInList.length} / {filtered.length}문항
+            </span>
+          </label>
+          {filtered.length === 0 ? (
+            <p className="text-center text-xs text-muted-foreground py-8">조건에 맞는 문항이 없습니다</p>
+          ) : (
+            <ul className="max-h-[28rem] overflow-y-auto divide-y divide-border">
+              {filtered.map((it) => (
+                <li key={it.p.id}>
+                  <label className="flex items-start gap-2 px-4 py-2 cursor-pointer hover:bg-muted/50">
+                    <input
+                      type="checkbox"
+                      checked={picked.has(it.p.id)}
+                      onChange={() => togglePick(it.p.id)}
+                      className="mt-0.5 accent-primary"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] leading-snug text-foreground">{it.card.title}</span>
+                      <span className="block text-[11px] text-muted-foreground">
+                        {it.kind === '유사' ? '유사' : examShort(it.p.kind, it.p.exam)} · {[it.p.qno, it.p.sub].filter(Boolean).join(' ')} ·{' '}
+                        {it.card.subject} · {it.card.id}
+                      </span>
+                    </span>
+                    <span className="shrink-0 tabular-nums text-xs font-semibold text-primary">{it.p.points}점</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* 결과 */}
+      <div className="bg-card border border-border rounded-xl p-4 flex items-center justify-between text-sm">
+        <span className="text-muted-foreground">
+          필터 결과: <span className="text-foreground font-medium">{filtered.length}문항</span>
+        </span>
+        {random && filtered.length < count && filtered.length > 0 && (
+          <span className="text-yellow-400 text-xs">전체 {filtered.length}문항만 출제</span>
         )}
       </div>
 
       {startError && <p className="text-xs text-red-400">{startError}</p>}
       <button
         onClick={start}
-        disabled={chosen.length === 0 || loading}
+        disabled={startCount === 0 || loading}
         className="w-full py-3 bg-primary text-primary-foreground rounded-xl font-semibold text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
       >
-        {chosen.length === 0 ? '풀 문항을 골라 주세요' : `${chosen.length}문항 시작`}
+        {filtered.length === 0
+          ? '조건에 맞는 문항이 없습니다'
+          : startCount === 0
+            ? '풀 문항을 골라 주세요'
+            : `CBT 시작 — ${startCount}문항`}
       </button>
     </div>
   )
