@@ -106,6 +106,12 @@ const TH = 'border border-border bg-muted px-2 py-1.5 text-left font-semibold te
 const TD = 'border border-border px-2 py-2 align-top max-sm:border-0 max-sm:p-0'
 const DASH = <span className="text-muted-foreground">—</span>
 
+// 필터 카드 — 사례형 CBT 실전(case-cbt)과 같은 클래스
+const SECTION = 'bg-card border border-border rounded-xl p-4 space-y-3'
+const LABEL = 'text-xs font-medium text-muted-foreground'
+const smallBtn = (on: boolean) =>
+  `text-[10px] px-2 py-0.5 rounded-full border transition-colors ${on ? 'border-primary text-primary' : 'border-border text-muted-foreground hover:text-foreground hover:border-primary/40'}`
+
 // 마지막 열(쪽수) 제목 — 과목마다 기준 교재가 다르다
 const TEXTBOOK: Record<string, string> = {
   민법: '송영곤', 민소: '송영곤', 상법: '공태용', 형법: '변사기', 형소: '변사기', 행정법: '핸드북', 헌법: '핸드북',
@@ -139,7 +145,7 @@ export function CaseIndexView({ index, onOpen, onSolveGroup }: Props) {
   const [sort, setSort] = useState<SortMode>('진도별')
   const [query, setQuery] = useState('')
   const [kindFilter, setKindFilter] = useState<KindFilter>('전체')
-  const [year, setYear] = useState('전체')
+  const [years, setYears] = useState<string[]>([]) // 비어 있으면 전체
 
   // 과목 2단 선택 — 윗줄 시험 과목(공법·형사법·민사법), 고른 시험 과목 아래에 그 묶음의 과목. 사례 CBT 실전과 같은 묶음·순서다.
   // 아무것도 안 고르면 전체, 시험 과목만 고르면 그 묶음 전체
@@ -189,27 +195,42 @@ export function CaseIndexView({ index, onOpen, onSolveGroup }: Props) {
     return out
   }, [byChapter])
   const allExams = useMemo(() => (sort === '회차별' ? groupByExam(cards) : []), [cards, sort])
-  const years = useMemo(
-    () => ['전체', ...[...new Set(allExams.map((g) => examOf(g.key).year).filter((y): y is string => !!y))].sort((a, b) => Number(b) - Number(a))],
+  const yearOptions = useMemo(
+    () => [...new Set(allExams.map((g) => examOf(g.key).year).filter((y): y is string => !!y))].sort((a, b) => Number(b) - Number(a)),
     [allExams]
   )
+  const allYearsSelected = yearOptions.length > 0 && yearOptions.every((y) => years.includes(y))
   // 한 회차 묶음은 유형·회차가 하나뿐이라 묶음 단위로 거른다 (유형 AND 연도)
   const byExam = allExams.filter((g) => {
     const e = examOf(g.key)
-    return (kindFilter === '전체' || e.kind === kindFilter) && (year === '전체' || e.year === year)
+    return (kindFilter === '전체' || e.kind === kindFilter) && (years.length === 0 || (!!e.year && years.includes(e.year)))
   })
   // 회차별 유형·카드 열 — 답안이 있는 카드의 제목. 그 카드가 필터에 걸려 빠져도 제목은 보여야 하므로 전체 색인에서 찾는다
   const byId = useMemo(() => new Map(index.cards.map((c) => [c.id, c])), [index])
 
   return (
     <div className="space-y-4">
-      <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+      {/* 윗부분 — 선택형 선학습(QuizFilter)·사례형 CBT 실전과 같은 제목·설명과 이름 붙은 흰 카드 */}
+      <div>
+        <h2 className="text-lg font-bold text-foreground mb-1">답안·목차</h2>
+        <p className="text-sm text-muted-foreground">사례형 모범답안과 목차를 과목·진도별/회차별로 찾아봅니다.</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="제목 · 장 · 문항(예: 변시 13회 제2문)으로 검색"
-          className="w-full bg-muted border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+          className="min-w-0 flex-1 basis-56 bg-muted border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
         />
+        <FilterChips<SortMode>
+          options={['진도별', '회차별']}
+          selected={[sort]}
+          single
+          onChange={(s) => setSort(s[0] ?? sort)}
+        />
+      </div>
+      <div className={SECTION}>
+        <label className={LABEL}>과목</label>
         <div className={`grid gap-2 items-start ${groups.length >= 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
           {groups.map((g) => (
             <div key={g.label} className="space-y-2">
@@ -237,49 +258,50 @@ export function CaseIndexView({ index, onOpen, onSolveGroup }: Props) {
             </div>
           ))}
         </div>
-        <div className="flex justify-end">
-          <FilterChips<SortMode>
-            options={['진도별', '회차별']}
-            selected={[sort]}
-            single
-            onChange={(s) => setSort(s[0] ?? sort)}
-          />
-        </div>
-        {showUnits && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-muted-foreground">범위 (복수 선택)</label>
-              <button
-                onClick={() => setUnits([])}
-                className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
-                  units.length === 0
-                    ? 'border-primary text-primary'
-                    : 'border-border text-muted-foreground hover:text-foreground hover:border-primary/40'
-                }`}
-              >
-                전체
-              </button>
-            </div>
-            <FilterChips options={unitOptions.map(([label]) => label)} selected={units} onChange={setUnits} />
+      </div>
+      {showUnits && (
+        <div className={SECTION}>
+          <div className="flex items-center justify-between">
+            <label className={LABEL}>범위 (복수 선택)</label>
+            <button onClick={() => setUnits([])} className={smallBtn(units.length === 0)}>
+              전체
+            </button>
           </div>
-        )}
-        {sort === '회차별' && (
-          <>
+          <FilterChips options={unitOptions.map(([label]) => label)} selected={units} onChange={setUnits} />
+        </div>
+      )}
+      {sort === '회차별' && (
+        <>
+          <div className="bg-card border border-border rounded-xl p-4 space-y-2">
+            <label className={LABEL}>시험 유형 (복수 선택)</label>
             <FilterChips<KindFilter>
               options={['전체', '모의', '변시']}
               selected={[kindFilter]}
               single
               onChange={(s) => setKindFilter(s[0] ?? '전체')}
             />
-            <FilterChips<string>
-              options={years}
-              selected={[year]}
-              single
-              onChange={(s) => setYear(s[0] ?? '전체')}
-            />
-          </>
-        )}
-      </div>
+          </div>
+          {yearOptions.length > 0 && (
+            <div className={SECTION}>
+              <div className="flex items-center justify-between gap-2">
+                <label className={LABEL}>연도 (복수 선택)</label>
+                {/* 최근 N개년 — 사례형 CBT 실전과 같은 방식: 목록에 있는 연도 중 최근 N개 */}
+                <div className="flex flex-wrap justify-end gap-1.5">
+                  {[1, 3, 5].map((n) => (
+                    <button key={n} onClick={() => setYears(yearOptions.slice(0, n))} className={smallBtn(false)}>
+                      최근 {n}개년
+                    </button>
+                  ))}
+                  <button onClick={() => setYears(allYearsSelected ? [] : yearOptions)} className={smallBtn(allYearsSelected)}>
+                    전체
+                  </button>
+                </div>
+              </div>
+              <FilterChips options={yearOptions} selected={years} onChange={setYears} />
+            </div>
+          )}
+        </>
+      )}
 
       {(cards.length === 0 || (sort === '회차별' && byExam.length === 0) || (sort === '진도별' && byChapter.length === 0)) && (
         <p className="text-center text-xs text-muted-foreground py-8">
