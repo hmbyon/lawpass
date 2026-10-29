@@ -45,9 +45,9 @@ export function CaseStudyShell({
   }, [tab])
   const tabs: { id: CaseTab; label: string; icon: string }[] = [
     ...(isAdmin ? [{ id: 'import' as const, label: '가져오기', icon: '📥' }] : []),
-    // 선택형 탭 줄처럼 첫 탭(가져오기) 다음에 둔다. 처음 열리는 탭은 그대로 답안·목차다
-    { id: 'cbt', label: 'CBT 실전', icon: '⚡' },
+    // 처음 열리는 탭은 그대로 답안·목차다
     { id: 'browse', label: '답안·목차', icon: '📚' },
+    { id: 'cbt', label: 'CBT 실전', icon: '⚡' },
     { id: 'misses', label: '오답노트', icon: '📝' },
     { id: 'd1', label: 'D-1 암기장', icon: '⭐' },
   ]
