@@ -21,6 +21,7 @@
     "check:case-misses": "tsc --jsx react-jsx --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseStudy/misses.ts scripts/check-case-misses.ts && node .tmp-check/scripts/check-case-misses.js",
     "check:case-miss-view": "tsc --jsx react-jsx --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseStudy/missView.ts scripts/check-case-miss-view.ts && node .tmp-check/scripts/check-case-miss-view.js",
     "check:case-miss-problems": "tsc --jsx react-jsx --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseStudy/missView.ts scripts/check-case-miss-problems.ts && node .tmp-check/scripts/check-case-miss-problems.js",
+    "check:case-progress": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseStudy/progress.ts scripts/check-case-progress.ts && node .tmp-check/scripts/check-case-progress.js",
     "check:case-d1-stars": "tsc --jsx react-jsx --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseStudy/d1Stars.ts scripts/check-case-d1-stars.ts && node .tmp-check/scripts/check-case-d1-stars.js",
     "check:case-nav": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseDigest.ts scripts/check-case-nav.ts && node .tmp-check/scripts/check-case-nav.js"
   },

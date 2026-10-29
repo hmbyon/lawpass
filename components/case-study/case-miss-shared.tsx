@@ -13,6 +13,7 @@ import { modelStatutes } from '@/lib/caseStudy/statuteCheck'
 import { aggregateMisses, cardIdsOf, type MissItem, type MissKind, type MissResult } from '@/lib/caseStudy/misses'
 import { MISS_KIND_LABEL, missDate } from '@/lib/caseStudy/missView'
 import { createStarStore, type StarStore } from '@/lib/caseStudy/d1Stars'
+import type { CaseAttempt } from '@/lib/caseStudy/solve'
 import type { Card, Problem } from '@/lib/caseStudy/types'
 import { AnswerBlock } from '@/components/case-study/case-card-view'
 
@@ -24,6 +25,8 @@ import { AnswerBlock } from '@/components/case-study/case-card-view'
 export interface MissData {
   result: MissResult
   attempts: number
+  /** 제출한 시도 그대로 — 학습 현황이 푼 문항을 센다 */
+  submitted: CaseAttempt[]
   aiUsed: boolean
   cards: Map<string, Card>
 }
@@ -45,6 +48,7 @@ export async function loadMissData(extraCardIds: string[] = []): Promise<MissDat
   return {
     result: aggregateMisses(r.attempts, cards, sanitizeCaseHtml),
     attempts: r.attempts.length,
+    submitted: r.attempts,
     aiUsed: r.attempts.some((a) => Object.keys(a.aiChecks ?? {}).length > 0),
     cards: new Map(cards.map((c) => [c.id, c])),
   }
