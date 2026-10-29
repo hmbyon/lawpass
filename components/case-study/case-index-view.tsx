@@ -128,7 +128,9 @@ export const examSubjectRank = (s: string) => (EXAM_SUBJECT_ORDER.includes(s) ? 
 
 // 회차별 유형·연도 토글. 색인에는 examLabel 이 없어 연도를 회차 값에서 읽는다(변시 11회 → 2022, 모의 '23.10' → 2023).
 // 연도를 못 읽는 회차(예: kind '유사')는 연도 '전체'에서만 보인다
-type KindFilter = '전체' | '모의' | '변시'
+// 시험 유형 칩(복수 선택, 선택형과 같은 문구) → 색인 kind. 아무것도 안 고르거나 둘 다 고르면 전체(유사 포함)
+const KIND_OF: Record<string, string> = { 변호사시험: '변시', 모의고사: '모의' }
+const KIND_CHIPS = Object.keys(KIND_OF)
 export function examYear(kind: string, exam: number | string): string | null {
   if (kind === '변시') return Number.isFinite(Number(exam)) ? String(2011 + Number(exam)) : null
   const y = Number(String(exam).split('.')[0])
@@ -144,7 +146,7 @@ export function CaseIndexView({ index, onOpen, onSolveGroup }: Props) {
   const [subject, setSubject] = useState<SubjectFilter>('전체')
   const [sort, setSort] = useState<SortMode>('진도별')
   const [query, setQuery] = useState('')
-  const [kindFilter, setKindFilter] = useState<KindFilter>('전체')
+  const [kinds, setKinds] = useState<string[]>([])
   const [years, setYears] = useState<string[]>([]) // 비어 있으면 전체
 
   // 과목 2단 선택 — 윗줄 시험 과목(공법·형사법·민사법), 고른 시험 과목 아래에 그 묶음의 과목. 사례 CBT 실전과 같은 묶음·순서다.
@@ -203,7 +205,9 @@ export function CaseIndexView({ index, onOpen, onSolveGroup }: Props) {
   // 한 회차 묶음은 유형·회차가 하나뿐이라 묶음 단위로 거른다 (유형 AND 연도)
   const byExam = allExams.filter((g) => {
     const e = examOf(g.key)
-    return (kindFilter === '전체' || e.kind === kindFilter) && (years.length === 0 || (!!e.year && years.includes(e.year)))
+    const picked = kinds.map((k) => KIND_OF[k])
+    const allKinds = picked.length === 0 || picked.length === KIND_CHIPS.length
+    return (allKinds || picked.includes(e.kind)) && (years.length === 0 || (!!e.year && years.includes(e.year)))
   })
   // 회차별 유형·카드 열 — 답안이 있는 카드의 제목. 그 카드가 필터에 걸려 빠져도 제목은 보여야 하므로 전체 색인에서 찾는다
   const byId = useMemo(() => new Map(index.cards.map((c) => [c.id, c])), [index])
@@ -274,12 +278,7 @@ export function CaseIndexView({ index, onOpen, onSolveGroup }: Props) {
         <>
           <div className="bg-card border border-border rounded-xl p-4 space-y-2">
             <label className={LABEL}>시험 유형 (복수 선택)</label>
-            <FilterChips<KindFilter>
-              options={['전체', '모의', '변시']}
-              selected={[kindFilter]}
-              single
-              onChange={(s) => setKindFilter(s[0] ?? '전체')}
-            />
+            <FilterChips options={KIND_CHIPS} selected={kinds} onChange={setKinds} />
           </div>
           {yearOptions.length > 0 && (
             <div className={SECTION}>
