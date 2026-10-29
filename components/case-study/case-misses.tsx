@@ -8,12 +8,10 @@ import { fetchCaseCard } from '@/lib/firebaseServices/caseStudy'
 import { sanitizeCaseHtml } from '@/lib/caseStudy/sanitize'
 import { aggregateMisses, cardIdsOf, missTree, type MissItem, type MissKind, type MissPeriod, type MissResult, type MissSort } from '@/lib/caseStudy/misses'
 import {
-  DEFAULT_MISS_FILTER, MISS_KIND_LABEL, applyMissFilter, missDate, missGroups, missReadingOrder, readingProgress, stepReading,
-  type MissFilter,
+  DEFAULT_MISS_FILTER, MISS_KIND_LABEL, applyMissFilter, missDate, missReadingOrder, readingProgress, stepReading,
 } from '@/lib/caseStudy/missView'
 import type { Card } from '@/lib/caseStudy/types'
 import { FilterChips } from '@/components/filter-chips'
-import { EXAM_SUBJECT, EXAM_SUBJECT_ORDER } from '@/components/case-study/case-index-view'
 
 /**
  * 사례형 오답노트 — 제출한 풀이의 조문 점검·AI 점검에서 빠진 항목을 모아 보여 준다.
@@ -22,9 +20,17 @@ import { EXAM_SUBJECT, EXAM_SUBJECT_ORDER } from '@/components/case-study/case-i
 
 type Loaded = { result: MissResult; attempts: number; aiUsed: boolean }
 
-const KINDS: MissKind[] = ['statute', 'case', 'res']
-const PERIODS: { v: MissPeriod; label: string }[] = [{ v: 7, label: '7일' }, { v: 30, label: '30일' }, { v: 'all', label: '전체' }]
-const SORTS: { v: MissSort; label: string }[] = [{ v: 'recent', label: '최근 빠진 순' }, { v: 'count', label: '많이 빠진 순' }]
+// 칩 글자 → 값. 과목 칩은 선택형 오답노트와 같은 7개·같은 문구이고, 카드의 과목 값(민소·형소)으로 바꿔 거른다
+const SUBJECT_OF: Record<string, string> = {
+  민법: '민법', 민사소송법: '민소', 상법: '상법', 형법: '형법', 형사소송법: '형소', 헌법: '헌법', 행정법: '행정법',
+}
+const SUBJECT_CHIPS = Object.keys(SUBJECT_OF)
+const KIND_OF: Record<string, MissKind> = { 조문: 'statute', '판례 취지': 'case', 결론: 'res' }
+const KIND_CHIPS = Object.keys(KIND_OF)
+const SORT_OF: Record<string, MissSort> = { '최근 빠진 순': 'recent', '많이 빠진 순': 'count' }
+const SORT_CHIPS = Object.keys(SORT_OF)
+const PERIOD_OF: Record<string, MissPeriod> = { '7일': 7, '30일': 30, 전체: 'all' }
+const PERIOD_CHIPS = Object.keys(PERIOD_OF)
 const VERDICT = { missing: { sym: '✕', word: '없음', cls: 'text-red-500' }, partial: { sym: '△', word: '부분', cls: 'text-amber-500' } }
 const KIND_CLS: Record<MissKind, string> = {
   statute: 'border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300',
@@ -32,7 +38,6 @@ const KIND_CLS: Record<MissKind, string> = {
   res: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
 }
 const PILL = 'min-h-8 rounded-lg border px-3 text-xs transition-colors'
-const pill = (on: boolean) => `${PILL} ${on ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground'}`
 
 async function load(): Promise<Loaded> {
   const uid = auth.currentUser?.uid
@@ -57,7 +62,10 @@ export function CaseMisses({ onOpenCard }: { onOpenCard: (cardId: string, proble
   const [data, setData] = useState<Loaded | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
-  const [f, setF] = useState<MissFilter>(DEFAULT_MISS_FILTER)
+  const [subjects, setSubjects] = useState<string[]>([])
+  const [kinds, setKinds] = useState<string[]>([])
+  const [sortChip, setSortChip] = useState(SORT_CHIPS[0])
+  const [periodChip, setPeriodChip] = useState('전체')
   const [reading, setReading] = useState<number | null>(null)
 
   const reload = useCallback(() => {
@@ -71,10 +79,14 @@ export function CaseMisses({ onOpenCard }: { onOpenCard: (cardId: string, proble
   useEffect(reload, [reload])
 
   const items = useMemo(() => data?.result.items ?? [], [data])
-  const groups = useMemo(() => missGroups(items, EXAM_SUBJECT, EXAM_SUBJECT_ORDER), [items])
-  const shown = useMemo(() => missReadingOrder(applyMissFilter(items, f, EXAM_SUBJECT)), [items, f])
+  // 종류·기간·정렬은 applyMissFilter(filterMisses·sortMisses). 과목은 복수 선택이라 여기서 고른 과목 목록으로 거른다
+  const shown = useMemo(() => {
+    const f = { ...DEFAULT_MISS_FILTER, kinds: kinds.map((k) => KIND_OF[k]), period: PERIOD_OF[periodChip], sort: SORT_OF[sortChip] }
+    const picked = new Set(subjects.map((s) => SUBJECT_OF[s]))
+    const sorted = applyMissFilter(items, f, {}).filter((x) => picked.size === 0 || picked.has(x.subject))
+    return missReadingOrder(sorted)
+  }, [items, subjects, kinds, periodChip, sortChip])
   const tree = useMemo(() => missTree(shown), [shown])
-  const set = (patch: Partial<MissFilter>) => setF((x) => ({ ...x, ...patch }))
 
   return (
     <div className="space-y-4">
@@ -101,105 +113,66 @@ export function CaseMisses({ onOpenCard }: { onOpenCard: (cardId: string, proble
       )}
 
       {data && (
-        data.attempts === 0 ? (
-          <p className="py-8 text-center text-xs leading-relaxed text-muted-foreground">
-            아직 제출한 풀이가 없습니다. CBT 실전이나 풀어보기로 풀고 제출하면 빠진 조문·판례·결론이 여기에 모입니다.
-          </p>
-        ) : (
-          <>
-            {!data.aiUsed && <p className="text-xs text-muted-foreground">판례 취지·결론은 제출 후 AI 점검을 돌린 풀이만 반영됩니다.</p>}
-            {loading && <p className="text-xs text-muted-foreground animate-pulse">다시 불러오는 중…</p>}
-            {items.length === 0 ? (
-              <p className="py-8 text-center text-xs text-muted-foreground">빠진 항목이 없습니다.</p>
-            ) : (
-              <>
-                <div className="space-y-3 rounded-xl border border-border bg-card p-4">
-                  <div className={`grid items-start gap-2 ${groups.length >= 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
-                    {groups.map((g) => (
-                      <div key={g.label} className="space-y-2">
-                        <button
-                          onClick={() => set({ group: f.group === g.label ? null : g.label, subject: null })}
-                          className={`w-full rounded-lg border py-1.5 text-xs font-medium transition-all ${
-                            f.group === g.label
-                              ? f.subject === null
-                                ? 'border-primary bg-primary text-primary-foreground'
-                                : 'border-primary/50 bg-primary/20 text-primary'
-                              : 'border-border bg-muted text-muted-foreground hover:border-primary/40'
-                          }`}
-                        >
-                          {g.label}
-                        </button>
-                        {f.group === g.label && (
-                          <FilterChips<string>
-                            options={g.subjects}
-                            selected={f.subject ? [f.subject] : []}
-                            single
-                            centered
-                            onChange={(s) => set({ subject: s[0] ?? null })}
-                          />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {KINDS.map((k) => (
-                      <button
-                        key={k}
-                        onClick={() => set({ kinds: f.kinds.includes(k) ? f.kinds.filter((x) => x !== k) : [...f.kinds, k] })}
-                        className={pill(f.kinds.includes(k))}
-                      >
-                        {MISS_KIND_LABEL[k]}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {PERIODS.map((p) => (
-                      <button key={p.v} onClick={() => set({ period: p.v })} className={pill(f.period === p.v)}>{p.label}</button>
-                    ))}
-                    <span className="mx-1 h-4 w-px bg-border" />
-                    {SORTS.map((s) => (
-                      <button key={s.v} onClick={() => set({ sort: s.v })} className={pill(f.sort === s.v)}>{s.label}</button>
-                    ))}
-                  </div>
-                  <p className="text-xs text-muted-foreground">결과 {shown.length}개</p>
-                </div>
+        <>
+          {!data.aiUsed && data.attempts > 0 && (
+            <p className="text-xs text-muted-foreground">판례 취지·결론은 제출 후 AI 점검을 돌린 풀이만 반영됩니다.</p>
+          )}
+          {loading && <p className="text-xs text-muted-foreground animate-pulse">다시 불러오는 중…</p>}
 
-                {shown.length === 0 ? (
-                  <p className="py-6 text-center text-xs text-muted-foreground">조건에 맞는 항목이 없습니다.</p>
-                ) : (
-                  <div className="space-y-5">
-                    {tree.map((s) => (
-                      <section key={s.subject} className="space-y-3">
-                        <h2 className="text-sm font-bold text-foreground">{s.subject}</h2>
-                        {s.cards.map((c) => (
-                          <div key={c.cardId} className="space-y-2 rounded-xl border border-border bg-card p-3">
-                            <div className="flex items-start gap-2">
-                              <h3 className="min-w-0 flex-1 break-keep text-sm font-semibold text-foreground">{c.cardTitle}</h3>
-                              <button
-                                onClick={() => onOpenCard(c.cardId, c.problems[0].problemId)}
-                                className="min-h-8 shrink-0 px-1 text-xs text-primary hover:underline"
-                              >
-                                카드 보기
-                              </button>
-                            </div>
-                            {c.problems.map((p) => (
-                              <div key={p.problemId} className="space-y-2">
-                                <p className="text-xs font-medium text-muted-foreground">{p.problemLabel}</p>
-                                <ul className="space-y-2">
-                                  {p.items.map((x) => <MissRow key={x.key} x={x} />)}
-                                </ul>
-                              </div>
-                            ))}
-                          </div>
-                        ))}
-                      </section>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-          </>
-        )
+          {/* 필터 — 선택형 오답노트(components/tabs/wrong-tab)와 같은 카드·칩. 아무것도 안 고르면 전체 */}
+          <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+            <FilterChips options={SUBJECT_CHIPS} selected={subjects} onChange={setSubjects} />
+            <FilterChips options={KIND_CHIPS} selected={kinds} onChange={setKinds} />
+            <div className="flex flex-wrap items-center gap-2">
+              <FilterChips options={SORT_CHIPS} selected={[sortChip]} onChange={(v) => setSortChip(v[0] ?? sortChip)} single />
+              <span className="h-4 w-px bg-border" />
+              <FilterChips options={PERIOD_CHIPS} selected={[periodChip]} onChange={(v) => setPeriodChip(v[0] ?? periodChip)} single />
+            </div>
+          </div>
+
+          <p className="text-xs text-muted-foreground px-1">
+            {shown.length}개 표시 (전체 {items.length}개)
+          </p>
+
+          {data.attempts === 0 ? (
+            <div className="text-center py-16 text-muted-foreground text-sm">
+              오답노트가 없습니다. CBT나 풀어보기 모드에서 문제를 풀고 제출해 보세요.
+            </div>
+          ) : items.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground text-sm">빠진 항목이 없습니다.</div>
+          ) : shown.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground text-sm">조건에 맞는 항목이 없습니다.</div>
+          ) : (
+            <div className="space-y-5">
+              {tree.map((s) => (
+                <section key={s.subject} className="space-y-3">
+                  <h2 className="text-sm font-bold text-foreground">{s.subject}</h2>
+                  {s.cards.map((c) => (
+                    <div key={c.cardId} className="space-y-2 rounded-xl border border-border bg-card p-3">
+                      <div className="flex items-start gap-2">
+                        <h3 className="min-w-0 flex-1 break-keep text-sm font-semibold text-foreground">{c.cardTitle}</h3>
+                        <button
+                          onClick={() => onOpenCard(c.cardId, c.problems[0].problemId)}
+                          className="min-h-8 shrink-0 px-1 text-xs text-primary hover:underline"
+                        >
+                          카드 보기
+                        </button>
+                      </div>
+                      {c.problems.map((p) => (
+                        <div key={p.problemId} className="space-y-2">
+                          <p className="text-xs font-medium text-muted-foreground">{p.problemLabel}</p>
+                          <ul className="space-y-2">
+                            {p.items.map((x) => <MissRow key={x.key} x={x} />)}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </section>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {reading !== null && shown.length > 0 && (
