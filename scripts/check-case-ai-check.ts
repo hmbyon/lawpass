@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
-  AI_BATCH_SIZE, answerHashOf, buildRequest, chunkItems, extractAiItems, isAiCheckStale, runAiCheck, sentenceRanges,
+  AI_BATCH_SIZE, AI_CHECK_PROMPT, answerHashOf, buildRequest, chunkItems, extractAiItems, headingsOf, isAiCheckStale, runAiCheck, sentenceRanges,
 } from '../lib/caseStudy/aiCheck'
 import type { Problem } from '../lib/caseStudy/types'
 import type { AiCheckOutcome } from '../lib/caseStudy/aiCheck'
@@ -25,7 +25,7 @@ store.set(`lawpass_gemini_key_${UID}`, KEY)
 
 type Reply = { status?: number; json?: unknown; text?: string; throws?: boolean }
 let replies: Reply[] = []
-const calls: { url: string; headers: Record<string, string>; body: { contents: { parts: { text: string }[] }[] } }[] = []
+const calls: { url: string; headers: Record<string, string>; body: { systemInstruction: { parts: { text: string }[] }; contents: { parts: { text: string }[] }[] } }[] = []
 globalThis.fetch = (async (url: string, init: RequestInit) => {
   calls.push({ url, headers: init.headers as Record<string, string>, body: JSON.parse(String(init.body)) })
   const r = replies.shift()
@@ -105,6 +105,35 @@ const run = (blockHtmls = blocks.slice(0, 1)) => runAiCheck({ uid: UID, problem,
   assert.equal(req.generationConfig.temperature, 0)
   assert.equal(req.generationConfig.responseMimeType, 'application/json')
 
+  // 소제목: 소제목 블록이 없으면 필드를 빼고 보낸다
+  assert.ok(sent.항목.every((x: Record<string, unknown>) => !('소제목' in x)))
+  // 항목 블록 바로 앞의 h1/h2 제목을 소제목으로 보낸다(가까운 제목이 이긴다, 제목 블록 자신은 앞 제목)
+  assert.deepEqual(
+    headingsOf(['h1', 'p', 'h2', 'p', 'h1', 'p'], ['Ⅰ. 쟁점', 'x', '<b>1.  유익비</b>', 'y', 'Ⅱ. 결론', 'z']),
+    ['', 'Ⅰ. 쟁점', 'Ⅰ. 쟁점', '1. 유익비', '1. 유익비', 'Ⅱ. 결론']
+  )
+  const withHead = {
+    ...problem,
+    answer: { blocks: [{ t: 'h2', html: '1. 유익비상환청구' }, { t: 'p', html: blocks[0] }] },
+  } as unknown as Problem
+  replies = [ok([])]
+  await runAiCheck({ uid: UID, problem: withHead, answers, blockHtmls: ['1. 유익비상환청구', blocks[0]] })
+  const c2 = calls[calls.length - 1]
+  const sent2 = JSON.parse(c2.body.contents[0].parts[0].text)
+  assert.deepEqual(sent2.항목.map((x: Record<string, unknown>) => x.소제목), ['1. 유익비상환청구', '1. 유익비상환청구'])
+  assert.deepEqual(Object.keys(sent2.항목[0]), ['key', '종류', '소제목', '모범답안'])
+  // systemInstruction 에 자기 법리로 판정하지 말라는 규칙이 들어 있다
+  const sys = c2.body.systemInstruction.parts[0].text
+  assert.equal(sys, AI_CHECK_PROMPT)
+  for (const rule of [
+    '모범답안은 정답이다. 법리나 판례가 실제로 옳은지는 판단하지 않는다.',
+    '네가 아는 법률 지식으로 수험생 답안을 평가하지 말고',
+    '입력에 없는 판례·법리·전원합의체 등을 인용하거나 지어내지 않는다.',
+    '방향이 반대인 경우가 아니면 법리의 옳고 그름을 이유로 누락으로 하지 않는다.',
+    '"모범답안은 ~, 답안은 ~" 형식',
+    '소제목은 그 문장이 어느 쟁점에 속하는지 알려 주는 정보이고, 판정은 해당 쟁점에 대한 답안 내용으로만 한다',
+  ]) assert.ok(sys.includes(rule), `systemInstruction 에 규칙 없음: ${rule}`)
+
   // 공백만 다른 evidence 는 인정, 내 답안에 없는 evidence 는 확인불가, 누락이면 evidence 를 비운다
   replies = [ok([
     { key: 'k1', verdict: '부분', evidence: '임대인이  선택하는 바에\n따라', note: '' },
@@ -180,12 +209,15 @@ const run = (blockHtmls = blocks.slice(0, 1)) => runAiCheck({ uid: UID, problem,
     let maxId = ''
     let cases = 0
     let wide = 0
+    let noHead = 0
     for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.json') && n !== '_index.json')) {
       const card = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))
       for (const p of card.problems ?? []) {
         const htmls: string[] = (p.answer?.blocks ?? []).map((b: { html: string }) => b.html)
         if (htmls.length === 0) continue
         const its = extractAiItems(htmls)
+        const heads = headingsOf(p.answer.blocks.map((b: { t: string }) => b.t), htmls)
+        noHead += its.filter((x) => !heads[x.block]).length
         assert.equal(new Set(its.map((x) => x.key)).size, its.length, `${p.id}: 항목 키 중복`)
         for (const it of its) assert.ok(it.text.trim(), `${p.id}: 빈 항목`)
         problems++
@@ -196,7 +228,7 @@ const run = (blockHtmls = blocks.slice(0, 1)) => runAiCheck({ uid: UID, problem,
       }
     }
     console.log(`문항 ${problems}개 · 점검 항목 ${total}개(판례 ${cases} · 결론 ${total - cases}) · 문항당 평균 ${(total / problems).toFixed(1)}개 · 최대 ${max}개(${maxId})`)
-    console.log(`판례 항목 중 앞 블록 글을 함께 보낸 것 ${wide}개`)
+    console.log(`판례 항목 중 앞 블록 글을 함께 보낸 것 ${wide}개 · 소제목 없이 보내는 항목 ${noHead}개`)
   }
   console.log('check:case-ai-check 통과')
 })().catch((e) => {

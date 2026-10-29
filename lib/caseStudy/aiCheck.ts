@@ -117,21 +117,27 @@ export const isAiCheckStale = (record: Pick<AiCheckRecord, 'answerHash'>, texts:
 
 // ── 3. Gemini 호출 ───────────────────────────────────────────
 
-export const AI_CHECK_PROMPT = `너는 변호사시험 사례형 답안을 점검하는 도우미다. 점수는 매기지 않는다. 모범답안의 판례 취지와 결론이 수험생 답안에 담겼는지만 판정한다.
+export const AI_CHECK_PROMPT = `너는 변호사시험 사례형 답안을 점검하는 도우미다. 점수는 매기지 않는다. 각 항목의 모범답안 문장(판례 취지·결론)과 같은 내용이 수험생 답안에 있는지만 비교한다.
 
-입력(JSON): 문제, 수험생 답안, 점검 항목 목록. 항목마다 key, 종류, 모범답안 문장이 있고, 결론 항목에는 결론 부분이 따로 있다.
+가장 중요한 규칙:
+- 모범답안은 정답이다. 법리나 판례가 실제로 옳은지는 판단하지 않는다.
+- 네가 아는 법률 지식으로 수험생 답안을 평가하지 말고, 항목의 모범답안 문장(판례 취지·결론)과 같은 내용이 수험생 답안에 있는지만 비교한다.
+- note에는 입력으로 받은 모범답안 문장과 수험생 답안에 있는 내용만 쓴다. 입력에 없는 판례·법리·전원합의체 등을 인용하거나 지어내지 않는다.
+- 소제목은 그 문장이 어느 쟁점에 속하는지 알려 주는 정보이고, 판정은 해당 쟁점에 대한 답안 내용으로만 한다. 다른 쟁점에 대한 답안 내용과 섞지 않는다.
+
+입력(JSON): 문제, 수험생 답안, 점검 항목 목록. 항목마다 key, 종류, 모범답안 문장이 있고, 소제목이 있으면 소제목이, 결론 항목에는 결론 부분이 따로 있다.
 
 종류별 판단 기준:
 - 판례 취지: 모범답안 문장에 인용된 판례의 취지(법리·판단 기준)가 답안에 담겼는지 본다. 판례 번호·선고일·법원명은 판단에 쓰지 않는다. 수험생은 판례 번호를 쓰지 않으므로 번호가 없다는 이유로 누락이라 하지 않는다.
-- 결론: 결론 부분의 방향(성립/불성립, 인정/부정, 인용/기각/각하, 적법/위법, 유효/무효, 위헌/합헌, 처분의 내용 등)이 답안의 결론과 같은지 본다.
+- 결론: 결론 부분과 같은 방향의 결론이 수험생 답안에 (해당 쟁점에 대해) 적혀 있으면 담김. 방향이 같지만 일부 요소가 빠졌으면 부분. 해당 쟁점이나 결론이 답안에 없거나 방향이 반대면 누락. 방향이 반대인 경우가 아니면 법리의 옳고 그름을 이유로 누락으로 하지 않는다. 방향은 성립/불성립, 인정/부정, 인용/기각/각하, 적법/위법, 유효/무효, 위헌/합헌, 처분의 내용 등이다.
 
 판정(verdict):
-- "담김": 같은 취지 또는 같은 방향의 결론이 답안에 있다. 표현이 달라도 의미가 같으면 담김이다.
-- "부분": 일부만 있거나, 방향은 같지만 핵심 요소(요건·대상·범위 등)가 빠졌다.
-- "누락": 답안에 없거나, 결론의 방향이 모범답안과 다르다.
+- "담김": 같은 취지 또는 같은 방향의 결론이 해당 쟁점에 대한 답안에 있다. 표현이 달라도 의미가 같으면 담김이다.
+- "부분": 일부만 있거나, 방향은 같지만 일부 요소(요건·대상·범위 등)가 빠졌다.
+- "누락": 해당 쟁점이나 그 내용이 답안에 없거나, 결론의 방향이 모범답안과 반대다.
 
 evidence: 판정의 근거가 된 답안 속 문장을 답안에서 한 글자도 바꾸지 말고 그대로 옮긴다. 누락이면 빈 문자열("")로 둔다.
-note: 무엇이 담겼거나 빠졌는지 한국어 한 줄.
+note: "모범답안은 ~, 답안은 ~" 형식으로 두 가지를 비교하는 한국어 한 줄.
 
 입력의 모든 항목에 대해 key 를 그대로 돌려준다. 입력에 없는 key 를 만들지 않는다.`
 
@@ -159,15 +165,30 @@ export type AiCheckError = 'no-key' | 'network' | 'timeout' | 'aborted' | 'http'
 export type AiCheckOutcome = { ok: true; record: AiCheckRecord } | { ok: false; code: AiCheckError; message: string }
 
 const KIND_LABEL: Record<AiItemKind, string> = { case: '판례 취지', res: '결론' }
+const squash = (s: string) => s.replace(/\s+/g, ' ').trim()
 
-/** 한 묶음의 요청 본문. 문제·내 답안·모범답안 문장 외에는 아무것도 넣지 않는다. key 는 짧은 번호(k1…)로 바꿔 보낸다 */
-export function buildRequest(question: string, answer: string, batch: AiCheckItem[]) {
+/** 블록마다 그 블록 바로 앞의 h1/h2 제목 글자(없으면 ''). types 는 blockHtmls 와 같은 순서의 블록 종류 */
+export function headingsOf(types: (string | undefined)[], blockHtmls: string[]): string[] {
+  let cur = ''
+  return blockHtmls.map((html, i) => {
+    const h = cur
+    if (types[i] === 'h1' || types[i] === 'h2') cur = squash(parseBlockHtml(html).text)
+    return h
+  })
+}
+
+/**
+ * 한 묶음의 요청 본문. 문제·내 답안·모범답안 문장(과 모범답안의 소제목) 외에는 아무것도 넣지 않는다.
+ * key 는 짧은 번호(k1…)로 바꿔 보낸다. headings 는 블록 번호 → 소제목(headingsOf)
+ */
+export function buildRequest(question: string, answer: string, batch: AiCheckItem[], headings: string[] = []) {
   const input = {
     문제: question,
     답안: answer,
     항목: batch.map((it, i) => ({
       key: `k${i + 1}`,
       종류: KIND_LABEL[it.kind],
+      ...(headings[it.block] ? { 소제목: headings[it.block] } : {}),
       모범답안: it.text,
       ...(it.kind === 'res' ? { 결론부분: it.focus.join(' / ') } : {}),
     })),
@@ -178,8 +199,6 @@ export function buildRequest(question: string, answer: string, batch: AiCheckIte
     generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: RESPONSE_SCHEMA },
   }
 }
-
-const squash = (s: string) => s.replace(/\s+/g, ' ').trim()
 
 /**
  * 응답 검증(이 기기에서). 응답에 없는 항목·모르는 key·형식이 틀린 항목은 '확인불가'.
@@ -265,9 +284,11 @@ export async function runAiCheck(opts: {
   const labels = boxesOf(opts.problem).map((b, i, all) => b.label || (all.length > 1 ? `소문항 ${i + 1}` : ''))
   const answer = opts.answers.map((t, i) => (labels[i] ? `[${labels[i]}]\n${t}` : t)).join('\n\n')
 
+  const headings = headingsOf((opts.problem.answer?.blocks ?? []).map((b) => b.t), opts.blockHtmls)
+
   const results: Record<string, AiItemResult> = {}
   for (const batch of chunkItems(items)) {
-    const body = buildRequest(question, answer, batch)
+    const body = buildRequest(question, answer, batch, headings)
     let raw: unknown
     for (let attempt = 0; ; attempt++) {
       const ctl = new AbortController()
