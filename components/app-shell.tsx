@@ -146,6 +146,9 @@ export function AppShell({ user }: Props) {
   const hasFeedbackAlert = isAdmin ? unreadFeedback > 0 : unreadReplies > 0
   // 암기장 목록·일괄삭제와 같은 판정을 써야 수동 추가분이 배지에도 반영된다
   const memoCount = wrongNotes.filter(isInMemoList).length
+  // 사례형 화면(판례 화면 제외)에서는 헤더·설정의 '문제 · 오답'을 사례형 숫자로 보인다. 사례형 학습 현황을 읽은 뒤에 채워진다
+  const [caseCounts, setCaseCounts] = useState<{ problems: number; misses: number } | null>(null)
+  const showCaseCounts = kind === 'caseStudy' && view !== 'cases'
 
   function handleFeedbackClick() {
     // 비관리자는 항상 피드백 모달을 연다. 그 안에 "내 피드백 + 답글"이 함께 들어 있어
@@ -566,10 +569,12 @@ export function AppShell({ user }: Props) {
             <div className="flex items-center gap-2 sm:gap-3 leading-none">
               <div className="flex flex-col sm:flex-row items-center gap-0.5 sm:gap-1">
                 <span>문제</span>
-                <span className="tabular-nums font-semibold text-foreground">{questions.length}개</span>
+                <span className="tabular-nums font-semibold text-foreground">
+                  {showCaseCounts ? (caseCounts ? `${caseCounts.problems}개` : '…') : `${questions.length}개`}
+                </span>
               </div>
               {/* 공유받은 문제는 내 문제와 합쳐 세지 않는다 — 내가 만든 것이 몇 개인지가 흐려진다 */}
-              {poolQuestions.length > 0 && (
+              {!showCaseCounts && poolQuestions.length > 0 && (
                 <div className="flex flex-col sm:flex-row items-center gap-0.5 sm:gap-1">
                   <span>공유</span>
                   <span className="tabular-nums font-semibold text-foreground">{poolQuestions.length}개</span>
@@ -577,7 +582,9 @@ export function AppShell({ user }: Props) {
               )}
               <div className="flex flex-col sm:flex-row items-center gap-0.5 sm:gap-1">
                 <span>오답</span>
-                <span className="tabular-nums font-semibold text-foreground">{wrongNotes.length}개</span>
+                <span className="tabular-nums font-semibold text-foreground">
+                  {showCaseCounts ? (caseCounts ? `${caseCounts.misses}개` : '…') : `${wrongNotes.length}개`}
+                </span>
               </div>
             </div>
 
@@ -726,6 +733,7 @@ export function AppShell({ user }: Props) {
           openRequest={caseOpenRequest}
           onOpenRequestDone={() => setCaseOpenRequest(null)}
           onBackToCases={() => switchView('cases')}
+          onCounts={setCaseCounts}
         />
       )}
       </div>
@@ -761,9 +769,9 @@ export function AppShell({ user }: Props) {
 
       {showSettingsModal && (
         <SettingsModal
-          questionCount={questions.length}
-          poolQuestionCount={poolQuestions.length}
-          wrongNoteCount={wrongNotes.length}
+          questionCount={showCaseCounts ? caseCounts?.problems ?? 0 : questions.length}
+          poolQuestionCount={showCaseCounts ? 0 : poolQuestions.length}
+          wrongNoteCount={showCaseCounts ? caseCounts?.misses ?? 0 : wrongNotes.length}
           userId={user.uid}
           userEmail={user.email}
           onClearAll={handleClearAll}
