@@ -53,3 +53,51 @@ export function missDate(ts: number): string {
 }
 
 export const MISS_KIND_LABEL: Record<MissKind, string> = { statute: '조문', case: '판례 취지', res: '결론' }
+
+// ── 문항 단위 ────────────────────────────────────────────────
+
+export interface MissProblem {
+  problemId: string
+  subject: string
+  cardId: string
+  cardTitle: string
+  problemLabel: string
+  items: MissItem[] // 이 문항에서 (필터에 걸린) 한 번이라도 빠진 항목 — '안 쓴 항목'
+  wrongCount: number // 틀린 횟수: 이 항목들 중 하나라도 ✕·△ 였던 제출 시도 수
+  lastMissedAt: number // 이 항목들이 마지막으로 빠진 시각
+  open: number // 그중 최근 판정이 아직 ✕·△ 인 항목 수
+  recentOk: number // 그중 최근 판정이 ✓ 인 항목 수
+  kinds: MissKind[] // 들어 있는 종류(조문 → 판례 취지 → 결론 순)
+}
+
+/** 항목 → 문항. 넘긴 순서대로 문항이 처음 나온 순서를 지킨다 */
+export function missProblems(items: MissItem[]): MissProblem[] {
+  const by = new Map<string, MissItem[]>()
+  for (const x of items) (by.get(x.problemId) ?? by.set(x.problemId, []).get(x.problemId)!).push(x)
+  return [...by.values()].map((xs) => {
+    const x = xs[0]
+    const recentOk = xs.filter((i) => i.recentOk).length
+    return {
+      problemId: x.problemId,
+      subject: x.subject,
+      cardId: x.cardId,
+      cardTitle: x.cardTitle,
+      problemLabel: x.problemLabel,
+      items: xs,
+      wrongCount: new Set(xs.flatMap((i) => i.missAttemptIds)).size,
+      lastMissedAt: Math.max(...xs.map((i) => i.lastMissedAt)),
+      open: xs.length - recentOk,
+      recentOk,
+      kinds: (['statute', 'case', 'res'] as const).filter((k) => xs.some((i) => i.kind === k)),
+    }
+  })
+}
+
+/** 많이 틀린 순(기본, 같으면 최근 순) 또는 최근 빠진 순(같으면 많이 틀린 순). 새 배열 */
+export function sortMissProblems(ps: MissProblem[], by: MissSort = 'count'): MissProblem[] {
+  return [...ps].sort((a, b) =>
+    by === 'count'
+      ? b.wrongCount - a.wrongCount || b.lastMissedAt - a.lastMissedAt
+      : b.lastMissedAt - a.lastMissedAt || b.wrongCount - a.wrongCount
+  )
+}

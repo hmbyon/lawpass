@@ -17,7 +17,8 @@ const NOW = 100 * DAY
 let n = 0
 const it = (subject: string, cardId: string, kind: MissKind, missCount: number, daysAgo: number): MissItem => ({
   problemId: `${cardId}#1`, key: `k${n++}`, kind, subject, cardId, cardTitle: cardId, problemLabel: '변시 15회 제1문',
-  label: '', text: '', missCount, lastMissedAt: NOW - daysAgo * DAY, lastVerdict: 'missing', evidence: '', note: '',
+  label: '', text: '', missCount, missAttemptIds: Array.from({ length: missCount }, (_, i) => `${cardId}-a${i}`),
+  lastMissedAt: NOW - daysAgo * DAY, lastVerdict: 'missing', recentOk: false, evidence: '', note: '',
 })
 // 집계 결과처럼 카드 순서(민법 → 형법 → 헌법)
 const items = [

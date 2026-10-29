@@ -65,7 +65,7 @@ let r = aggregateMisses([att('a1', NOW - 40 * DAY, P1, '답안 글', { ai: { [ca
 let s = find(r, P1, S626)!
 assert.deepEqual(s, {
   problemId: P1, key: S626, kind: 'statute', subject: '민법', cardId: '민사-1', cardTitle: '유익비', problemLabel: '변시 15회 제1문 문1',
-  label: '민법 제626조', text: body1.replace(/<[^>]+>/g, ''), missCount: 1, lastMissedAt: NOW - 40 * DAY, lastVerdict: 'missing',
+  label: '민법 제626조', text: body1.replace(/<[^>]+>/g, ''), missCount: 1, missAttemptIds: ['a1'], lastMissedAt: NOW - 40 * DAY, lastVerdict: 'missing', recentOk: false,
   evidence: '', note: '답안에 해당 조문이 없음',
 }, '조문 없음 — 시도에 statuteChecks 가 없어도 화면처럼 자동 판정으로 센다')
 const c = find(r, P1, caseKey)!
@@ -73,8 +73,8 @@ assert.equal(c.kind, 'case')
 assert.equal(c.label, '판례 취지')
 assert.match(c.text, /^유익비 상환범위는/)
 assert.equal(c.note, 'a1 note')
-assert.equal(find(r, P1, resKey), undefined, '담김은 목록에 없다')
-assert.equal(r.resolved, 1)
+assert.equal(find(r, P1, resKey), undefined, '한 번도 빠진 적 없는 항목은 목록에 없다')
+assert.equal(r.recentOk, 0)
 assert.equal(r.excluded, 0)
 
 // ── 2. 여러 번 빠짐 · 해소 · ✓ 뒤 다시 ✕ · 확인불가 · 직접 고친 값 · 임시저장 ─────────
@@ -91,12 +91,24 @@ const attempts = [
   att('b1', NOW - 10 * DAY, P2, '살인죄 성립', { manual: { [S250]: 'ok' }, ai: { [res2Key]: ['누락', '부분'] } }),
 ]
 r = aggregateMisses(attempts, cards)
-// 조문 626: a1 ✕, a2 ✕, a3 ✓, a4 ✓ → 해소
-assert.equal(find(r, P1, S626), undefined)
-// 판례: a1 ✕, a2 △, a3 ✓ (a4 확인불가 건너뜀) → 해소
-assert.equal(find(r, P1, caseKey), undefined)
+// 조문 626: a1 ✕, a2 ✕, a3 ✓, a4 ✓ → 목록에 남고(누적 2회) 최근 ✓
+const s626 = find(r, P1, S626)!
+assert.equal(s626.missCount, 2)
+assert.deepEqual(s626.missAttemptIds, ['a1', 'a2'])
+assert.equal(s626.recentOk, true)
+assert.equal(s626.lastMissedAt, NOW - 20 * DAY)
+assert.equal(s626.lastVerdict, 'missing')
+assert.equal(s626.lastOkAt, NOW - 1 * DAY)
+assert.equal(s626.note, '최근 답안에는 해당 조문이 있음')
+// 판례: a1 ✕, a2 △, a3 ✓ (a4 확인불가 건너뜀) → 남고 최근 ✓, 마지막으로 빠진 판정은 △
+const ck = find(r, P1, caseKey)!
+assert.equal(ck.recentOk, true)
+assert.equal(ck.missCount, 2)
+assert.equal(ck.lastVerdict, 'partial')
+assert.equal(ck.evidence, '민법 제626조를 쓴 답안', '근거는 가장 최근 유효 판정(✓)의 것')
 // 결론: a1 ✓, a2 ✓, a3 △ (a4 확인불가) → 다시 빠짐
 const rr = find(r, P1, resKey)!
+assert.equal(rr.recentOk, false)
 assert.equal(rr.missCount, 1)
 assert.equal(rr.lastVerdict, 'partial')
 assert.equal(rr.lastMissedAt, NOW - 2 * DAY)
@@ -105,8 +117,8 @@ assert.equal(rr.evidence, '민법 제626조를 쓴 답안', '근거는 가장 �
 assert.equal(rr.note, 'a3 note')
 assert.equal(find(r, P2, S250), undefined, '직접 고친 값(ok)이 자동 판정(없음)보다 앞선다')
 assert.equal(find(r, P2, res2Key)!.lastVerdict, 'partial', '직접 고친 값(부분)')
-assert.deepEqual(r.items.map((x) => x.key), [resKey, res2Key], '과목 순서(민법 → 형법)')
-assert.equal(r.resolved, 3)
+assert.deepEqual(r.items.map((x) => x.key), [S626, caseKey, resKey, res2Key], '과목 순서(민법 → 형법), 문항 안은 조문 → 판례·결론')
+assert.equal(r.recentOk, 2)
 
 // 여러 번 빠짐: a1·a2 모두 판례 ✕·△, a3 없이 보면 missCount 2, 최근 시각은 a2
 r = aggregateMisses(attempts.filter((a) => a.id === 'a1' || a.id === 'a2'), cards)
@@ -124,9 +136,11 @@ r = aggregateMisses([
     ai: { 'a1@old:res:0-5': '누락', 'a1@old:case:0-5': '담김', [caseKey]: '담김', [resKey]: '담김' },
   }),
   att('x2', NOW, '없는-카드#1', '답안', { ai: { 'a0@zz:res:0-3': '부분' } }),
+  // 옛 판례: 예전에 빠졌다가 지금은 담김 — 한 번이라도 빠졌으니 센다
+  att('x0', NOW - DAY, P1, '답안', { ai: { 'a1@old:case:0-5': '누락' } }),
 ], cards)
 assert.deepEqual(r.items.map((x) => x.key), [S626], '현재 카드에 있는 것만')
-assert.equal(r.excluded, 3, '빠짐인데 키를 못 찾은 것: 조문 999, 옛 결론, 없는 카드의 결론')
+assert.equal(r.excluded, 4, '한 번이라도 빠졌는데 키를 못 찾은 것: 조문 999, 옛 결론, 옛 판례, 없는 카드의 결론')
 assert.equal(attempts[0].aiChecks![P1].items[caseKey].verdict, '담김', '입력은 건드리지 않는다')
 
 // ── 4. 정렬 · 필터 · 트리 ──────────────────────────────────────
@@ -151,7 +165,7 @@ assert.deepEqual(tree.map((t) => [t.subject, t.cards.map((c) => [c.cardId, c.pro
   ['형법', [['형사-1', [['변시 15회 제1문 문1', 2]]]]],
 ])
 assert.deepEqual(cardIdsOf(attempts), ['민사-1', '형사-1'])
-assert.deepEqual(aggregateMisses([], cards), { items: [], resolved: 0, excluded: 0 })
+assert.deepEqual(aggregateMisses([], cards), { items: [], recentOk: 0, excluded: 0 })
 
 // ── 5. 실제 카드 데이터 ─────────────────────────────────────────
 const DEFAULT_DIR = path.join(
@@ -166,7 +180,7 @@ if (!fs.existsSync(dir)) {
     .readdirSync(dir)
     .filter((n) => n.endsWith('.json') && n !== '_index.json')
     .map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')))
-  assert.deepEqual(aggregateMisses([], real), { items: [], resolved: 0, excluded: 0 }, '시도가 없으면 빈 결과')
+  assert.deepEqual(aggregateMisses([], real), { items: [], recentOk: 0, excluded: 0 }, '시도가 없으면 빈 결과')
   // 답안이 있는 모든 문항을 빈 답안으로 한 번씩 제출했다고 치면: 조문은 전부 빠짐, AI 는 점검 안 해서 없음
   const pids = real.flatMap((cd) => cd.problems.filter((p) => p.answer?.blocks.length).map((p) => p.id))
   const all = aggregateMisses(pids.map((pid, i) => att(`r${i}`, i, pid, '')), real)

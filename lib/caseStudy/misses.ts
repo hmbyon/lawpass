@@ -12,7 +12,7 @@ import type { Card } from './types'
  * 순수 함수(DOM·Firestore 없음). 시도 읽기는 firebaseServices/caseAttempts 의 fetchSubmittedCaseAttempts.
  *
  * - 시도마다 최종 판정(직접 고친 값 우선)을 구해 제출 시각 순으로 쌓는다. AI '확인불가'는 건너뛴다
- * - 가장 최근 판정이 ✕·△ 면 빠짐, ✓ 면 해결됨(목록에서 빠진다)
+ * - 한 번이라도 ✕·△ 였던 항목은 목록에 남는다(틀린 횟수는 누적). 가장 최근 판정이 ✓ 면 '최근 ✓'(recentOk)로 표시만 한다
  * - 항목 글은 현재 카드에서 다시 뽑는다. 현재 카드에 없는 키는 결과에서 빼고 개수만 센다(저장 데이터는 그대로)
  */
 
@@ -30,18 +30,20 @@ export interface MissItem {
   problemLabel: string // '변시 15회 제1문 문1'
   label: string // '민법 제750조' 또는 '판례 취지'·'결론'
   text: string // 현재 카드의 모범답안 문장(조문은 처음 나오는 문단)
-  missCount: number // ✕·△ 였던 시도 수
-  lastMissedAt: number
-  lastVerdict: MissVerdict
+  missCount: number // ✕·△ 였던 시도 수(누적)
+  missAttemptIds: string[] // ✕·△ 였던 시도 id(제출 순) — 문항 단위 '틀린 횟수'를 셀 때 쓴다
+  lastMissedAt: number // 마지막으로 ✕·△ 였던 시각
+  lastVerdict: MissVerdict // 마지막으로 빠졌을 때의 판정
+  recentOk: boolean // 가장 최근 유효 판정이 ✓
   lastOkAt?: number // 마지막으로 ✓ 였던 시각(있을 때만)
-  evidence: string // AI: 가장 최근 시도가 내 답안에서 옮긴 문장. 조문은 ''
-  note: string // AI: 가장 최근 시도의 note. 조문: '답안에 해당 조문이 없음' / '답안에 해당 조문이 일부만 있음'
+  evidence: string // AI: 가장 최근 유효 판정 시도가 내 답안에서 옮긴 문장. 조문은 ''
+  note: string // AI: 가장 최근 유효 판정의 note. 조문: 없음 / 일부만 있음 / 최근 답안에는 있음
 }
 
 export interface MissResult {
-  items: MissItem[] // 빠짐만. 카드 순서(과목 → 교재 순서 → 문항 → 조문, 판례·결론)
-  resolved: number // 해결된 항목 수(표시하지 않는다)
-  excluded: number // 빠짐인데 현재 카드에서 키를 찾지 못해 뺀 항목 수
+  items: MissItem[] // 한 번이라도 빠진 항목. 카드 순서(과목 → 교재 순서 → 문항 → 조문, 판례·결론)
+  recentOk: number // 그중 가장 최근 판정이 ✓ 인 항목 수
+  excluded: number // 한 번이라도 빠졌는데 현재 카드에서 키를 찾지 못해 뺀 항목 수
 }
 
 const KIND_LABEL = { case: '판례 취지', res: '결론' }
@@ -51,6 +53,7 @@ const AI_TO: Record<AiVerdict, Verdict | null> = { 담김: 'ok', 부분: 'partia
 const submittedAt = (a: CaseAttempt) => a.submittedAt ?? a.updatedAt
 
 interface Mark {
+  id: string // 시도 id
   at: number
   v: Verdict
   evidence: string
@@ -110,13 +113,13 @@ export function aggregateMisses(
       if (known) {
         const { model, statute } = info(pid)
         const auto = judgeStatutes(model.items, answerRefs(boxes))
-        for (const key of statute.keys()) push(pid, 'statute', key, { at, v: manual[key] ?? auto[key] ?? 'missing', evidence: '', note: '' }, true)
+        for (const key of statute.keys()) push(pid, 'statute', key, { id: a.id, at, v: manual[key] ?? auto[key] ?? 'missing', evidence: '', note: '' }, true)
       }
       // 저장된 조문 키 중 지금 카드에 없는 것(카드가 고쳐짐)
       for (const key of new Set([...Object.keys(st?.auto ?? {}), ...Object.keys(manual)])) {
         if (known && info(pid).statute.has(key)) continue
         const v: StatuteMark = manual[key] ?? st!.auto[key] ?? 'missing'
-        push(pid, 'statute', key, { at, v, evidence: '', note: '' }, false)
+        push(pid, 'statute', key, { id: a.id, at, v, evidence: '', note: '' }, false)
       }
       // AI: 점검한 항목만. 확인불가는 건너뛴다
       for (const [key, r] of Object.entries(a.aiChecks?.[pid]?.items ?? {})) {
@@ -124,22 +127,21 @@ export function aggregateMisses(
         if (!v) continue
         const it = known ? info(pid).ai.get(key) : undefined
         const kind: MissKind = it?.kind ?? (/:case:\d+-\d+$/.test(key) ? 'case' : 'res')
-        push(pid, kind, key, { at, v, evidence: r.evidence, note: r.note }, !!it)
+        push(pid, kind, key, { id: a.id, at, v, evidence: r.evidence, note: r.note }, !!it)
       }
     }
   }
 
   const items: MissItem[] = []
-  let resolved = 0
+  let recentOk = 0
   for (const { pid, kind, key, marks } of live.values()) {
+    const misses = marks.filter((m) => m.v !== 'ok')
+    if (misses.length === 0) continue // 한 번도 빠진 적 없는 항목
     const last = marks[marks.length - 1]
-    if (last.v === 'ok') {
-      resolved++
-      continue
-    }
+    const lastMiss = misses[misses.length - 1]
+    if (last.v === 'ok') recentOk++
     const { card, p } = where.get(pid)!
     const { clean, statute, ai } = info(pid)
-    const misses = marks.filter((m) => m.v !== 'ok')
     const okAt = marks.filter((m) => m.v === 'ok').pop()?.at
     const s = kind === 'statute' ? statute.get(key)! : null
     items.push({
@@ -153,11 +155,13 @@ export function aggregateMisses(
       label: s ? statuteLabel(s.ref) : KIND_LABEL[kind as 'case' | 'res'],
       text: s ? (s.block >= 0 ? parseBlockHtml(clean[s.block]).text : '') : ai.get(key)!.text,
       missCount: misses.length,
-      lastMissedAt: last.at,
-      lastVerdict: last.v,
+      missAttemptIds: misses.map((m) => m.id),
+      lastMissedAt: lastMiss.at,
+      lastVerdict: lastMiss.v as MissVerdict,
+      recentOk: last.v === 'ok',
       ...(okAt !== undefined ? { lastOkAt: okAt } : {}),
       evidence: s ? '' : last.evidence,
-      note: s ? STATUTE_NOTE[last.v] : last.note,
+      note: s ? (last.v === 'ok' ? '최근 답안에는 해당 조문이 있음' : STATUTE_NOTE[last.v]) : last.note,
     })
   }
   // 카드 순서대로: where 는 sortCards 순서로 채웠다. 같은 문항 안에서는 조문 → 판례·결론, 각자 처음 나온 순서
@@ -165,8 +169,8 @@ export function aggregateMisses(
   const order = (x: MissItem) => rank.get(x.problemId)! * 2 + (x.kind === 'statute' ? 0 : 1)
   items.sort((a, b) => order(a) - order(b)) // 안정 정렬이라 같은 문항·같은 무리 안은 넣은 순서
 
-  const excluded = [...stale.values()].filter((ms) => ms[ms.length - 1].v !== 'ok').length
-  return { items, resolved, excluded }
+  const excluded = [...stale.values()].filter((ms) => ms.some((m) => m.v !== 'ok')).length
+  return { items, recentOk, excluded }
 }
 
 // ── 정렬·필터·트리 ───────────────────────────────────────────
