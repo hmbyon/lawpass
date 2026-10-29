@@ -1,5 +1,7 @@
 import { db } from '@/lib/firebase'
-import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore'
+import {
+  collection, doc, getDoc, getDocs, limit, query, setDoc, startAfter, where, type QueryDocumentSnapshot,
+} from 'firebase/firestore'
 import type { CaseAttempt } from '@/lib/caseStudy/solve'
 import type { DrawingStroke } from '@/lib/types'
 
@@ -26,6 +28,30 @@ export async function fetchCaseDraft(uid: string, mode: string, setKey: string):
   const snap = await getDocs(query(attemptsRef(uid, mode), where('setKey', '==', setKey)))
   const drafts = snap.docs.map((d) => d.data() as CaseAttempt).filter((a) => a.status === 'draft')
   return drafts.sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null
+}
+
+const SUBMITTED_PAGE = 200
+
+/**
+ * 제출한 시도 전부(임시저장 제외) — 오답노트용. 읽기만 한다.
+ * 문서가 많을 수 있어 SUBMITTED_PAGE 개씩 문서 id 순으로 나눠 읽는다(등호 조건 하나라 복합 색인이 필요 없다)
+ */
+export async function fetchSubmittedCaseAttempts(
+  uid: string, mode: string
+): Promise<{ ok: true; attempts: CaseAttempt[] } | { ok: false; message: string }> {
+  const attempts: CaseAttempt[] = []
+  let last: QueryDocumentSnapshot | undefined
+  try {
+    for (;;) {
+      const page = [where('status', '==', 'submitted'), ...(last ? [startAfter(last)] : []), limit(SUBMITTED_PAGE)] as const
+      const snap = await getDocs(query(attemptsRef(uid, mode), ...page))
+      attempts.push(...snap.docs.map((d) => d.data() as CaseAttempt))
+      if (snap.docs.length < SUBMITTED_PAGE) return { ok: true, attempts }
+      last = snap.docs[snap.docs.length - 1]
+    }
+  } catch {
+    return { ok: false, message: '풀이 기록을 불러오지 못했습니다. 인터넷 연결을 확인하고 다시 시도해 주세요.' }
+  }
 }
 
 /**
