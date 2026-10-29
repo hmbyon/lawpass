@@ -4,8 +4,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ImportPanel } from '@/components/case-study/import-panel'
 import { CaseStudyBrowse, type CaseOpenRequest } from '@/components/case-study/case-study-browse'
 import { CaseCbt } from '@/components/case-study/case-cbt'
+import { CaseMisses } from '@/components/case-study/case-misses'
 
-type CaseTab = 'import' | 'cbt' | 'browse'
+type CaseTab = 'import' | 'cbt' | 'browse' | 'misses'
 
 // 사례형 화면의 탭 줄 + 본문. 탭 줄 클래스는 app-shell 의 객관식 nav 와 같다
 export function CaseStudyShell({
@@ -22,14 +23,25 @@ export function CaseStudyShell({
 }) {
   const [tab, setTab] = useState<CaseTab>('browse')
   const openNonce = openRequest?.nonce
+  // 오답노트의 '카드 보기'도 판례 화면과 같은 요청으로 답안·목차에서 연다. 이때는 '판례로 돌아가기'를 보이지 않는다
+  const [missOpen, setMissOpen] = useState<CaseOpenRequest | null>(null)
+  const [openedFrom, setOpenedFrom] = useState<'cases' | 'misses'>('cases')
   useEffect(() => {
-    if (openNonce !== undefined) setTab('browse')
+    if (openNonce === undefined) return
+    setOpenedFrom('cases')
+    setTab('browse')
   }, [openNonce])
+  // 오답노트는 한 번 열면 다른 탭에 다녀와도 그대로 둔다(카드 보기 뒤 돌아왔을 때 다시 읽지 않게)
+  const [missesMounted, setMissesMounted] = useState(false)
+  useEffect(() => {
+    if (tab === 'misses') setMissesMounted(true)
+  }, [tab])
   const tabs: { id: CaseTab; label: string; icon: string }[] = [
     ...(isAdmin ? [{ id: 'import' as const, label: '가져오기', icon: '📥' }] : []),
     // 선택형 탭 줄처럼 첫 탭(가져오기) 다음에 둔다. 처음 열리는 탭은 그대로 답안·목차다
     { id: 'cbt', label: 'CBT 실전', icon: '⚡' },
     { id: 'browse', label: '답안·목차', icon: '📚' },
+    { id: 'misses', label: '오답노트', icon: '📝' },
   ]
   // 카드 안의 고정 바(문항 이동)가 앱 헤더·이 탭 줄에 가려지지 않도록, 탭 줄이 끝나는 높이를
   // --case-sticky-top 으로 내려 준다. 숫자를 박아 두지 않고 탭 줄의 top·높이를 재서 따라간다
@@ -79,7 +91,22 @@ export function CaseStudyShell({
         {tab === 'import' && isAdmin && <ImportPanel />}
         {tab === 'cbt' && <CaseCbt />}
         {tab === 'browse' && (
-          <CaseStudyBrowse request={openRequest} onRequestDone={onOpenRequestDone} onBackToCases={onBackToCases} />
+          <CaseStudyBrowse
+            request={missOpen ?? openRequest}
+            onRequestDone={missOpen ? () => setMissOpen(null) : onOpenRequestDone}
+            onBackToCases={openedFrom === 'misses' ? undefined : onBackToCases}
+          />
+        )}
+        {missesMounted && (
+          <div className={tab === 'misses' ? undefined : 'hidden'}>
+            <CaseMisses
+              onOpenCard={(cardId, problemId) => {
+                setOpenedFrom('misses')
+                setMissOpen({ cardId, problemId, nonce: Date.now() })
+                setTab('browse')
+              }}
+            />
+          </div>
         )}
       </main>
     </>
