@@ -192,3 +192,9 @@ export function paragraphClass(block: { hg?: unknown; fl?: unknown }): string {
 export function paragraphPadding(block: { ind?: unknown; hg?: unknown }): number {
   return (clampIndent(block?.ind) + (block?.hg === 1 ? 1 : 0)) * 1.25
 }
+
+/** 제목 끝 회차 꼬리표 "(5회 변시)" 를 떼어 낸다. 없으면 제목 그대로, tag null */
+export function splitTitleTag(title: string): { text: string; tag: string | null } {
+  const m = /\s*\((\d+회\s*(?:변시|모의))\)\s*$/.exec(title ?? '')
+  return m ? { text: title.slice(0, m.index), tag: m[1] } : { text: title ?? '', tag: null }
+}

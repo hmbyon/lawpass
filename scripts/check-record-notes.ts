@@ -13,7 +13,7 @@ import { parseCaseFile } from '../lib/caseStudy/parse'
 import {
   clampIndent, clampSpan, notePartsOf, noteSubjects, partLabel,
   sortedExamKeys, isUntitledItem, alignClass, cellBgClass, isBoxTable, tableSizeClass, isExamItem, examChipsOfItem,
-  subsForExam, paragraphClass, paragraphPadding, type NoteBlock, type NotesIndex,
+  subsForExam, paragraphClass, paragraphPadding, splitTitleTag, type NoteBlock, type NotesIndex,
 } from '../lib/record/notes'
 import { decodeNoteFromStore, encodeNoteForStore } from '../lib/record/noteStorage'
 import type { NoteDoc } from '../lib/record/notes'
@@ -299,9 +299,16 @@ assert.deepEqual(subsForExam({}, examItem, '변시 2'), [], '본문에 소항목
 assert.deepEqual([paragraphClass({ hg: 1 }), paragraphClass({ fl: 1 }), paragraphClass({ hg: 1, fl: 1 }), paragraphClass({ hg: 2, fl: 'x' }), paragraphClass({})], ['note-hg', 'note-fl', 'note-hg note-fl', '', ''])
 assert.deepEqual([paragraphPadding({}), paragraphPadding({ ind: 2 }), paragraphPadding({ ind: 2, hg: 1 }), paragraphPadding({ ind: 9, hg: 1 }), paragraphPadding({ hg: true })], [0, 2.5, 3.75, 8.75, 0])
 
+// 제목 끝 회차 꼬리표
+assert.deepEqual(splitTitleTag('[2] 집행정지신청서 (5회 변시)'), { text: '[2] 집행정지신청서', tag: '5회 변시' })
+assert.deepEqual(splitTitleTag('[3] 소장 (12회 모의) '), { text: '[3] 소장', tag: '12회 모의' })
+assert.deepEqual(splitTitleTag('[1] 행정소송 소장'), { text: '[1] 행정소송 소장', tag: null })
+assert.deepEqual(splitTitleTag('(변시 기출)'), { text: '(변시 기출)', tag: null })
+assert.deepEqual(splitTitleTag('[4] 답변서 (5회 변시) 보충'), { text: '[4] 답변서 (5회 변시) 보충', tag: null }, '맨 끝이 아니면 떼지 않는다')
+
 // 제목 없는 항목·정렬·셀 배경
 assert.deepEqual([isUntitledItem({ title: '' }), isUntitledItem({ title: '  ' }), isUntitledItem({}), isUntitledItem({ title: '처분성' })], [true, true, true, false])
 assert.deepEqual([alignClass('c'), alignClass('r'), alignClass('l'), alignClass(undefined)], ['text-center', 'text-right', '', ''])
 assert.deepEqual([cellBgClass('g1'), cellBgClass('g2'), cellBgClass('g3'), cellBgClass('x" onclick="'), cellBgClass(undefined)], ['note-bg-g1', 'note-bg-g2', '', '', ''])
 
-console.log('통과: sanitizeNote(차단·허용·DOMParser 없음), parseCaseFile(note·notesIndex, 기존 카드·_index 그대로), 회차 정렬·span/들여쓰기 범위, 기재례 박스·표 크기·기출 회차 칩·소항목 고르기, 문단 p·정렬·셀 배경·제목 없는 항목, sup·bx·문단 토큰·내어쓰기, 저장 형태(중첩 배열 없음·왕복·sz 유지·옛 형태·표 없음)')
+console.log('통과: sanitizeNote(차단·허용·DOMParser 없음), parseCaseFile(note·notesIndex, 기존 카드·_index 그대로), 회차 정렬·span/들여쓰기 범위, 기재례 박스·표 크기·기출 회차 칩·소항목 고르기, 문단 p·정렬·셀 배경·제목 없는 항목, sup·bx·문단 토큰·내어쓰기·제목 회차 꼬리표, 저장 형태(중첩 배열 없음·왕복·sz 유지·옛 형태·표 없음)')

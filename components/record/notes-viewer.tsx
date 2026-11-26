@@ -6,7 +6,7 @@ import { fetchNoteDoc, fetchNotesIndex } from '@/lib/firebaseServices/caseStudy'
 import { sanitizeNote } from '@/lib/record/sanitizeNote'
 import {
   clampSpan, notePartsOf, noteSubjects, partLabel, isUntitledItem, alignClass, cellBgClass,
-  isBoxTable, tableSizeClass, examChipsOfItem, subsForExam, paragraphClass, paragraphPadding, type NoteBlock, type NoteDoc, type NoteItem, type NotesIndex,
+  isBoxTable, tableSizeClass, examChipsOfItem, subsForExam, paragraphClass, paragraphPadding, splitTitleTag, type NoteBlock, type NoteDoc, type NoteItem, type NotesIndex,
 } from '@/lib/record/notes'
 
 // 정리본 html 은 sanitizeNote 출력만 dangerouslySetInnerHTML 에 넣는다
@@ -192,6 +192,8 @@ export function NotesViewer() {
             const open = openId === it.id
             const toggle = () => setOpenId(open ? null : it.id)
             const picked = examPick[it.id]
+            // 제목 끝 "(5회 변시)" 는 떼어 제목 옆 스티커로 (표시 전용)
+            const { text: titleText, tag: titleTag } = splitTitleTag(it.title)
             // 기출 항목의 회차 칩: 누르면 펼치고 그 회차 소항목만, 다시 누르면 해제(전체)
             const pickExam = (k: string) => {
               setOpenId(it.id)
@@ -207,8 +209,13 @@ export function NotesViewer() {
                 {/* 제목 토글·회차 칩·▸ 는 서로 다른 형제 버튼이다 (버튼 안에 버튼을 두지 않는다) */}
                 <div className="p-3 flex flex-wrap items-center gap-1.5">
                   <button type="button" aria-expanded={open} onClick={toggle} className="text-left text-sm font-medium text-foreground mr-1">
-                    <span className="note-title">{it.title}</span>
+                    <span className="note-title">{titleText}</span>
                   </button>
+                  {titleTag && (
+                    <span className="px-3 py-1 rounded-full text-xs font-medium border bg-muted text-muted-foreground border-border">
+                      {titleTag}
+                    </span>
+                  )}
                   {examChipsOfItem(it).map((k) => (
                     <button key={k} type="button" aria-pressed={picked === k} onClick={() => pickExam(k)} className={chip(picked === k)}>
                       {k}
