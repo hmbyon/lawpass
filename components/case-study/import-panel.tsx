@@ -48,7 +48,7 @@ async function filesFromDrop(dt: DataTransfer): Promise<File[]> {
  * 사례형 카드 JSON 가져오기 — 관리자 전용. app-shell 이 관리자에게만 이 트리를 만든다.
  * 카드 문서를 전부 쓴 뒤에 색인을 쓴다 — 중간에 실패해도 색인이 없는 카드를 가리키지 않게
  */
-export function ImportPanel() {
+export function ImportPanel({ variant = 'case' }: { variant?: 'case' | 'record' } = {}) {
   const [files, setFiles] = useState<File[]>([])
   const [skipped, setSkipped] = useState(0)
   const [dragging, setDragging] = useState(false)
@@ -198,9 +198,12 @@ export function ImportPanel() {
       }`}
     >
       <div>
-        <h2 className="text-sm font-semibold text-foreground">사례형 카드 가져오기</h2>
+        {/* 기록 모드는 제목·설명만 다르다. 사례형(기본)은 예전 문구 그대로 */}
+        <h2 className="text-sm font-semibold text-foreground">{variant === 'record' ? '기록형 카드 가져오기' : '사례형 카드 가져오기'}</h2>
         <p className="text-xs text-muted-foreground mt-0.5">
-          카드 JSON 여러 개와 _index.json 을 함께 고르거나, 폴더째 여기에 끌어다 놓습니다. 같은 id 는 덮어씁니다.
+          {variant === 'record'
+            ? '정리본·문제 카드 JSON 여러 개와 _notes_index.json 을 함께 고르거나, 폴더째 여기에 끌어다 놓습니다. 같은 id 는 덮어씁니다.'
+            : '카드 JSON 여러 개와 _index.json 을 함께 고르거나, 폴더째 여기에 끌어다 놓습니다. 같은 id 는 덮어씁니다.'}
         </p>
       </div>
       <input

@@ -24,8 +24,9 @@ export function RecordShell({ isAdmin }: { isAdmin: boolean }) {
   }
   const tabs: { id: RecordTab; label: string; icon: string }[] = [
     { id: 'notes', label: '정리본 열람', icon: '📚' },
-    { id: 'drill', label: '문제 풀기', icon: '✍️' },
+    // 사례형처럼 가져오기를 앞쪽에
     ...(isAdmin ? [{ id: 'import' as const, label: '가져오기', icon: '📥' }] : []),
+    { id: 'drill', label: '문제 풀기', icon: '✍️' },
   ]
   return (
     <>
@@ -59,7 +60,7 @@ export function RecordShell({ isAdmin }: { isAdmin: boolean }) {
           </div>
         )}
         {/* 일반 사용자에게는 가져오기 트리 자체가 없다 */}
-        {tab === 'import' && isAdmin && <ImportPanel />}
+        {tab === 'import' && isAdmin && <ImportPanel variant="record" />}
       </main>
     </>
   )

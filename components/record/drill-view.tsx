@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { auth } from '@/lib/firebase'
 import { getAppMode } from '@/lib/appMode'
 import { fetchAllRecordCards } from '@/lib/firebaseServices/caseStudy'
@@ -11,16 +11,33 @@ import {
   applyResult, drillStats, examChipsOfCards, filterCards, orderCards,
   type DrillMark, type DrillResults,
 } from '@/lib/record/drillProgress'
-import { NoteTable, chip, type TableBlock } from '@/components/record/notes-viewer'
+import { FilterChips } from '@/components/filter-chips'
+import { NoteTable, type TableBlock } from '@/components/record/notes-viewer'
 
-const KINDS = ['변시', '모의'] as const
+const KINDS = ['변시', '모의']
 const MARKS: { id: DrillMark; label: string }[] = [
   { id: 'o', label: '맞음' },
   { id: 'h', label: '아쉬움' },
   { id: 'x', label: '틀림' },
 ]
-const btn = 'rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-foreground hover:border-primary/50 disabled:opacity-40'
-const primaryBtn = 'rounded-lg bg-primary text-primary-foreground px-3 py-2 text-xs font-semibold disabled:opacity-40'
+const OPT_WRONG = '틀린·아쉬운 카드만'
+const OPT_SHUFFLE = '섞어서 풀기'
+
+// 사례형 화면과 같은 클래스. 그쪽 상수가 export 되지 않아 같은 값을 둔다(사례형 파일은 건드리지 않는다)
+// case-cbt.tsx: SECTION · LABEL · smallBtn · 결과 카드 · 시작 버튼
+const SECTION = 'bg-card border border-border rounded-xl p-4 space-y-3'
+const LABEL = 'text-xs font-medium text-muted-foreground'
+const SMALL_BTN = 'text-[10px] px-2 py-0.5 rounded-full border transition-colors'
+const smallBtn = (on: boolean) =>
+  `${SMALL_BTN} ${on ? 'border-primary text-primary' : 'border-border text-muted-foreground hover:text-foreground hover:border-primary/40'}`
+const RESULT_CARD = 'bg-card border border-border rounded-xl p-4 flex items-center justify-between text-sm'
+const START_BTN =
+  'w-full py-3 bg-primary text-primary-foreground rounded-xl font-semibold text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity'
+// case-solve.tsx: 보조 버튼(btn) · 주 버튼(제출) · 답안 입력창
+const btn = 'text-xs border border-border rounded-lg px-2.5 py-1 transition-colors hover:border-foreground/30 disabled:opacity-40'
+const primaryBtn = 'text-xs font-semibold rounded-lg px-3 py-1 bg-primary text-primary-foreground'
+const TEXTAREA =
+  'w-full resize-y rounded-lg border border-border bg-card px-3 py-2 text-[13px] leading-relaxed text-foreground focus:outline-none focus:border-primary/50'
 
 // 정답 표 — 정리본 열람의 표(NoteTable)를 그대로 쓴다. 블록 객체를 카드마다 고정해 행 높이 맞춤이 매 렌더 다시 돌지 않게 한다
 function AnswerTable({ card }: { card: RecordCard }) {
@@ -31,6 +48,11 @@ function AnswerTable({ card }: { card: RecordCard }) {
 // 정리본과 같은 sanitizer 출력만 넣는다
 function NoteHtml({ html }: { html: string }) {
   return <div className="record-note text-sm" dangerouslySetInnerHTML={{ __html: sanitizeNote(html ?? '') }} />
+}
+
+// 사례형 화면과 같은 바깥 틀 (.case-study 범위 · 폭 · 간격)
+function Frame({ children }: { children: ReactNode }) {
+  return <div className="case-study space-y-5 max-w-2xl mx-auto">{children}</div>
 }
 
 /**
@@ -75,9 +97,6 @@ export function DrillView({ isAdmin }: { isAdmin: boolean }) {
   )
   const stats = useMemo(() => drillStats(cards ?? [], results), [cards, results])
 
-  function toggle(list: string[], v: string): string[] {
-    return list.includes(v) ? list.filter((x) => x !== v) : [...list, v]
-  }
   function start(list: RecordCard[]) {
     if (list.length === 0) return
     setSession({ ids: orderCards(list, shuffle, Date.now()).map((c) => c.id), pos: 0, revealed: false, marks: {} })
@@ -97,18 +116,28 @@ export function DrillView({ isAdmin }: { isAdmin: boolean }) {
 
   if (loadError) {
     return (
-      <div className="bg-card border border-border rounded-xl p-4 text-xs text-muted-foreground space-y-2">
-        <p>카드를 불러오지 못했습니다 ({loadError})</p>
-        <button onClick={load} className="text-primary hover:underline">다시 시도</button>
-      </div>
+      <Frame>
+        <div className={`${SECTION} text-xs text-muted-foreground`}>
+          <p>카드를 불러오지 못했습니다 ({loadError})</p>
+          <button onClick={load} className={btn}>다시 시도</button>
+        </div>
+      </Frame>
     )
   }
-  if (cards === undefined) return <p className="text-xs text-muted-foreground">카드를 불러오는 중…</p>
+  if (cards === undefined) {
+    return (
+      <Frame>
+        <p className="text-xs text-muted-foreground animate-pulse">카드를 불러오는 중…</p>
+      </Frame>
+    )
+  }
   if (cards.length === 0) {
     return (
-      <div className="bg-card border border-border rounded-xl p-4 text-xs text-muted-foreground">
-        {isAdmin ? '가져오기에서 카드 파일을 올려 주세요' : '준비 중이에요'}
-      </div>
+      <Frame>
+        <div className={`${SECTION} text-sm text-muted-foreground`}>
+          {isAdmin ? '가져오기에서 카드 파일을 올려 주세요' : '준비 중이에요'}
+        </div>
+      </Frame>
     )
   }
 
@@ -120,131 +149,174 @@ export function DrillView({ isAdmin }: { isAdmin: boolean }) {
       for (const m of Object.values(marks)) tally[m]++
       const again = ids.filter((id) => marks[id] === 'h' || marks[id] === 'x').map((id) => byId.get(id)).filter((c): c is RecordCard => !!c)
       return (
-        <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-          <p className="text-sm font-semibold text-foreground">다 풀었어요</p>
-          <p className="text-sm text-foreground tabular-nums">
-            맞음 {tally.o} · 아쉬움 {tally.h} · 틀림 {tally.x}
-          </p>
-          {saveError && <p className="text-xs text-red-400">{saveError}</p>}
-          <div className="flex flex-wrap gap-2">
-            <button className={primaryBtn} disabled={again.length === 0} onClick={() => start(again)}>
-              틀린 카드만 다시 풀기 ({again.length})
-            </button>
-            <button className={btn} onClick={() => setSession(null)}>처음으로</button>
+        <Frame>
+          <div>
+            <h2 className="text-lg font-bold text-foreground mb-1">다 풀었어요</h2>
+            <p className="text-sm text-muted-foreground">틀리거나 아쉬운 카드는 다시 풀어 보세요.</p>
           </div>
-        </div>
+          <div className={RESULT_CARD}>
+            <span className="text-muted-foreground">이번 결과</span>
+            <span className="text-foreground font-medium tabular-nums">
+              맞음 {tally.o} · 아쉬움 {tally.h} · 틀림 {tally.x}
+            </span>
+          </div>
+          {saveError && <p className="text-xs text-red-400">{saveError}</p>}
+          <button className={START_BTN} disabled={again.length === 0} onClick={() => start(again)}>
+            {again.length > 0 ? `틀린 카드만 다시 풀기 — ${again.length}장` : '다시 풀 카드가 없습니다'}
+          </button>
+          <button className={`${btn} w-full py-2 text-muted-foreground`} onClick={() => setSession(null)}>
+            처음으로
+          </button>
+        </Frame>
       )
     }
     const card = byId.get(ids[pos])
-    if (!card) {
-      // 카드가 다시 올라와 id 가 사라진 경우 — 건너뛴다
-      return (
-        <div className="bg-card border border-border rounded-xl p-4 space-y-2 text-xs text-muted-foreground">
-          <p>이 카드를 찾지 못했습니다</p>
-          <button className={btn} onClick={() => setSession({ ...session, pos: pos + 1, revealed: false })}>다음</button>
-        </div>
-      )
-    }
+    const prev = () => setSession({ ...session, pos: pos - 1, revealed: false })
     return (
-      <div className="space-y-3">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="tabular-nums">{pos + 1} / {ids.length}</span>
-          <span className="px-2 py-0.5 rounded-full border border-border bg-muted">{card.label}</span>
-          {card.note && <span className="text-[11px] text-amber-500">{card.note}</span>}
-          <button className="ml-auto hover:text-foreground" onClick={() => setSession(null)}>그만 풀기</button>
+      <Frame>
+        {/* 진행도 — 사례형 풀이 화면 머리줄과 같은 모양 */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-border pb-2">
+          <button onClick={() => setSession(null)} className={`${btn} text-muted-foreground`}>← 나가기</button>
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">문제 풀기</span>
+          <span className="tabular-nums text-sm font-semibold text-foreground">
+            {pos + 1} / {ids.length}
+          </span>
         </div>
 
-        <div className="bg-card border border-border rounded-xl p-3 space-y-2">
-          {card.parties && <NoteHtml html={card.parties} />}
-          <p className="text-sm font-semibold text-foreground">{card.title}</p>
-        </div>
-
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={8}
-          placeholder="청구취지·청구원인을 적어 보세요 (저장되지 않습니다)"
-          className="w-full rounded-xl border border-border bg-card p-3 text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:border-primary/50"
-        />
-
-        {!revealed ? (
-          <div className="flex gap-2">
-            <button className={btn} disabled={pos === 0} onClick={() => setSession({ ...session, pos: pos - 1, revealed: false })}>
-              ← 이전 카드
-            </button>
-            <button className={`${primaryBtn} flex-1`} onClick={() => setSession({ ...session, revealed: true })}>
-              정답 보기
-            </button>
+        {!card ? (
+          // 카드가 다시 올라와 id 가 사라진 경우 — 건너뛴다
+          <div className={`${SECTION} text-xs text-muted-foreground`}>
+            <p>이 카드를 찾지 못했습니다</p>
+            <button className={btn} onClick={() => setSession({ ...session, pos: pos + 1, revealed: false })}>다음</button>
           </div>
         ) : (
-          <div className="space-y-3">
-            <div className="bg-card border border-border rounded-xl p-3 record-note">
-              <AnswerTable card={card} />
-              {card.tailH && (
-                <div className="pt-2 space-y-1">
-                  <p className="text-xs font-semibold text-muted-foreground">공통 청구취지(소송비용 등)</p>
-                  <NoteHtml html={card.tailH} />
-                </div>
-              )}
+          <>
+            <div className={SECTION}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="shrink-0 rounded-md border border-primary bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                  {card.label}
+                </span>
+                {card.note && <span className="text-[11px] text-yellow-400">{card.note}</span>}
+              </div>
+              {card.parties && <NoteHtml html={card.parties} />}
+              <p className="text-sm font-bold text-foreground">{card.title}</p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <button className={btn} disabled={pos === 0} onClick={() => setSession({ ...session, pos: pos - 1, revealed: false })}>
-                ← 이전 카드
-              </button>
-              {MARKS.map((m) => (
-                <button
-                  key={m.id}
-                  className={`${btn} flex-1 ${marks[card.id] === m.id ? 'border-primary text-primary' : ''}`}
-                  onClick={() => grade(card, m.id)}
-                >
-                  {m.label}
+
+            <div className="space-y-1">
+              <div className="flex items-center">
+                <label className={LABEL}>내 답안</label>
+                <span className="ml-auto tabular-nums text-[11px] text-muted-foreground">{text.length}자</span>
+              </div>
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={8}
+                placeholder="청구취지·청구원인을 적어 보세요 (저장되지 않습니다)"
+                className={TEXTAREA}
+              />
+            </div>
+
+            {!revealed ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <button className={btn} disabled={pos === 0} onClick={prev}>← 이전 카드</button>
+                <button className={`${primaryBtn} ml-auto`} onClick={() => setSession({ ...session, revealed: true })}>
+                  정답 보기
                 </button>
-              ))}
-            </div>
-            {saveError && <p className="text-xs text-red-400">{saveError}</p>}
-          </div>
+              </div>
+            ) : (
+              <>
+                <div className={SECTION}>
+                  <label className={LABEL}>정답</label>
+                  <div className="record-note">
+                    <AnswerTable card={card} />
+                    {card.tailH && (
+                      <div className="pt-2 space-y-1">
+                        <p className={LABEL}>공통 청구취지(소송비용 등)</p>
+                        <NoteHtml html={card.tailH} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button className={btn} disabled={pos === 0} onClick={prev}>← 이전 카드</button>
+                  <span className="ml-auto" />
+                  {MARKS.map((m) => (
+                    <button
+                      key={m.id}
+                      className={marks[card.id] === m.id ? primaryBtn : btn}
+                      onClick={() => grade(card, m.id)}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+                {saveError && <p className="text-xs text-red-400">{saveError}</p>}
+              </>
+            )}
+          </>
         )}
-      </div>
+      </Frame>
     )
   }
 
   // ── 시작 화면 ─────────────────────────────────────────────
+  const allExams = examChips.length > 0 && examChips.every((e) => exams.includes(e))
+  const options = [...(wrongOnly ? [OPT_WRONG] : []), ...(shuffle ? [OPT_SHUFFLE] : [])]
   return (
-    <div className="space-y-4">
-      <p className="text-xs text-muted-foreground tabular-nums">
-        맞음 {stats.o} · 아쉬움 {stats.h} · 틀림 {stats.x} · 안 푼 {stats.none}
-      </p>
+    <Frame>
+      <div>
+        <h2 className="text-lg font-bold text-foreground mb-1">문제 풀기</h2>
+        <p className="text-sm text-muted-foreground">
+          민사 기출 청구 카드를 보고 청구취지·청구원인을 직접 써 본 뒤 정답과 비교해요. 필터를 고르지 않으면 전체입니다.
+        </p>
+      </div>
 
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="종류">
-        {KINDS.map((k) => (
-          <button key={k} type="button" aria-pressed={kinds.includes(k)} onClick={() => setKinds(toggle(kinds, k))} className={chip(kinds.includes(k))}>
-            {k}
-          </button>
-        ))}
+      <div className={SECTION}>
+        <label className={LABEL}>시험 유형 (복수 선택)</label>
+        <FilterChips
+          options={KINDS}
+          selected={kinds}
+          onChange={setKinds}
+          available={KINDS.filter((k) => cards.some((c) => c.exam?.kind === k))}
+        />
       </div>
 
       {examChips.length > 0 && (
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="회차">
-          {examChips.map((k) => (
-            <button key={k} type="button" aria-pressed={exams.includes(k)} onClick={() => setExams(toggle(exams, k))} className={chip(exams.includes(k))}>
-              {k}
+        <div className={SECTION}>
+          <div className="flex items-center justify-between">
+            <label className={LABEL}>회차 (복수 선택)</label>
+            <button onClick={() => setExams(allExams ? [] : examChips)} className={smallBtn(allExams)}>
+              전체
             </button>
-          ))}
+          </div>
+          <FilterChips options={examChips} selected={exams.filter((e) => examChips.includes(e))} onChange={setExams} />
         </div>
       )}
 
-      <div className="flex flex-wrap gap-1.5">
-        <button type="button" aria-pressed={wrongOnly} onClick={() => setWrongOnly(!wrongOnly)} className={chip(wrongOnly)}>
-          틀린·아쉬운 카드만
-        </button>
-        <button type="button" aria-pressed={shuffle} onClick={() => setShuffle(!shuffle)} className={chip(shuffle)}>
-          섞어서 풀기
-        </button>
+      <div className={SECTION}>
+        <label className={LABEL}>옵션</label>
+        <FilterChips
+          options={[OPT_WRONG, OPT_SHUFFLE]}
+          selected={options}
+          onChange={(next) => {
+            setWrongOnly(next.includes(OPT_WRONG))
+            setShuffle(next.includes(OPT_SHUFFLE))
+          }}
+        />
       </div>
 
-      <button className={`${primaryBtn} w-full`} disabled={chosen.length === 0} onClick={() => start(chosen)}>
-        {chosen.length > 0 ? `카드 ${chosen.length}장 풀기` : '조건에 맞는 카드가 없습니다'}
+      <div className={`${RESULT_CARD} flex-wrap gap-2`}>
+        <span className="text-muted-foreground">
+          선택된 카드: <span className="text-foreground font-medium">{chosen.length}장</span>
+        </span>
+        <span className="text-xs text-muted-foreground tabular-nums">
+          맞음 {stats.o} · 아쉬움 {stats.h} · 틀림 {stats.x} · 안 푼 {stats.none}
+        </span>
+      </div>
+
+      <button className={START_BTN} disabled={chosen.length === 0} onClick={() => start(chosen)}>
+        {chosen.length > 0 ? `풀기 시작 — ${chosen.length}장` : '조건에 맞는 카드가 없습니다'}
       </button>
-    </div>
+    </Frame>
   )
 }
