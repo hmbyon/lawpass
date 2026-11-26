@@ -6,7 +6,7 @@ import { fetchNoteDoc, fetchNotesIndex } from '@/lib/firebaseServices/caseStudy'
 import { FilterChips } from '@/components/filter-chips'
 import { sanitizeNote } from '@/lib/record/sanitizeNote'
 import {
-  clampIndent, clampSpan, examChipsFor, filterNoteItems, isEmptyNoteItem, itemExams, notePartsOf, noteSubjects,
+  clampIndent, clampSpan, examChipsFor, filterNoteItems, itemExams, notePartsOf, noteSubjects,
   partLabel, sortedExamKeys, type NoteBlock, type NoteDoc, type NotesIndex,
 } from '@/lib/record/notes'
 
@@ -55,7 +55,7 @@ const chip = (on: boolean) =>
 
 /**
  * 기록형 정리본 열람. 색인으로 과목·부·항목 목록과 회차 칩을 그리고,
- * 부를 고르면 그 부의 문서를 한 번만 읽어 둔다(부 단위 캐시) — 항목의 본문과 '작성 중' 판정이 여기서 나온다
+ * 부를 고르면 그 부의 문서를 한 번만 읽어 둔다(부 단위 캐시) — 항목을 펼치면 여기서 본문을 꺼내 보인다
  */
 export function NotesViewer() {
   const [index, setIndex] = useState<NotesIndex | null | undefined>(undefined) // undefined = 불러오는 중
@@ -169,16 +169,14 @@ export function NotesViewer() {
         <div className="space-y-2">
           {items.map((it) => {
             const body = partDoc?.items?.find((x) => x.id === it.id)
-            const empty = !!body && isEmptyNoteItem(body)
-            const open = openId === it.id && !empty
+            const open = openId === it.id
             return (
-              <div key={it.id} className={`bg-card border border-border rounded-xl ${empty ? 'opacity-50' : ''}`}>
+              <div key={it.id} className="bg-card border border-border rounded-xl">
                 <button
                   type="button"
-                  disabled={empty}
                   aria-expanded={open}
                   onClick={() => setOpenId(open ? null : it.id)}
-                  className="w-full text-left p-3 flex flex-wrap items-center gap-1.5 disabled:cursor-not-allowed"
+                  className="w-full text-left p-3 flex flex-wrap items-center gap-1.5"
                 >
                   <span className="text-sm font-medium text-foreground mr-1">{it.title}</span>
                   {sortedExamKeys(itemExams(it)).map((k) => (
@@ -186,7 +184,6 @@ export function NotesViewer() {
                       {k}
                     </span>
                   ))}
-                  {empty && <span className="text-[11px] text-muted-foreground">작성 중</span>}
                   <span className="ml-auto text-sm text-muted-foreground">{open ? '▾' : '▸'}</span>
                 </button>
                 {open && (

@@ -119,11 +119,6 @@ export function filterNoteItems<T extends NotesIndexItem>(items: T[], selected: 
   return items.filter((it) => itemExams(it).some((e) => selected.includes(examKey(e))))
 }
 
-/** 본문도 소항목도 없는 항목 — 목록에 '작성 중'으로 흐리게 */
-export function isEmptyNoteItem(item: Pick<NoteItem, 'blocks' | 'subs'>): boolean {
-  return (item.blocks?.length ?? 0) === 0 && (item.subs?.length ?? 0) === 0
-}
-
 /** 표 셀 colSpan/rowSpan — 정수 1~20 */
 export function clampSpan(n: unknown): number {
   const v = Math.trunc(Number(n))

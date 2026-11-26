@@ -11,7 +11,7 @@ import assert from 'node:assert/strict'
 import { sanitizeNote } from '../lib/record/sanitizeNote'
 import { parseCaseFile } from '../lib/caseStudy/parse'
 import {
-  clampIndent, clampSpan, examChipsFor, filterNoteItems, isEmptyNoteItem, notePartsOf, noteSubjects, partLabel,
+  clampIndent, clampSpan, examChipsFor, filterNoteItems, notePartsOf, noteSubjects, partLabel,
   sortedExamKeys, type NotesIndex,
 } from '../lib/record/notes'
 
@@ -148,10 +148,7 @@ assert.deepEqual(filterNoteItems(items, ['변시 14']).map((i) => i.id), ['p1'])
 assert.deepEqual(filterNoteItems(items, ['변시 2']).map((i) => i.id), ['p2'], '소항목 태그로도 걸린다')
 assert.deepEqual(filterNoteItems(items, ['변시 2', '모의 24.6']).map((i) => i.id), ['p1', 'p2'], '여러 칩은 하나라도')
 assert.deepEqual(filterNoteItems(items, ['모의 24.10']), [])
-assert.equal(isEmptyNoteItem({ blocks: [], subs: [] }), true)
-assert.equal(isEmptyNoteItem({ blocks: [], subs: [{ title: 's', blocks: [] }] }), false)
-assert.equal(isEmptyNoteItem({ blocks: [{ t: 'p', h: 'x' }], subs: [] }), false)
 assert.deepEqual([clampSpan(undefined), clampSpan(0), clampSpan(3), clampSpan(99), clampSpan('2'), clampSpan('x'), clampSpan(2.7)], [1, 1, 3, 20, 2, 1, 2])
 assert.deepEqual([clampIndent(undefined), clampIndent(-1), clampIndent(3), clampIndent(9)], [0, 0, 3, 6])
 
-console.log('통과: sanitizeNote(차단·허용·DOMParser 없음), parseCaseFile(note·notesIndex, 기존 카드·_index 그대로), 회차 칩·필터·작성 중·span/들여쓰기 범위')
+console.log('통과: sanitizeNote(차단·허용·DOMParser 없음), parseCaseFile(note·notesIndex, 기존 카드·_index 그대로), 회차 칩·필터·span/들여쓰기 범위')
