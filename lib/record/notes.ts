@@ -138,9 +138,14 @@ export function cellBgClass(bg: unknown): string {
   return bg === 'g1' || bg === 'g2' ? `note-bg-${bg}` : ''
 }
 
-/** 기재례 박스: 행 1개·셀 1개인 표 */
+/** 기재례 박스: 1열 표 — 행이 1개 이상이고 모든 행에 셀이 정확히 1개(여러 열을 차지하는 셀 없음) */
 export function isBoxTable(block: NoteBlock): boolean {
-  return block?.t === 'table' && Array.isArray(block.rows) && block.rows.length === 1 && Array.isArray(block.rows[0]) && block.rows[0].length === 1
+  return (
+    block?.t === 'table' &&
+    Array.isArray(block.rows) &&
+    block.rows.length > 0 &&
+    block.rows.every((row) => Array.isArray(row) && row.length === 1 && clampSpan(row[0]?.cs) === 1)
+  )
 }
 
 /** 표 글자 크기: sz 's' 만 작게, 나머지는 본문 문단과 같은 크기 */

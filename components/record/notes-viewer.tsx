@@ -15,9 +15,9 @@ function Blocks({ blocks }: { blocks: NoteBlock[] }) {
     <>
       {(blocks ?? []).map((b, i) =>
         b?.t === 'table' ? (
-          // 행 1개·셀 1개인 표는 기재례 박스다
-          <div key={i} className={`overflow-x-auto my-2 ${isBoxTable(b) ? 'note-box' : ''}`}>
-            <table className={`border-collapse ${tableSizeClass(b)}`}>
+          <div key={i} className="overflow-x-auto my-2">
+            {/* 1열 표는 기재례 박스다 — 배경은 표(상자) 안쪽 셀에만 */}
+            <table className={`border-collapse ${tableSizeClass(b)} ${isBoxTable(b) ? 'note-box' : ''}`}>
               <tbody>
                 {(Array.isArray(b.rows) ? b.rows : []).map((row, r) => (
                   <tr key={r}>

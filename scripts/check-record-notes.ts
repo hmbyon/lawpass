@@ -261,7 +261,12 @@ if (!notesDir) {
 const tbl = (rows: unknown[][], extra: object = {}) => ({ t: 'table', rows, ...extra }) as unknown as NoteBlock
 assert.equal(isBoxTable(tbl([[{ h: 'x' }]])), true, '1×1 표')
 assert.equal(isBoxTable(tbl([[{ h: 'x' }, { h: 'y' }]])), false, '1×2')
-assert.equal(isBoxTable(tbl([[{ h: 'x' }], [{ h: 'y' }]])), false, '2×1')
+assert.equal(isBoxTable(tbl([[{ h: 'x' }], [{ h: 'y' }]])), true, '2행 1열')
+assert.equal(isBoxTable(tbl([[{ h: 'x' }], [{ h: 'y' }], [{ h: 'z' }]])), true, '3행 1열')
+assert.equal(isBoxTable(tbl([[{ h: 'a' }, { h: 'b' }], [{ h: 'c' }, { h: 'd' }]])), false, '2열 표')
+assert.equal(isBoxTable(tbl([[{ h: '머리', cs: 2 }], [{ h: 'a' }, { h: 'b' }]])), false, '첫 행 cs 헤더 + 여러 열')
+assert.equal(isBoxTable(tbl([[{ h: '머리', cs: 2 }], [{ h: 'a' }]])), false, '셀이 하나여도 여러 열을 차지하면 박스가 아니다')
+assert.equal(isBoxTable(tbl([[{ h: 'x' }], []])), false, '빈 행이 섞인 표')
 assert.equal(isBoxTable(tbl([])), false, '빈 표')
 assert.equal(isBoxTable(tbl([[]])), false, '빈 행')
 assert.equal(isBoxTable({ t: 'p', h: 'x' }), false, '문단')
