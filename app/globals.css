@@ -350,6 +350,8 @@ html.eye .record-note {
 .record-note .c3 { color: var(--note-c3); }
 .record-note .c4 { color: var(--note-c4); }
 .record-note .c5 { color: var(--muted-foreground); }
+/* 파란 글씨(c2)는 원본처럼 주변 글자보다 작게 — em 이라 본문·표 셀 어디서든 비율로 줄어든다 */
+.record-note .c2 { font-size: 0.88em; }
 .record-note mark {
   color: inherit;
   border-radius: 2px;
