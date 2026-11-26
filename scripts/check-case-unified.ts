@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
-import { buildCaseDigest, buildUnifiedCaseDigest, caseStudySubjectLabel, filterCases, mergeUnitSelection, selectedUnitsOf, type CaseDigest } from '../lib/caseDigest'
+import { buildCaseDigest, buildUnifiedCaseDigest, caseStudyProblemCount, caseStudySubjectLabel, filterCases, inOrigin, mergeUnitSelection, originCount, recordProblemCount, selectedUnitsOf, type CaseDigest, type CaseOrigin } from '../lib/caseDigest'
 import { isRecordCard } from '../lib/caseStudy/group'
 import type { CaseIndex } from '../lib/caseStudy/types'
 import type { Question } from '../lib/types'
@@ -33,7 +33,7 @@ function goldenSame(qs: Question[], what: string) {
   assert.equal(legacy(buildUnifiedCaseDigest(qs, EMPTY)), legacy(base), `${what}: unified(q, 빈 색인) = buildCaseDigest(q)`)
   assert.equal(full(buildUnifiedCaseDigest(qs, EMPTY)), full(base), `${what}: 새 필드까지 동일`)
   for (const g of base.groups) {
-    assert.deepEqual(g.counts, { objective: g.count, caseStudy: 0, total: g.count })
+    assert.deepEqual(g.counts, { objective: g.count, caseStudy: 0, record: 0, total: g.count })
     assert.equal(g.sources.length, g.count)
     assert.equal(g.hasSummary, g.summary !== '')
   }
@@ -71,7 +71,7 @@ assert.equal(u.questionsWithCases, 3, '선택형 문제 수는 그대로')
 
 // 합치기: 선택형+사례형 → 그룹 1개, 선고일·법원·요지는 선택형 값
 const merged = byKey.get('2001다46730')!
-assert.deepEqual(merged.counts, { objective: 1, caseStudy: 1, total: 2 }, 'stub 문항은 세지 않는다')
+assert.deepEqual(merged.counts, { objective: 1, caseStudy: 1, record: 0, total: 2 }, 'stub 문항은 세지 않는다')
 assert.equal(merged.count, 1, '기존 count 는 선택형 값')
 assert.equal(merged.decidedDate, '2003. 6. 13. 선고')
 assert.equal(merged.year, 2003)
@@ -90,7 +90,7 @@ if (cs.kind === 'caseStudy') {
 
 // 2자리(선택형 95다8713) / 4자리(사례형 1995다8713) → 한 그룹, 표기는 선택형 것
 const twoDigit = byKey.get('1995다8713')!
-assert.deepEqual(twoDigit.counts, { objective: 1, caseStudy: 1, total: 2 })
+assert.deepEqual(twoDigit.counts, { objective: 1, caseStudy: 1, record: 0, total: 2 })
 assert.equal(twoDigit.caseNumber, '95다8713')
 const mock = twoDigit.sources.find((s) => s.kind === 'caseStudy')
 assert.ok(mock && mock.kind === 'caseStudy' && mock.problemLabel === '모의 24.6 제2문의 2 문1' && mock.year === 2024)
@@ -105,12 +105,12 @@ assert.equal(only.hasSummary, false)
 assert.equal(only.count, 0)
 assert.deepEqual(only.questions, [])
 assert.deepEqual(only.subjects, [])
-assert.deepEqual(only.counts, { objective: 0, caseStudy: 1, total: 1 })
+assert.deepEqual(only.counts, { objective: 0, caseStudy: 1, record: 0, total: 1 })
 assert.equal(only.caseNumber, '2002다64780')
 assert.deepEqual(only.sources.map((s) => s.kind), ['caseStudy'])
 
 // 선택형에만 있는 판례는 그대로
-assert.deepEqual(byKey.get('2010다1')!.counts, { objective: 1, caseStudy: 0, total: 1 })
+assert.deepEqual(byKey.get('2010다1')!.counts, { objective: 1, caseStudy: 0, record: 0, total: 1 })
 
 // v1 색인(문항 cases 없음)은 빈 색인과 같다
 const v1 = { schema: 1, cards: [{ ...index.cards[0], problems: index.cards[0].problems.map(({ cases: _c, ...p }) => p) }] } as unknown as CaseIndex
@@ -136,8 +136,8 @@ assert.equal(isRecordCard(recordIndex.cards[1]), true)
 assert.equal(isRecordCard(recordIndex.cards[0]), false)
 const ru = buildUnifiedCaseDigest(objective, recordIndex)
 const rKey = new Map(ru.groups.map((g) => [g.key, g]))
-assert.deepEqual(rKey.get('2001다46730')!.counts, { objective: 1, caseStudy: 2, total: 3 }, '기록형 인용이 선택형 판례에 합쳐진다')
-assert.deepEqual(rKey.get('2020두1')!.counts, { objective: 0, caseStudy: 2, total: 2 }, '기록형 전용 판례')
+assert.deepEqual(rKey.get('2001다46730')!.counts, { objective: 1, caseStudy: 1, record: 1, total: 3 }, '기록형 인용이 선택형 판례에 합쳐진다 — 사례형과 따로 센다')
+assert.deepEqual(rKey.get('2020두1')!.counts, { objective: 0, caseStudy: 0, record: 2, total: 2 }, '기록형 전용 판례')
 const recSources = ru.groups.flatMap((g) => g.sources).filter((s) => s.kind === 'caseStudy' && s.cardId === '기록-공법')
 assert.deepEqual(
   recSources.map((s) => s.kind === 'caseStudy' && s.problemLabel).sort(),
@@ -153,7 +153,27 @@ assert.deepEqual(filterCases(ru.groups, { subjects: ['공법 기록형'], origin
 assert.deepEqual(filterCases(ru.groups, { subjects: ['공법 기록형'], units: ['채권총론'], origin: 'all' }).map((g) => g.key).sort(), ['2001다46730', '2020두1'])
 assert.deepEqual(selectedUnitsOf('공법 기록형', ['채권총론']), [])
 assert.deepEqual(mergeUnitSelection('공법 기록형', ['채권총론'], ['x']), ['채권총론'])
-console.log('통과: 기록형 카드 — 합치기, 문항 라벨, 과목 칩 이름, 기록형 과목 필터·단원 없음')
+// 출처 구분: 기록형 출처에만 record 표시, 사례형 출처 모양은 그대로
+assert.ok(recSources.every((s) => s.kind === 'caseStudy' && s.record === true))
+assert.ok(ru.groups.flatMap((g) => g.sources).every((s) => s.kind !== 'caseStudy' || s.cardId === '기록-공법' || !('record' in s)))
+// 1) 기록형 전용 판례는 'record' 에서만 잡힌다
+const keysIn = (o: CaseOrigin) => filterCases(ru.groups, { origin: o }).map((g) => g.key).sort()
+assert.ok(inOrigin(rKey.get('2020두1')!, 'record') && !inOrigin(rKey.get('2020두1')!, 'caseStudy'))
+assert.ok(keysIn('record').includes('2020두1') && !keysIn('caseStudy').includes('2020두1'))
+assert.deepEqual(keysIn('record'), ['2001다46730', '2020두1'])
+assert.deepEqual(filterCases(ru.groups, { subjects: ['공법 기록형'], origin: 'caseStudy' }), [], '사례형 칩에서는 기록형 과목으로 걸리지 않는다')
+// 2) 사례형 문항 수에 기록형이 들지 않는다 (1a-1#1·#2 = 2), 기록형 시험 수는 따로 (2)
+assert.equal(caseStudyProblemCount(ru.groups), 2)
+assert.equal(caseStudyProblemCount(ru.groups), caseStudyProblemCount(u.groups), '기록형 카드를 더해도 사례형 문항 수는 그대로')
+assert.equal(recordProblemCount(ru.groups), 2)
+assert.equal(recordProblemCount(u.groups), 0)
+// 3) 사례형·기록형에 모두 나온 판례(2001다46730): 'all'·'caseStudy'·'record' 각각 판례 1건
+for (const o of ['all', 'caseStudy', 'record'] as CaseOrigin[]) {
+  assert.equal(keysIn(o).filter((k) => k === '2001다46730').length, 1, o)
+}
+const both = rKey.get('2001다46730')!
+assert.deepEqual([originCount(both, 'all'), originCount(both, 'objective'), originCount(both, 'caseStudy'), originCount(both, 'record')], [3, 1, 1, 1])
+console.log('통과: 기록형 카드 — 합치기, 문항 라벨, 과목 칩 이름, 기록형 과목 필터·단원 없음, 출처 구분(record), 사례형 문항 수에서 제외')
 
 // ── 실데이터 통계 (환경 변수가 있을 때만) ───────────────────────────
 const objDir = process.env.LAWPASS_OBJECTIVE_DIR
@@ -181,10 +201,10 @@ if (!objDir || !caseDir) {
   }
   const base = buildCaseDigest(qs)
   const uni = buildUnifiedCaseDigest(qs, idx)
-  const csGroups = uni.groups.filter((g) => g.counts.caseStudy > 0)
+  const csGroups = uni.groups.filter((g) => g.counts.caseStudy + g.counts.record > 0)
   const overlap = csGroups.filter((g) => g.counts.objective > 0).length
   const onlyCs = csGroups.length - overlap
-  const csRefs = uni.groups.reduce((n, g) => n + g.counts.caseStudy, 0)
+  const csRefs = uni.groups.reduce((n, g) => n + g.counts.caseStudy + g.counts.record, 0)
   console.log(`실데이터 통계${rebuilt ? ` (색인 v1 → 문항 ${rebuilt}개의 cases 를 카드 답안 mark.case 로 재현)` : ''}`)
   console.log(`  선택형: 문제 ${qs.length}개 · 판례 그룹 ${base.totalGroups}개`)
   console.log(`  사례형: 문항 단위 인용 ${csRefs}건 · 판례 ${csGroups.length}종 (선택형과 겹침 ${overlap}종 / 사례형 전용 ${onlyCs}종)`)

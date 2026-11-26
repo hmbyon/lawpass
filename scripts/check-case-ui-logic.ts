@@ -297,7 +297,7 @@ if (!objDir || !caseDir) {
   let found = 0, total = 0, maxLen = 0, emptyLaw = 0, withApp = 0, highlighted = 0
   const kinds: Record<string, number> = { a: 0, b: 0, c: 0, none: 0 }
   for (const g of realUni) for (const s of g.sources) {
-    if (s.kind !== 'caseStudy') continue
+    if (s.kind !== 'caseStudy' || s.record) continue
     total++
     const cs = caseCitations(cards.get(s.cardId)?.problems.find((p) => p.id === s.problemId), g.key)
     if (cs.length) found++
@@ -309,7 +309,7 @@ if (!objDir || !caseDir) {
     if (answerRows(prob, g.key, true).rows.some((r) => r.kind === 'paragraph' && r.highlightEnd > 0)) highlighted++
   }
   console.log('실데이터 통계 (기본 필터: 최근 5개년·출제횟수순)')
-  for (const o of ['all', 'objective', 'caseStudy'] as CaseOrigin[]) {
+  for (const o of ['all', 'objective', 'caseStudy', 'record'] as CaseOrigin[]) {
     const c = cnt(o)
     console.log(`  ${o.padEnd(9)} 판례 ${c.dated + c.undated}건 (선고일 있음 ${c.dated} · 선고일 미상 ${c.undated})`)
   }

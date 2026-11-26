@@ -2,7 +2,7 @@ import type { CaseRef, ExamType, ExplanationBlock, Question, Subject } from './t
 import { SUBJECT_UNITS } from './units'
 import { examMonthOf, examMonthLabel, type ExamMonthLabel, type SourceBucket } from './questionSource'
 import type { CaseIndex, CaseSubject, IndexProblem } from './caseStudy/types'
-import { problemLabel } from './caseStudy/group'
+import { isRecordCard, problemLabel } from './caseStudy/group'
 
 /**
  * 해설에 인용된 판례를 판례 단위로 모은다.
@@ -98,7 +98,8 @@ export interface CaseGroup {
   // 위 필드(questions·count·subjects·units·요지·선고일)는 전부 **선택형 값**이다 — 기존 화면이
   // 그대로 돌게 하려는 것이다. 사례형까지 합친 정보는 아래 셋에만 있다
   sources: CaseSource[] // 이 판례를 인용한 곳 전부 (선택형 문제 + 사례형 문항)
-  counts: { objective: number; caseStudy: number; total: number } // total 은 정렬용 합계
+  // caseStudy 는 기록형을 뺀 사례형, record 는 기록형만. total 은 정렬용 합계
+  counts: { objective: number; caseStudy: number; record: number; total: number }
   hasSummary: boolean // 요지가 있는가. 사례형에만 나온 판례는 요지가 없다(문구는 화면이 정한다)
 }
 
@@ -132,6 +133,7 @@ export type CaseSource =
       qno: string // '제2문의 1' — 판례 화면의 문항 버튼 라벨용
       sub: string // '문2' 또는 ''
       year: number | null
+      record?: true // 기록형 카드(isRecordCard)의 문항. 사례형 문항에는 이 필드가 없다
     }
 
 // 사례형 문항의 시험 연도. 판례 선고연도로 쓰지 않는다
@@ -183,7 +185,7 @@ export function buildCaseDigest(questions: Question[], now: Date = new Date()): 
  *  - 선택형 필드(questions·count·subjects·units)는 비어 있다(0). 출제 횟수는 counts 에 있다
  */
 export function buildUnifiedCaseDigest(questions: Question[], caseIndex?: CaseIndex | null): CaseDigest {
-  const groups = new Map<string, { refs: CaseRef[]; questions: Question[]; sources: CaseSource[]; firstRaw: string; caseStudy: number }>()
+  const groups = new Map<string, { refs: CaseRef[]; questions: Question[]; sources: CaseSource[]; firstRaw: string; caseStudy: number; record: number }>()
   let questionsWithCases = 0
 
   for (const q of questions) {
@@ -204,12 +206,13 @@ export function buildUnifiedCaseDigest(questions: Question[], caseIndex?: CaseIn
         found.questions.push(q)
         found.sources.push(source)
       } else {
-        groups.set(key, { refs: [c], questions: [q], sources: [source], firstRaw: c.caseNumber, caseStudy: 0 })
+        groups.set(key, { refs: [c], questions: [q], sources: [source], firstRaw: c.caseNumber, caseStudy: 0, record: 0 })
       }
     }
   }
 
   for (const card of caseIndex?.cards ?? []) {
+    const record = isRecordCard(card)
     for (const p of card.problems ?? []) {
       if (p.stubFor || !p.cases?.length) continue
       // 한 문항이 같은 판례를 두 번 인용해도 1건이다 (선택형과 같은 원칙)
@@ -221,14 +224,13 @@ export function buildUnifiedCaseDigest(questions: Question[], caseIndex?: CaseIn
         const source: CaseSource = {
           kind: 'caseStudy', cardId: card.id, problemId: p.id, cardTitle: card.title, problemLabel: problemLabel(p),
           subject: card.subject, examType: p.kind, exam: p.exam, qno: p.qno, sub: p.sub ?? '', year: caseStudyExamYear(p),
+          ...(record && { record: true as const }),
         }
-        const found = groups.get(key)
-        if (found) {
-          found.sources.push(source)
-          found.caseStudy++
-        } else {
-          groups.set(key, { refs: [], questions: [], sources: [source], firstRaw: raw, caseStudy: 1 })
-        }
+        let found = groups.get(key)
+        if (!found) groups.set(key, (found = { refs: [], questions: [], sources: [], firstRaw: raw, caseStudy: 0, record: 0 }))
+        found.sources.push(source)
+        if (record) found.record++
+        else found.caseStudy++
       }
     }
   }
@@ -252,7 +254,7 @@ export function buildUnifiedCaseDigest(questions: Question[], caseIndex?: CaseIn
       subjects: Array.from(new Set(g.questions.map((q) => q.subject))),
       units: Array.from(new Set(g.questions.map((q) => q.unit?.trim()).filter((u): u is string => !!u))),
       sources: g.sources,
-      counts: { objective, caseStudy: g.caseStudy, total: objective + g.caseStudy },
+      counts: { objective, caseStudy: g.caseStudy, record: g.record, total: objective + g.caseStudy + g.record },
       hasSummary: summary !== '',
     }
   })
@@ -264,13 +266,19 @@ export type CaseSort = 'count' | 'date'
 
 /**
  * 판례 화면의 출처 칩. 'objective' 는 기존 선택형 화면과 같다 — 기준이 counts.objective(= count)라
- * 숫자도 정렬도 예전 그대로다. 'all' 은 선택형·사례형 합(counts.total)
+ * 숫자도 정렬도 예전 그대로다. 'caseStudy' 는 기록형을 뺀 사례형, 'record' 는 기록형만,
+ * 'all' 은 셋의 합(counts.total)
  */
-export type CaseOrigin = 'all' | 'objective' | 'caseStudy'
+export type CaseOrigin = 'all' | 'objective' | 'caseStudy' | 'record'
 
 /** 그 칩에서의 출제 횟수 */
 export function originCount(g: CaseGroup, origin: CaseOrigin): number {
-  return origin === 'all' ? g.counts.total : origin === 'objective' ? g.counts.objective : g.counts.caseStudy
+  return origin === 'all' ? g.counts.total : g.counts[origin]
+}
+
+/** 사례형·기록형 출처가 그 칩에 드는가 ('all' 은 둘 다, 'objective' 는 둘 다 아니다) */
+export function caseStudySourceIn(s: Extract<CaseSource, { kind: 'caseStudy' }>, origin: CaseOrigin): boolean {
+  return origin === 'all' || (origin === 'record' ? !!s.record : origin === 'caseStudy' && !s.record)
 }
 
 /** 그 칩에 드는 판례인가 (그 출처에서 한 번이라도 인용됐나) */
@@ -423,9 +431,9 @@ export function filterCases(
     if (!inPeriod(g.year, years, now)) return false
     if (subjects.length === 0 && units.length === 0 && examTypes.length === 0 && examYears.length === 0) return true
     if (origin && origin !== 'objective') {
-      const cs = g.sources.some((s) => s.kind === 'caseStudy' && caseStudyMatches(s))
+      const cs = g.sources.some((s) => s.kind === 'caseStudy' && caseStudySourceIn(s, origin) && caseStudyMatches(s))
       if (cs) return true
-      if (origin === 'caseStudy') return false
+      if (origin !== 'all') return false
     }
     return g.questions.some((q) => {
       if (subjects.length > 0 && !subjects.includes(q.subject)) return false
@@ -790,21 +798,32 @@ export function previewMention(group: CaseGroup): CasePreview | null {
   return { ...best, mention: { ...best.mention, text: clipForCard(best.mention.text, normalizeCaseNumber(group.caseNumber)) } }
 }
 
-/** 사례형 출처가 달린 사례형 문항 수 (문항 id 기준, 여러 판례에 걸쳐도 한 번) */
-export function caseStudyProblemCount(groups: CaseGroup[]): number {
+function problemCount(groups: CaseGroup[], origin: 'caseStudy' | 'record'): number {
   const ids = new Set<string>()
-  for (const g of groups) for (const s of g.sources) if (s.kind === 'caseStudy') ids.add(s.problemId)
+  for (const g of groups) for (const s of g.sources) if (s.kind === 'caseStudy' && caseStudySourceIn(s, origin)) ids.add(s.problemId)
   return ids.size
+}
+
+/** 사례형 출처가 달린 사례형 문항 수 (문항 id 기준, 여러 판례에 걸쳐도 한 번). 기록형은 빼고 센다 */
+export function caseStudyProblemCount(groups: CaseGroup[]): number {
+  return problemCount(groups, 'caseStudy')
+}
+
+/** 판례가 달린 기록형 문항 수. 기록형은 문항 하나가 시험 하나다 */
+export function recordProblemCount(groups: CaseGroup[]): number {
+  return problemCount(groups, 'record')
 }
 
 /**
  * 판례 목록 위 요약 줄의 뒷부분. 선택형 칩(통합 화면이 아닐 때 포함)은 예전 문구 그대로다
- *  - 전체: "선택형 문제 N · 사례형 문항 M" / 선택형: "판례가 달린 문제 N개" / 사례형: "사례형 문항 M"
+ *  - 전체: "선택형 문제 N · 사례형 문항 M · 기록형 시험 K" / 선택형: "판례가 달린 문제 N개"
+ *  - 사례형: "사례형 문항 M" / 기록형: "기록형 시험 K"
  */
-export function casesSummaryTail(origin: CaseOrigin, questionsWithCases: number, caseStudyProblems: number): string {
+export function casesSummaryTail(origin: CaseOrigin, questionsWithCases: number, caseStudyProblems: number, recordProblems: number): string {
   if (origin === 'objective') return `판례가 달린 문제 ${questionsWithCases}개`
   if (origin === 'caseStudy') return `사례형 문항 ${caseStudyProblems}`
-  return `선택형 문제 ${questionsWithCases} · 사례형 문항 ${caseStudyProblems}`
+  if (origin === 'record') return `기록형 시험 ${recordProblems}`
+  return `선택형 문제 ${questionsWithCases} · 사례형 문항 ${caseStudyProblems} · 기록형 시험 ${recordProblems}`
 }
 
 // ── 사례형 답안 발췌 ───────────────────────────────────────────────

@@ -15,7 +15,7 @@ import {
 import {
   buildUnifiedCaseDigest, filterCases, sortCases, periodLabel, PERIOD_OPTIONS, examYearLabel,
   findCaseMentions, allExplanationText, previewMention, selectedUnitsOf, mergeUnitSelection,
-  searchCases, inOrigin, caseStudySubjectLabel, caseStudyProblemCount, casesSummaryTail,
+  searchCases, inOrigin, caseStudySubjectLabel, caseStudyProblemCount, casesSummaryTail, recordProblemCount, caseStudySourceIn,
   stripBucketLabels, groupCaseStudySources, caseStudyExamLabel, caseStudyQuestionLabel, caseNumberSpans,
   toggleExpanded, allVisibleExpanded, setVisibleExpanded, expandAllNeedsConfirm,
   type CaseGroup, type CaseSort, type CaseOrigin, type CaseSource,
@@ -468,17 +468,20 @@ function CaseCard({
 }) {
   // 카드에서 바로 보여줄 조각. 판례 목록을 훑는 사람이 매번 문제를 펼쳐 보게 할 이유가 없다
   const preview = useMemo(() => (expanded ? previewMention(group) : null), [group, expanded])
-  const showObjective = origin !== 'caseStudy'
-  const caseStudySources = unified && origin !== 'objective'
-    ? group.sources.filter((s): s is CaseStudySource => s.kind === 'caseStudy')
-    : []
+  const showObjective = origin === 'all' || origin === 'objective'
+  const csAll = unified ? group.sources.filter((s): s is CaseStudySource => s.kind === 'caseStudy') : []
+  const caseStudySources = csAll.filter((s) => !s.record && caseStudySourceIn(s, origin))
+  // 기록형은 답안·문제 카드가 없다 — 라벨만 보인다
+  const recordSources = csAll.filter((s) => s.record && caseStudySourceIn(s, origin))
   const hasCaseStudy = caseStudySources.length > 0
+  const hasRecord = recordSources.length > 0
   const hasObjective = showObjective && group.questions.length > 0
   // 출제 횟수는 소스별로 ("선택형 3 · 사례형 2", 0 은 생략). 통합 화면이 아니면 예전 표기
   const countLabel = unified
     ? [
         showObjective && group.counts.objective > 0 && `선택형 ${group.counts.objective}`,
-        origin !== 'objective' && group.counts.caseStudy > 0 && `사례형 ${group.counts.caseStudy}`,
+        (origin === 'all' || origin === 'caseStudy') && group.counts.caseStudy > 0 && `사례형 ${group.counts.caseStudy}`,
+        (origin === 'all' || origin === 'record') && group.counts.record > 0 && `기록형 ${group.counts.record}`,
       ].filter(Boolean).join(' · ')
     : `${group.count}회 출제`
   return (
@@ -540,7 +543,7 @@ function CaseCard({
           그 결론이 접힌 자리 아래로 밀려나므로 여기서는 접지 않는다.
           전문은 그 문제번호를 누르면 나온다 */}
       {/* 사례형 출처가 함께 보일 때만 소제목으로 가른다. 선택형 출처만 있거나 선택형 칩이면 예전 카드 그대로 */}
-      {hasCaseStudy && hasObjective && <SourceHeading tone="objective">선택형</SourceHeading>}
+      {(hasCaseStudy || hasRecord) && hasObjective && <SourceHeading tone="objective">선택형</SourceHeading>}
       {showObjective && preview && (
         <div className="rounded-lg border border-primary/30 bg-primary/5 p-2 space-y-0.5">
           <p className="text-[11px] text-muted-foreground">
@@ -600,6 +603,24 @@ function CaseCard({
           </div>
         </>
       )}
+
+      {hasRecord && (
+        <>
+          <SourceHeading tone="caseStudy">기록형</SourceHeading>
+          <div className="space-y-1.5">
+            {Array.from(new Set(recordSources.map((s) => s.subject))).map((subject) => (
+              <div key={subject} className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] text-muted-foreground shrink-0">{caseStudySubjectLabel(subject)}</span>
+                {recordSources.filter((s) => s.subject === subject).map((src) => (
+                  <span key={src.problemId} className="px-2 py-0.5 rounded text-xs border bg-muted text-muted-foreground border-border">
+                    {src.problemLabel}
+                  </span>
+                ))}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
       </>
       )}
     </div>
@@ -613,6 +634,7 @@ const ORIGINS: { id: CaseOrigin; label: string }[] = [
   { id: 'all', label: '전체' },
   { id: 'objective', label: '선택형' },
   { id: 'caseStudy', label: '사례형' },
+  { id: 'record', label: '기록형' },
 ]
 
 export function CasesTab({
@@ -631,18 +653,27 @@ export function CasesTab({
   const digest = useMemo(() => buildUnifiedCaseDigest(questions, caseIndex), [questions, caseIndex])
   // 사례형 출처가 실제로 하나라도 있을 때만 출처 칩·소스별 횟수를 켠다.
   // v1 색인(문항 cases 없음)이나 색인 없음이면 화면이 예전과 한 글자도 다르지 않다
-  const unified = useMemo(() => digest.groups.some((g) => g.counts.caseStudy > 0), [digest.groups])
+  const unified = useMemo(() => digest.groups.some((g) => g.counts.caseStudy > 0 || g.counts.record > 0), [digest.groups])
   const [origin, setOrigin] = useState<CaseOrigin>('all')
+  const recordSubjects = useMemo(
+    () => new Set(digest.groups.flatMap((g) => g.sources.flatMap((s) => (s.kind === 'caseStudy' && s.record ? [caseStudySubjectLabel(s.subject)] : [])))),
+    [digest.groups]
+  )
   useEffect(() => {
     try {
       const saved = localStorage.getItem(ORIGIN_KEY)
-      if (saved === 'all' || saved === 'objective' || saved === 'caseStudy') setOrigin(saved)
+      if (saved === 'all' || saved === 'objective' || saved === 'caseStudy' || saved === 'record') setOrigin(saved)
     } catch {
       // 저장소를 못 읽으면 기본값(전체)으로 둔다
     }
   }, [])
   function changeOrigin(next: CaseOrigin) {
     setOrigin(next)
+    // 기록형 칩과 나머지 칩은 과목 칩이 서로 다르다. 안 보이게 된 과목이 골라진 채 남으면 결과가 0건이 된다
+    if (next !== 'all') {
+      const isRecord = (s: string) => recordSubjects.has(s)
+      changeSubjects(subjects.filter((s) => isRecord(s) === (next === 'record')))
+    }
     try {
       localStorage.setItem(ORIGIN_KEY, next)
     } catch {
@@ -719,17 +750,18 @@ export function CasesTab({
       const fv = onlyFav ? se.filter((g) => favs.has(g.key)) : se
       return filterCases(fv, { years: effectiveYears, subjects, units, examTypes, examMonths, examYears, now, origin: o }).length
     }
-    return { all: shown('all'), objective: shown('objective'), caseStudy: shown('caseStudy') }
+    return { all: shown('all'), objective: shown('objective'), caseStudy: shown('caseStudy'), record: shown('record') }
   }, [unified, digest.groups, subjects, units, examTypes, examMonths, examYears, now, query, onlyFav, favs, effectiveYears])
   // 사례형 출처가 칩·필터 후보에 보태질 때(선택형 칩이면 예전과 같게 보태지 않는다)
   const caseStudyPool = useMemo(
     () =>
       effectiveOrigin === 'objective'
         ? []
-        : scoped.flatMap((g) => g.sources.filter((s): s is Extract<CaseSource, { kind: 'caseStudy' }> => s.kind === 'caseStudy')),
+        : scoped.flatMap((g) => g.sources.filter((s): s is Extract<CaseSource, { kind: 'caseStudy' }> => s.kind === 'caseStudy' && caseStudySourceIn(s, effectiveOrigin))),
     [scoped, effectiveOrigin]
   )
   const caseStudyProblems = useMemo(() => caseStudyProblemCount(digest.groups), [digest.groups])
+  const recordProblems = useMemo(() => recordProblemCount(digest.groups), [digest.groups])
   const originTotal = useMemo(() => digest.groups.filter((g) => inOrigin(g, effectiveOrigin)).length, [digest.groups, effectiveOrigin])
   const hiddenByPeriod = searched.filter((g) => g.year !== null).length - dated.length
   // 지금 목록에 보이는 카드 (과목별 묶음에 같은 판례가 여러 번 나와도 한 번)
@@ -761,8 +793,10 @@ export function CasesTab({
     const fromCaseStudy =
       effectiveOrigin === 'objective'
         ? []
-        : groups.flatMap((g) => g.sources.flatMap((s) => (s.kind === 'caseStudy' ? [caseStudySubjectLabel(s.subject)] : [])))
-    return Array.from(new Set([...groups.flatMap((g) => g.subjects), ...fromCaseStudy]))
+        : groups.flatMap((g) => g.sources.flatMap((s) => (s.kind === 'caseStudy' && caseStudySourceIn(s, effectiveOrigin) ? [caseStudySubjectLabel(s.subject)] : [])))
+    // 기록형 칩에서는 기록형 과목만 — 선택형 과목은 넣지 않는다
+    const fromObjective = effectiveOrigin === 'record' ? [] : groups.flatMap((g) => g.subjects)
+    return Array.from(new Set([...fromObjective, ...fromCaseStudy]))
   }, [digest.groups, effectiveOrigin])
   const availableExamTypes = useMemo(
     () =>
@@ -911,7 +945,7 @@ export function CasesTab({
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">과목 (복수 선택)</label>
               <FilterChips
-                options={[
+                options={effectiveOrigin === 'record' ? availableSubjects : [
                   ...Object.keys(SUBJECT_UNITS),
                   // 선택형 과목이 아닌 사례형 과목(공법 기록형 등)은 이름 그대로 뒤에 붙인다
                   ...availableSubjects.filter((s) => !(s in SUBJECT_UNITS)),
@@ -1079,7 +1113,7 @@ export function CasesTab({
             </div>
           </div>
 
-          {/* 출처 칩 — 사례형 출처가 있을 때만. 기록형은 아직 데이터가 없어 칩을 두지 않는다 */}
+          {/* 출처 칩 — 사례형·기록형 출처가 있을 때만 */}
           {originCounts && (
             <div className="flex flex-wrap gap-1.5" role="group" aria-label="출처">
               {ORIGINS.map((o) => (
@@ -1102,7 +1136,7 @@ export function CasesTab({
 
           <p className="text-[11px] text-muted-foreground">
             판례 {originTotal}건 중 {dated.length + undated.length}건 표시 ·{' '}
-            {casesSummaryTail(effectiveOrigin, digest.questionsWithCases, caseStudyProblems)}
+            {casesSummaryTail(effectiveOrigin, digest.questionsWithCases, caseStudyProblems, recordProblems)}
             {/* 뺀 건수는 실제로 뺐을 때만 알린다 */}
             {effectiveYears !== null && hiddenByPeriod > 0 && ` · ${periodLabel(effectiveYears)}보다 오래된 판례 ${hiddenByPeriod}건은 뺐습니다`}
           </p>

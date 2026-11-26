@@ -12,9 +12,10 @@ import type { CaseIndex } from '../lib/caseStudy/types'
 import type { Question } from '../lib/types'
 
 // ── 1. 요약 줄 ───────────────────────────────────────────────────
-assert.equal(casesSummaryTail('objective', 1493, 185), '판례가 달린 문제 1493개', '선택형 칩은 예전 문구 그대로')
-assert.equal(casesSummaryTail('all', 1493, 185), '선택형 문제 1493 · 사례형 문항 185')
-assert.equal(casesSummaryTail('caseStudy', 1493, 185), '사례형 문항 185')
+assert.equal(casesSummaryTail('objective', 1493, 185, 12), '판례가 달린 문제 1493개', '선택형 칩은 예전 문구 그대로')
+assert.equal(casesSummaryTail('all', 1493, 185, 12), '선택형 문제 1493 · 사례형 문항 185 · 기록형 시험 12')
+assert.equal(casesSummaryTail('caseStudy', 1493, 185, 12), '사례형 문항 185')
+assert.equal(casesSummaryTail('record', 1493, 185, 12), '기록형 시험 12')
 
 // ── 2. 사례형 문항 수: problemId 기준 고유 개수 ─────────────────────
 const q = { id: 'o1', no: 1, subject: '민법', examType: '변호사시험', year: 2024, cases: [{ caseNumber: '2001다1', summary: 's' }] } as unknown as Question
