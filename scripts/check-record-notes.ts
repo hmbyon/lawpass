@@ -312,6 +312,7 @@ assert.equal(isNumberedHeading(para('2. <b>위법성 조각</b>', { ind: 0 })), 
 assert.equal(isNumberedHeading(para('<b>3. 책임 조각</b>')), true, '태그 안의 번호, ind 없음')
 assert.equal(isNumberedHeading(para('10. 열번째')), true)
 assert.equal(isNumberedHeading(para('■ 정당방위')), false)
+assert.equal(isNumberedHeading(para('▪ 정당방위')), false)
 assert.equal(isNumberedHeading(para('1. 가', { ind: 1 })), false, '들여쓴 번호 문단')
 assert.equal(isNumberedHeading(para('1.5배')), false, '점 뒤에 공백이 없다')
 assert.equal(isNumberedHeading(tbl([[{ h: '1. 가' }]])), false, '표 블록')

@@ -447,10 +447,14 @@ html.eye .record-note {
 .record-note p.note-p:not(.text-center):not(.text-right) {
   text-align: justify;
 }
-/* 목차 번호 문단("2. 위법성 조각") 위 간격. 본문 영역 맨 첫 문단이면 띄우지 않는다 */
+/* 목차 번호 문단("2. 위법성 조각") 위 간격·은은한 구분선(테마 테두리 색). 본문 영역 맨 첫 문단이면 띄우지도 긋지도 않는다 */
 .record-note p.note-num {
-  margin-top: 0.9rem;
+  margin-top: 1rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
 }
 .record-note p.note-num:first-child {
   margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
