@@ -148,9 +148,14 @@ export function isBoxTable(block: NoteBlock): boolean {
   )
 }
 
-/** 표 글자 크기: sz 's' 만 작게, 나머지는 본문 문단과 같은 크기 */
-export function tableSizeClass(block: { sz?: unknown }): string {
-  return block?.sz === 's' ? 'text-xs' : 'text-sm'
+/**
+ * 표 글자 크기. sz 's'(작은 표) → 12px, 기재례 박스 → 본문과 같은 크기, 그 밖의 여러 열 표 → 13px.
+ * Tailwind 가 임의값 클래스를 만들도록 'text-[13px]' 는 리터럴로 둔다
+ */
+export function tableSizeClass(block: NoteBlock): string {
+  if ((block as { sz?: unknown })?.sz === 's') return 'text-xs'
+  if (isBoxTable(block)) return 'text-sm'
+  return 'text-[13px]'
 }
 
 /** 기출 항목: 소항목이 1개 이상이고 모든 소항목에 회차 태그가 있다 */

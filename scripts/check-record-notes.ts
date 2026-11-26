@@ -270,7 +270,14 @@ assert.equal(isBoxTable(tbl([[{ h: 'x' }], []])), false, '빈 행이 섞인 표'
 assert.equal(isBoxTable(tbl([])), false, '빈 표')
 assert.equal(isBoxTable(tbl([[]])), false, '빈 행')
 assert.equal(isBoxTable({ t: 'p', h: 'x' }), false, '문단')
-assert.deepEqual([tableSizeClass({ sz: 's' }), tableSizeClass({}), tableSizeClass({ sz: 'l' })], ['text-xs', 'text-sm', 'text-sm'])
+const box1 = tbl([[{ h: 'x' }]])
+const multi = tbl([[{ h: 'a' }, { h: 'b' }], [{ h: 'c' }, { h: 'd' }]])
+assert.equal(tableSizeClass(tbl([[{ h: 'a' }, { h: 'b' }]], { sz: 's' })), 'text-xs', "sz 's' → 12px")
+assert.equal(tableSizeClass(box1), 'text-sm', '기재례 박스 → 본문 크기')
+assert.equal(tableSizeClass(tbl([[{ h: 'x' }], [{ h: 'y' }]])), 'text-sm', '여러 행 1열 박스 → 본문 크기')
+assert.equal(tableSizeClass(multi), 'text-[13px]', '여러 열 일반 표 → 13px')
+assert.equal(tableSizeClass(tbl([[{ h: 'x' }]], { sz: 's' })), 'text-xs', "sz 's' 이면서 박스 → sz 가 먼저")
+assert.equal(tableSizeClass(tbl([[{ h: 'a' }, { h: 'b' }]], { sz: 'l' })), 'text-[13px]', "sz 가 's' 가 아니면 무시")
 
 // 기출 항목의 회차 칩·소항목 고르기 (색인 subs[i] ↔ 본문 subs[i])
 const examItem = {
