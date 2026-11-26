@@ -1,13 +1,68 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { getAppMode } from '@/lib/appMode'
 import { fetchNoteDoc, fetchNotesIndex } from '@/lib/firebaseServices/caseStudy'
 import { sanitizeNote } from '@/lib/record/sanitizeNote'
+import { equalizeSpanRows } from '@/lib/record/tableRows'
 import {
   clampSpan, notePartsOf, noteSubjects, partLabel, isUntitledItem, alignClass, cellBgClass,
   isBoxTable, tableSizeClass, examChipsOfItem, subsForExam, paragraphClass, paragraphPadding, paragraphFirstLineEm, splitTitleTag, isNumberedHeading, type NoteBlock, type NoteDoc, type NoteItem, type NotesIndex,
 } from '@/lib/record/notes'
+
+type TableBlock = Extract<NoteBlock, { t: 'table' }>
+
+// 정리본 표. 기재례 박스가 아닌 표는 여러 행에 걸친 칸의 높이를 걸친 행들이 균등하게 나눠 갖게 맞춘다
+// (tr 높이 인라인 style 만 더한다). 폭이 바뀌면 줄바꿈이 달라지므로 다시 맞추고, 높이 변화에는 반응하지 않는다
+function NoteTable({ b }: { b: TableBlock }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const box = isBoxTable(b)
+  useLayoutEffect(() => {
+    const wrap = ref.current
+    const table = wrap?.querySelector('table')
+    if (box || !wrap || !table) return
+    const run = () => equalizeSpanRows(table)
+    run()
+    let width = wrap.getBoundingClientRect().width
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0
+      if (w === width) return
+      width = w
+      run()
+    })
+    ro.observe(wrap)
+    let alive = true
+    document.fonts?.ready.then(() => {
+      if (alive) run()
+    })
+    return () => {
+      alive = false
+      ro.disconnect()
+    }
+  }, [b, box])
+  return (
+    <div ref={ref} className="overflow-x-auto my-2">
+      {/* 1열 표는 기재례 박스다 — 배경은 표(상자) 안쪽 셀에만 */}
+      <table className={`border-collapse ${tableSizeClass(b)} ${box ? 'note-box' : ''}`}>
+        <tbody>
+          {(Array.isArray(b.rows) ? b.rows : []).map((row, r) => (
+            <tr key={r}>
+              {(Array.isArray(row) ? row : []).map((cell, c) => (
+                <td
+                  key={c}
+                  colSpan={clampSpan(cell?.cs)}
+                  rowSpan={clampSpan(cell?.rs)}
+                  className={`border border-border px-2 py-1 align-top ${cellBgClass(cell?.bg)}`}
+                  dangerouslySetInnerHTML={{ __html: sanitizeNote(cell?.h ?? '') }}
+                />
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
 
 // 정리본 html 은 sanitizeNote 출력만 dangerouslySetInnerHTML 에 넣는다
 function Blocks({ blocks }: { blocks: NoteBlock[] }) {
@@ -15,26 +70,7 @@ function Blocks({ blocks }: { blocks: NoteBlock[] }) {
     <>
       {(blocks ?? []).map((b, i) =>
         b?.t === 'table' ? (
-          <div key={i} className="overflow-x-auto my-2">
-            {/* 1열 표는 기재례 박스다 — 배경은 표(상자) 안쪽 셀에만 */}
-            <table className={`border-collapse ${tableSizeClass(b)} ${isBoxTable(b) ? 'note-box' : ''}`}>
-              <tbody>
-                {(Array.isArray(b.rows) ? b.rows : []).map((row, r) => (
-                  <tr key={r}>
-                    {(Array.isArray(row) ? row : []).map((cell, c) => (
-                      <td
-                        key={c}
-                        colSpan={clampSpan(cell?.cs)}
-                        rowSpan={clampSpan(cell?.rs)}
-                        className={`border border-border px-2 py-1 align-top ${cellBgClass(cell?.bg)}`}
-                        dangerouslySetInnerHTML={{ __html: sanitizeNote(cell?.h ?? '') }}
-                      />
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <NoteTable key={i} b={b} />
         ) : (
           <p
             key={i}
