@@ -11,8 +11,9 @@ import assert from 'node:assert/strict'
 import { sanitizeNote } from '../lib/record/sanitizeNote'
 import { parseCaseFile } from '../lib/caseStudy/parse'
 import {
-  clampIndent, clampSpan, examChipsFor, filterNoteItems, notePartsOf, noteSubjects, partLabel,
-  sortedExamKeys, isUntitledItem, alignClass, cellBgClass, type NotesIndex,
+  clampIndent, clampSpan, notePartsOf, noteSubjects, partLabel,
+  sortedExamKeys, isUntitledItem, alignClass, cellBgClass, isBoxTable, tableSizeClass, isExamItem, examChipsOfItem,
+  subsForExam, type NoteBlock, type NotesIndex,
 } from '../lib/record/notes'
 import { decodeNoteFromStore, encodeNoteForStore } from '../lib/record/noteStorage'
 import type { NoteDoc } from '../lib/record/notes'
@@ -149,15 +150,9 @@ assert.deepEqual(noteSubjects(index), ['공법', '민사', '형사'])
 assert.deepEqual(notePartsOf(index, '공법').map((d) => d.id), ['공-1', '공-2'], 'order 순')
 assert.deepEqual([partLabel(1), partLabel('2'), partLabel('1부')], ['1부', '2부', '1부'])
 // 변시 → 모의, 번호순(변시 2 < 14, 모의 24.6 < 24.10), 중복 없음
-assert.deepEqual(examChipsFor(index, '공법'), ['변시 2', '변시 14', '모의 24.6', '모의 24.10'])
-assert.deepEqual(examChipsFor(index, '형사'), [], '태그 없는 과목 → 칩 줄 숨김')
 assert.deepEqual(sortedExamKeys([exam('모의', '24.6'), exam('변시', '14'), exam('변시', '14')]), ['변시 14', '모의 24.6'])
-const items = notePartsOf(index, '공법')[0].items
-assert.deepEqual(filterNoteItems(items, []).map((i) => i.id), ['p1', 'p2', 'p0'], '칩 없음 → 전부')
-assert.deepEqual(filterNoteItems(items, ['변시 14']).map((i) => i.id), ['p1'])
-assert.deepEqual(filterNoteItems(items, ['변시 2']).map((i) => i.id), ['p2'], '소항목 태그로도 걸린다')
-assert.deepEqual(filterNoteItems(items, ['변시 2', '모의 24.6']).map((i) => i.id), ['p1', 'p2'], '여러 칩은 하나라도')
-assert.deepEqual(filterNoteItems(items, ['모의 24.10']), [])
+// 변시 → 모의, 번호순(변시 2 < 14, 모의 24.6 < 24.10)
+assert.deepEqual(sortedExamKeys([exam('모의', '24.10'), exam('변시', '14'), exam('모의', '24.6'), exam('변시', '2')]), ['변시 2', '변시 14', '모의 24.6', '모의 24.10'])
 assert.deepEqual([clampSpan(undefined), clampSpan(0), clampSpan(3), clampSpan(99), clampSpan('2'), clampSpan('x'), clampSpan(2.7)], [1, 1, 3, 20, 2, 1, 2])
 assert.deepEqual([clampIndent(undefined), clampIndent(-1), clampIndent(3), clampIndent(9)], [0, 0, 3, 6])
 
@@ -191,7 +186,7 @@ const tableDoc = {
       id: 'i1', title: '표 항목', exams: [exam('변시', '14')],
       blocks: [
         { t: 'p', h: '<b>앞</b>', ind: 1 },
-        { t: 'table', rows: [[cell('가', { cs: 2 }), cell('나')], [cell('다', { rs: 3 })], []] },
+        { t: 'table', sz: 's', rows: [[cell('가', { cs: 2 }), cell('나')], [cell('다', { rs: 3 })], []] },
       ],
       subs: [{ title: '소', exams: [exam('모의', '24.6')], blocks: [{ t: 'table', rows: [[cell('s1'), cell('s2', { cs: 1, rs: 2 })]] }] }],
     },
@@ -213,6 +208,9 @@ const t0 = dec.items[0].blocks[1] as Extract<NoteDoc['items'][0]['blocks'][0], {
 assert.deepEqual(t0.rows[0][0], { h: '가', cs: 2 })
 assert.deepEqual(t0.rows[1][0], { h: '다', rs: 3 })
 assert.deepEqual((dec.items[0].subs[0].blocks[0] as typeof t0).rows[0][1], { h: 's2', cs: 1, rs: 2 })
+// sz('s', 작은 표)가 저장 형태·왕복에서 유지된다
+assert.equal((enc.items[0].blocks[1] as { sz?: string }).sz, 's')
+assert.equal((dec.items[0].blocks[1] as { sz?: string }).sz, 's')
 // ④ 옛 형태(행이 배열)는 decode 해도 그대로
 assert.deepEqual(decodeNoteFromStore(JSON.parse(JSON.stringify(tableDoc))), before)
 // ⑤ 표가 없는 문서는 값이 그대로
@@ -249,9 +247,35 @@ if (!notesDir) {
   console.log(`실데이터: ${files.length}개 파일 — encode 후 중첩 배열 없음·왕복 동일 (가장 큰 저장 형태 ${Math.round(maxBytes / 1000)}KB)`)
 }
 
+// 기재례 박스·표 글자 크기
+const tbl = (rows: unknown[][], extra: object = {}) => ({ t: 'table', rows, ...extra }) as unknown as NoteBlock
+assert.equal(isBoxTable(tbl([[{ h: 'x' }]])), true, '1×1 표')
+assert.equal(isBoxTable(tbl([[{ h: 'x' }, { h: 'y' }]])), false, '1×2')
+assert.equal(isBoxTable(tbl([[{ h: 'x' }], [{ h: 'y' }]])), false, '2×1')
+assert.equal(isBoxTable(tbl([])), false, '빈 표')
+assert.equal(isBoxTable(tbl([[]])), false, '빈 행')
+assert.equal(isBoxTable({ t: 'p', h: 'x' }), false, '문단')
+assert.deepEqual([tableSizeClass({ sz: 's' }), tableSizeClass({}), tableSizeClass({ sz: 'l' })], ['text-xs', 'text-sm', 'text-sm'])
+
+// 기출 항목의 회차 칩·소항목 고르기 (색인 subs[i] ↔ 본문 subs[i])
+const examItem = {
+  id: 'x', title: '[변시 기출]',
+  subs: [{ title: '14회', exams: [exam('변시', '14')] }, { title: '2회', exams: [exam('변시', '2')] }, { title: '24.6', exams: [exam('모의', '24.6')] }],
+}
+const examBody = { subs: [{ title: '14회', blocks: [] }, { title: '2회', blocks: [] }, { title: '24.6', blocks: [] }] }
+assert.equal(isExamItem(examItem), true)
+assert.equal(isExamItem({ id: 'y', title: 't', subs: [{ title: 'a', exams: [exam('변시', '1')] }, { title: 'b' }] }), false, '태그 없는 소항목이 섞이면 기출 항목이 아니다')
+assert.equal(isExamItem({ id: 'z', title: 't', exams: [exam('변시', '1')] }), false, '소항목이 없으면 기출 항목이 아니다')
+assert.deepEqual(examChipsOfItem(examItem), ['변시 2', '변시 14', '모의 24.6'])
+assert.deepEqual(examChipsOfItem({ id: 'z', title: 't', subs: [] }), [], '기출 항목이 아니면 칩 없음')
+assert.deepEqual(subsForExam(examBody, examItem, '변시 2').map((s) => s.title), ['2회'], '고른 회차 소항목만')
+assert.deepEqual(subsForExam(examBody, examItem, null).map((s) => s.title), ['14회', '2회', '24.6'], '선택 없음 → 전부')
+assert.deepEqual(subsForExam(examBody, examItem, '변시 99').map((s) => s.title), ['14회', '2회', '24.6'], '맞는 소항목이 없는 키 → 빈 화면 대신 전부')
+assert.deepEqual(subsForExam({}, examItem, '변시 2'), [], '본문에 소항목이 없으면 빈 배열')
+
 // 제목 없는 항목·정렬·셀 배경
 assert.deepEqual([isUntitledItem({ title: '' }), isUntitledItem({ title: '  ' }), isUntitledItem({}), isUntitledItem({ title: '처분성' })], [true, true, true, false])
 assert.deepEqual([alignClass('c'), alignClass('r'), alignClass('l'), alignClass(undefined)], ['text-center', 'text-right', '', ''])
 assert.deepEqual([cellBgClass('g1'), cellBgClass('g2'), cellBgClass('g3'), cellBgClass('x" onclick="'), cellBgClass(undefined)], ['note-bg-g1', 'note-bg-g2', '', '', ''])
 
-console.log('통과: sanitizeNote(차단·허용·DOMParser 없음), parseCaseFile(note·notesIndex, 기존 카드·_index 그대로), 회차 칩·필터·span/들여쓰기 범위, 문단 p·정렬·셀 배경·제목 없는 항목, 저장 형태(중첩 배열 없음·왕복·옛 형태·표 없음)')
+console.log('통과: sanitizeNote(차단·허용·DOMParser 없음), parseCaseFile(note·notesIndex, 기존 카드·_index 그대로), 회차 정렬·span/들여쓰기 범위, 기재례 박스·표 크기·기출 회차 칩·소항목 고르기, 문단 p·정렬·셀 배경·제목 없는 항목, 저장 형태(중첩 배열 없음·왕복·sz 유지·옛 형태·표 없음)')

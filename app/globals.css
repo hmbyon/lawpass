@@ -392,3 +392,9 @@ html.eye .record-note {
 }
 .record-note .note-bg-g1 { background-color: oklch(0.6 0 0 / 22%); }
 .record-note .note-bg-g2 { background-color: oklch(0.6 0 0 / 10%); }
+/* 기재례 박스(행 1개·셀 1개인 표). 옅은 회색 칸으로 본문과 가른다 */
+.record-note .note-box {
+  background-color: oklch(0.6 0 0 / 8%);
+  border-radius: 0.5rem;
+  padding: 0.5rem;
+}

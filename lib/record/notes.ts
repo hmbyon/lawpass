@@ -17,7 +17,9 @@ export interface NoteCell {
   rs?: number
   bg?: 'g1' | 'g2' // 셀 배경 (g1 진한 회색 머리칸, g2 옅은 회색)
 }
-export type NoteBlock = { t: 'p'; h: string; ind?: number; al?: 'c' | 'r' } | { t: 'table'; rows: NoteCell[][] }
+export type NoteBlock =
+  | { t: 'p'; h: string; ind?: number; al?: 'c' | 'r' }
+  | { t: 'table'; rows: NoteCell[][]; sz?: 's' } // sz 's' = 원본에서 글자가 작은 표(기출 쟁점 표)
 export interface NoteSub {
   title: string
   blocks: NoteBlock[]
@@ -109,17 +111,6 @@ export function itemExams(item: NotesIndexItem): NoteExam[] {
   return [...(item.exams ?? []), ...(item.subs ?? []).flatMap((s) => s.exams ?? [])]
 }
 
-/** 회차 칩 후보: 그 과목 색인의 회차 전부. 비면 칩 줄을 숨긴다 */
-export function examChipsFor(index: NotesIndex, subject: string): string[] {
-  return sortedExamKeys(notePartsOf(index, subject).flatMap((d) => d.items.flatMap(itemExams)))
-}
-
-/** 회차 칩 필터. 고른 칩이 없으면 그대로, 있으면 그중 하나라도 항목·소항목에 달린 것만 */
-export function filterNoteItems<T extends NotesIndexItem>(items: T[], selected: string[]): T[] {
-  if (selected.length === 0) return items
-  return items.filter((it) => itemExams(it).some((e) => selected.includes(examKey(e))))
-}
-
 /** 표 셀 colSpan/rowSpan — 정수 1~20 */
 export function clampSpan(n: unknown): number {
   const v = Math.trunc(Number(n))
@@ -145,4 +136,36 @@ export function alignClass(al: unknown): string {
 /** 표 셀 배경 클래스 (허용값만) */
 export function cellBgClass(bg: unknown): string {
   return bg === 'g1' || bg === 'g2' ? `note-bg-${bg}` : ''
+}
+
+/** 기재례 박스: 행 1개·셀 1개인 표 */
+export function isBoxTable(block: NoteBlock): boolean {
+  return block?.t === 'table' && Array.isArray(block.rows) && block.rows.length === 1 && Array.isArray(block.rows[0]) && block.rows[0].length === 1
+}
+
+/** 표 글자 크기: sz 's' 만 작게, 나머지는 본문 문단과 같은 크기 */
+export function tableSizeClass(block: { sz?: unknown }): string {
+  return block?.sz === 's' ? 'text-xs' : 'text-sm'
+}
+
+/** 기출 항목: 소항목이 1개 이상이고 모든 소항목에 회차 태그가 있다 */
+export function isExamItem(item: NotesIndexItem): boolean {
+  const subs = item.subs ?? []
+  return subs.length > 0 && subs.every((s) => (s.exams?.length ?? 0) > 0)
+}
+
+/** 기출 항목의 회차 칩 (변시 번호순 → 모의 연·월순). 기출 항목이 아니면 없다 */
+export function examChipsOfItem(item: NotesIndexItem): string[] {
+  return isExamItem(item) ? sortedExamKeys((item.subs ?? []).flatMap((s) => s.exams ?? [])) : []
+}
+
+/**
+ * 회차 칩으로 고른 소항목. 색인 item.subs[i] 와 본문 body.subs[i] 는 같은 순서라 인덱스로 맞춘다.
+ * 고른 칩이 없으면 전부. 고른 키에 맞는 소항목이 하나도 없으면(색인·본문이 어긋난 경우) 빈 화면 대신 전부를 보여준다
+ */
+export function subsForExam<S>(body: { subs?: S[] }, item: NotesIndexItem, key: string | null | undefined): S[] {
+  const all = body.subs ?? []
+  if (!key) return all
+  const picked = all.filter((_, i) => (item.subs?.[i]?.exams ?? []).some((e) => examKey(e) === key))
+  return picked.length > 0 ? picked : all
 }

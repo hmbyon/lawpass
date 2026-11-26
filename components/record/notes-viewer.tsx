@@ -3,11 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getAppMode } from '@/lib/appMode'
 import { fetchNoteDoc, fetchNotesIndex } from '@/lib/firebaseServices/caseStudy'
-import { FilterChips } from '@/components/filter-chips'
 import { sanitizeNote } from '@/lib/record/sanitizeNote'
 import {
-  clampIndent, clampSpan, examChipsFor, filterNoteItems, itemExams, notePartsOf, noteSubjects,
-  partLabel, sortedExamKeys, isUntitledItem, alignClass, cellBgClass, type NoteBlock, type NoteDoc, type NoteItem, type NotesIndex,
+  clampIndent, clampSpan, notePartsOf, noteSubjects, partLabel, isUntitledItem, alignClass, cellBgClass,
+  isBoxTable, tableSizeClass, examChipsOfItem, subsForExam, type NoteBlock, type NoteDoc, type NoteItem, type NotesIndex,
 } from '@/lib/record/notes'
 
 // 정리본 html 은 sanitizeNote 출력만 dangerouslySetInnerHTML 에 넣는다
@@ -16,8 +15,9 @@ function Blocks({ blocks }: { blocks: NoteBlock[] }) {
     <>
       {(blocks ?? []).map((b, i) =>
         b?.t === 'table' ? (
-          <div key={i} className="overflow-x-auto my-2">
-            <table className="border-collapse text-xs">
+          // 행 1개·셀 1개인 표는 기재례 박스다
+          <div key={i} className={`overflow-x-auto my-2 ${isBoxTable(b) ? 'note-box' : ''}`}>
+            <table className={`border-collapse ${tableSizeClass(b)}`}>
               <tbody>
                 {(Array.isArray(b.rows) ? b.rows : []).map((row, r) => (
                   <tr key={r}>
@@ -48,11 +48,11 @@ function Blocks({ blocks }: { blocks: NoteBlock[] }) {
   )
 }
 
-function ItemBody({ body }: { body: NoteItem }) {
+function ItemBody({ body, subs = body.subs }: { body: NoteItem; subs?: NoteItem['subs'] }) {
   return (
     <>
       <Blocks blocks={body.blocks} />
-      {(body.subs ?? []).map((s, i) => (
+      {(subs ?? []).map((s, i) => (
         <div key={i} className="pt-2 space-y-1">
           <p className="text-sm font-semibold">{s.title}</p>
           <Blocks blocks={s.blocks} />
@@ -68,7 +68,7 @@ const chip = (on: boolean) =>
   }`
 
 /**
- * 기록형 정리본 열람. 색인으로 과목·부·항목 목록과 회차 칩을 그리고,
+ * 기록형 정리본 열람. 색인으로 과목·부·항목 목록과 기출 항목의 회차 칩을 그리고,
  * 부를 고르면 그 부의 문서를 한 번만 읽어 둔다(부 단위 캐시) — 항목을 펼치면 여기서 본문을 꺼내 보인다
  */
 export function NotesViewer() {
@@ -77,8 +77,9 @@ export function NotesViewer() {
   const [docs, setDocs] = useState<Record<string, NoteDoc | null | 'error' | 'loading'>>({})
   const [subject, setSubject] = useState<string | null>(null)
   const [partId, setPartId] = useState<string | null>(null)
-  const [exams, setExams] = useState<string[]>([])
   const [openId, setOpenId] = useState<string | null>(null)
+  // 기출 항목에서 고른 회차 칩 (항목 id → 회차 키 하나). 없으면 소항목 전체
+  const [examPick, setExamPick] = useState<Record<string, string>>({})
 
   const loadIndex = useCallback(() => {
     setIndex(undefined)
@@ -93,8 +94,7 @@ export function NotesViewer() {
   const curSubject = subject && subjects.includes(subject) ? subject : subjects[0] ?? null
   const parts = useMemo(() => (index && curSubject ? notePartsOf(index, curSubject) : []), [index, curSubject])
   const part = parts.find((p) => p.id === partId) ?? parts[0] ?? null
-  const examChips = useMemo(() => (index && curSubject ? examChipsFor(index, curSubject) : []), [index, curSubject])
-  const items = useMemo(() => (part ? filterNoteItems(part.items ?? [], exams) : []), [part, exams])
+  const items = part?.items ?? []
 
   const loadDoc = useCallback((id: string) => {
     setDocs((d) => ({ ...d, [id]: 'loading' }))
@@ -111,7 +111,6 @@ export function NotesViewer() {
   function chooseSubject(s: string) {
     setSubject(s)
     setPartId(null)
-    setExams([])
     setOpenId(null)
   }
 
@@ -161,14 +160,6 @@ export function NotesViewer() {
         </div>
       )}
 
-      {/* 회차 태그가 하나도 없는 과목은 칩 줄을 숨긴다 */}
-      {examChips.length > 0 && (
-        <div className="space-y-2">
-          <label className="text-xs font-medium text-muted-foreground">회차 (복수 선택)</label>
-          <FilterChips options={examChips} selected={exams} onChange={setExams} />
-        </div>
-      )}
-
       {partDocState === 'error' && part && (
         <p className="text-xs text-muted-foreground">
           {partLabel(part.part)} 문서를 불러오지 못했습니다 ·{' '}
@@ -178,7 +169,7 @@ export function NotesViewer() {
       {partDocState === null && <p className="text-xs text-muted-foreground">이 부의 문서가 아직 올라오지 않았습니다</p>}
 
       {items.length === 0 ? (
-        <p className="text-xs text-muted-foreground">{exams.length > 0 ? '고른 회차에 해당하는 항목이 없습니다' : '항목이 없습니다'}</p>
+        <p className="text-xs text-muted-foreground">항목이 없습니다</p>
       ) : (
         <div className="space-y-2">
           {items.map((it) => {
@@ -199,22 +190,40 @@ export function NotesViewer() {
               )
             }
             const open = openId === it.id
+            const toggle = () => setOpenId(open ? null : it.id)
+            const picked = examPick[it.id]
+            // 기출 항목의 회차 칩: 누르면 펼치고 그 회차 소항목만, 다시 누르면 해제(전체)
+            const pickExam = (k: string) => {
+              setOpenId(it.id)
+              setExamPick((m) => {
+                const next = { ...m }
+                if (next[it.id] === k) delete next[it.id]
+                else next[it.id] = k
+                return next
+              })
+            }
             return (
               <div key={it.id} className="bg-card border border-border rounded-xl">
-                <button
-                  type="button"
-                  aria-expanded={open}
-                  onClick={() => setOpenId(open ? null : it.id)}
-                  className="w-full text-left p-3 flex flex-wrap items-center gap-1.5"
-                >
-                  <span className="text-sm font-medium text-foreground mr-1">{it.title}</span>
-                  {sortedExamKeys(itemExams(it)).map((k) => (
-                    <span key={k} className="px-1.5 py-0.5 rounded text-[10px] border border-border bg-muted text-muted-foreground">
+                {/* 제목 토글·회차 칩·▸ 는 서로 다른 형제 버튼이다 (버튼 안에 버튼을 두지 않는다) */}
+                <div className="p-3 flex flex-wrap items-center gap-1.5">
+                  <button type="button" aria-expanded={open} onClick={toggle} className="text-left text-sm font-medium text-foreground mr-1">
+                    {it.title}
+                  </button>
+                  {examChipsOfItem(it).map((k) => (
+                    <button key={k} type="button" aria-pressed={picked === k} onClick={() => pickExam(k)} className={chip(picked === k)}>
                       {k}
-                    </span>
+                    </button>
                   ))}
-                  <span className="ml-auto text-sm text-muted-foreground">{open ? '▾' : '▸'}</span>
-                </button>
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    aria-label={open ? '접기' : '펼치기'}
+                    onClick={toggle}
+                    className="ml-auto text-sm text-muted-foreground"
+                  >
+                    {open ? '▾' : '▸'}
+                  </button>
+                </div>
                 {open && (
                   <div className="record-note px-3 pb-3 space-y-1 text-foreground">
                     {loading ? (
@@ -222,7 +231,7 @@ export function NotesViewer() {
                     ) : !body ? (
                       <p className="text-xs text-muted-foreground">본문을 찾지 못했습니다</p>
                     ) : (
-                      <ItemBody body={body} />
+                      <ItemBody body={body} subs={subsForExam(body, it, picked)} />
                     )}
                   </div>
                 )}
