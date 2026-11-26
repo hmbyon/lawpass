@@ -398,3 +398,41 @@ html.eye .record-note {
   border-radius: 0.5rem;
   padding: 0.5rem;
 }
+/* 글자 테두리·윗첨자 */
+.record-note .bx {
+  border: 1px solid color-mix(in oklch, var(--foreground) 55%, transparent);
+  padding: 0 0.2em;
+  border-radius: 2px;
+}
+.record-note sup {
+  font-size: 0.75em;
+  vertical-align: super;
+  line-height: 0;
+}
+/* 표 셀 문단의 들여쓰기 단계(in1~in8)·내어쓰기(hg)·첫 줄 들여쓰기(fl). 본문 문단은 note-hg·note-fl
+   (들여쓰기는 인라인 style). 내어쓰기와 단계가 함께 오면 단계 여백에 한 칸을 더한다 — 아래 .hg.inN 이 더 구체적이라 이긴다 */
+.record-note .in1 { padding-left: calc(1 * 1.25rem); }
+.record-note .in2 { padding-left: calc(2 * 1.25rem); }
+.record-note .in3 { padding-left: calc(3 * 1.25rem); }
+.record-note .in4 { padding-left: calc(4 * 1.25rem); }
+.record-note .in5 { padding-left: calc(5 * 1.25rem); }
+.record-note .in6 { padding-left: calc(6 * 1.25rem); }
+.record-note .in7 { padding-left: calc(7 * 1.25rem); }
+.record-note .in8 { padding-left: calc(8 * 1.25rem); }
+.record-note .hg,
+.record-note .note-hg {
+  text-indent: -1.25rem;
+  padding-left: 1.25rem;
+}
+.record-note .hg.in1 { padding-left: calc(1 * 1.25rem + 1.25rem); }
+.record-note .hg.in2 { padding-left: calc(2 * 1.25rem + 1.25rem); }
+.record-note .hg.in3 { padding-left: calc(3 * 1.25rem + 1.25rem); }
+.record-note .hg.in4 { padding-left: calc(4 * 1.25rem + 1.25rem); }
+.record-note .hg.in5 { padding-left: calc(5 * 1.25rem + 1.25rem); }
+.record-note .hg.in6 { padding-left: calc(6 * 1.25rem + 1.25rem); }
+.record-note .hg.in7 { padding-left: calc(7 * 1.25rem + 1.25rem); }
+.record-note .hg.in8 { padding-left: calc(8 * 1.25rem + 1.25rem); }
+.record-note .fl,
+.record-note .note-fl {
+  text-indent: 1em;
+}

@@ -13,7 +13,7 @@ import { parseCaseFile } from '../lib/caseStudy/parse'
 import {
   clampIndent, clampSpan, notePartsOf, noteSubjects, partLabel,
   sortedExamKeys, isUntitledItem, alignClass, cellBgClass, isBoxTable, tableSizeClass, isExamItem, examChipsOfItem,
-  subsForExam, type NoteBlock, type NotesIndex,
+  subsForExam, paragraphClass, paragraphPadding, type NoteBlock, type NotesIndex,
 } from '../lib/record/notes'
 import { decodeNoteFromStore, encodeNoteForStore } from '../lib/record/noteStorage'
 import type { NoteDoc } from '../lib/record/notes'
@@ -73,9 +73,19 @@ check('<b><span class="c2"><mark class="g">겹침</mark></span></b>', [el('b', {
 check('<p class="al-c">x</p>', [el('p', { class: 'al-c' }, tx('x'))], '<p class="al-c">x</p>')
 check('<p class="evil" onclick="x()">x</p>', [el('p', { class: 'evil', onclick: 'x()' }, tx('x'))], '<p>x</p>')
 check('<p class="al-r"><b>x</b></p>', [el('p', { class: 'al-r' }, el('b', {}, tx('x')))], '<p class="al-r"><b>x</b></p>')
-check('<p class="al-c al-r">x</p>', [el('p', { class: 'al-c al-r' }, tx('x'))], '<p>x</p>')
+check('<p class="al-c al-r">x</p>', [el('p', { class: 'al-c al-r' }, tx('x'))], '<p class="al-c al-r">x</p>')
 check('<p><br></p><p>원고   김갑동</p>', [el('p', {}, el('br', {})), el('p', {}, tx('원고   김갑동'))], '<p><br></p><p>원고   김갑동</p>')
 check('<p style="x"><script>a</script><span class="c2">b</span></p>', [el('p', { style: 'x' }, el('script', {}, tx('a')), el('span', { class: 'c2' }, tx('b')))], '<p><span class="c2">b</span></p>')
+// 윗첨자·글자 테두리·문단 class 토큰
+check('<sup>x</sup>', [el('sup', { onclick: 'x()' }, tx('x'))], '<sup>x</sup>')
+check('<span class="bx">x</span>', [el('span', { class: 'bx' }, tx('x'))], '<span class="bx">x</span>')
+check('<span class="evil">x</span>', [el('span', { class: 'evil' }, tx('x'))], 'x')
+check('<span class="bx c1">x</span>', [el('span', { class: 'bx c1' }, tx('x'))], 'x')
+check('<p class="al-c in2 hg evil">x</p>', [el('p', { class: 'al-c in2 hg evil', onclick: 'x()' }, tx('x'))], '<p class="al-c in2 hg">x</p>')
+check('<p class="evil">x</p>', [el('p', { class: 'evil' }, tx('x'))], '<p>x</p>')
+check('<p class="in8 fl in9 in1">x</p>', [el('p', { class: 'in8 fl in9 in1' }, tx('x'))], '<p class="in8 fl in1">x</p>')
+check('<p class="  al-r   al-r ">x</p>', [el('p', { class: '  al-r   al-r ' }, tx('x'))], '<p class="al-r">x</p>')
+check('<p class="al-c&quot;onclick">x</p>', [el('p', { class: 'al-c"onclick=x()' }, tx('x'))], '<p>x</p>')
 // DOMParser 가 없으면 빈 문자열
 const saved = (globalThis as { DOMParser?: unknown }).DOMParser
 delete (globalThis as { DOMParser?: unknown }).DOMParser
@@ -273,9 +283,13 @@ assert.deepEqual(subsForExam(examBody, examItem, null).map((s) => s.title), ['14
 assert.deepEqual(subsForExam(examBody, examItem, '변시 99').map((s) => s.title), ['14회', '2회', '24.6'], '맞는 소항목이 없는 키 → 빈 화면 대신 전부')
 assert.deepEqual(subsForExam({}, examItem, '변시 2'), [], '본문에 소항목이 없으면 빈 배열')
 
+// 본문 문단의 내어쓰기·첫 줄 들여쓰기
+assert.deepEqual([paragraphClass({ hg: 1 }), paragraphClass({ fl: 1 }), paragraphClass({ hg: 1, fl: 1 }), paragraphClass({ hg: 2, fl: 'x' }), paragraphClass({})], ['note-hg', 'note-fl', 'note-hg note-fl', '', ''])
+assert.deepEqual([paragraphPadding({}), paragraphPadding({ ind: 2 }), paragraphPadding({ ind: 2, hg: 1 }), paragraphPadding({ ind: 9, hg: 1 }), paragraphPadding({ hg: true })], [0, 2.5, 3.75, 8.75, 0])
+
 // 제목 없는 항목·정렬·셀 배경
 assert.deepEqual([isUntitledItem({ title: '' }), isUntitledItem({ title: '  ' }), isUntitledItem({}), isUntitledItem({ title: '처분성' })], [true, true, true, false])
 assert.deepEqual([alignClass('c'), alignClass('r'), alignClass('l'), alignClass(undefined)], ['text-center', 'text-right', '', ''])
 assert.deepEqual([cellBgClass('g1'), cellBgClass('g2'), cellBgClass('g3'), cellBgClass('x" onclick="'), cellBgClass(undefined)], ['note-bg-g1', 'note-bg-g2', '', '', ''])
 
-console.log('통과: sanitizeNote(차단·허용·DOMParser 없음), parseCaseFile(note·notesIndex, 기존 카드·_index 그대로), 회차 정렬·span/들여쓰기 범위, 기재례 박스·표 크기·기출 회차 칩·소항목 고르기, 문단 p·정렬·셀 배경·제목 없는 항목, 저장 형태(중첩 배열 없음·왕복·sz 유지·옛 형태·표 없음)')
+console.log('통과: sanitizeNote(차단·허용·DOMParser 없음), parseCaseFile(note·notesIndex, 기존 카드·_index 그대로), 회차 정렬·span/들여쓰기 범위, 기재례 박스·표 크기·기출 회차 칩·소항목 고르기, 문단 p·정렬·셀 배경·제목 없는 항목, sup·bx·문단 토큰·내어쓰기, 저장 형태(중첩 배열 없음·왕복·sz 유지·옛 형태·표 없음)')

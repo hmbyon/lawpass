@@ -2,14 +2,15 @@
  * 기록형 정리본 html 조각용 화이트리스트 sanitizer. 사례형 sanitizeCaseHtml 과 같은 방식이다 —
  * 문자열 치환이 아니라 DOMParser 로 실제 트리를 만들어 걷는다(text/html 파싱은 스크립트를 실행하지 않는다).
  *
- * 남기는 것: <b> <u> <i> <s> <br>, <mark>(class 없음 또는 g·law·case·res), <span class="c1"~"c5">,
- * <p>(class 는 al-c·al-r 만, 그 밖이면 속성 없는 <p>). 속성은 위의 class 하나뿐이다. 그 밖의 태그는 벗기고 글자만 남기고, 스크립트류는 내용째 버린다
+ * 남기는 것: <b> <u> <i> <s> <sup> <br>, <mark>(class 없음 또는 g·law·case·res), <span class="c1"~"c5"|"bx">,
+ * <p>(class 는 허용 토큰 al-c·al-r·in1~in8·hg·fl 만 남기고, 하나도 없으면 속성 없는 <p>). 속성은 위의 class 하나뿐이다. 그 밖의 태그는 벗기고 글자만 남기고, 스크립트류는 내용째 버린다
  */
 
-const PLAIN_TAGS = new Set(['b', 'u', 'i', 's'])
+const PLAIN_TAGS = new Set(['b', 'u', 'i', 's', 'sup'])
 const MARK_CLASSES = new Set(['g', 'law', 'case', 'res'])
-const SPAN_CLASSES = new Set(['c1', 'c2', 'c3', 'c4', 'c5'])
-const P_CLASSES = new Set(['al-c', 'al-r'])
+const SPAN_CLASSES = new Set(['c1', 'c2', 'c3', 'c4', 'c5', 'bx'])
+// 문단 class 토큰: 정렬·들여쓰기 단계·내어쓰기·첫 줄 들여쓰기
+const P_TOKENS = new Set(['al-c', 'al-r', 'in1', 'in2', 'in3', 'in4', 'in5', 'in6', 'in7', 'in8', 'hg', 'fl'])
 // lib/caseStudy/sanitize.ts 의 DROP_WITH_CONTENT 와 같은 목록
 const DROP_WITH_CONTENT = new Set([
   'script', 'style', 'template', 'iframe', 'object', 'embed', 'noscript', 'textarea', 'title', 'svg', 'math',
@@ -47,8 +48,9 @@ function walk(node: Node): string {
     } else if (tag === 'span' && cls && SPAN_CLASSES.has(cls)) {
       out += `<span class="${cls}">${inner}</span>`
     } else if (tag === 'p') {
-      // 표 셀 안의 문단 경계. 정렬 class 만 남긴다
-      out += cls && P_CLASSES.has(cls) ? `<p class="${cls}">${inner}</p>` : `<p>${inner}</p>`
+      // 표 셀 안의 문단 경계. class 는 허용 토큰만 남긴다
+      const tokens = [...new Set((cls ?? '').split(/\s+/).filter((t) => P_TOKENS.has(t)))]
+      out += tokens.length > 0 ? `<p class="${tokens.join(' ')}">${inner}</p>` : `<p>${inner}</p>`
     } else {
       out += inner
     }

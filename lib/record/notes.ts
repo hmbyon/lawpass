@@ -18,7 +18,7 @@ export interface NoteCell {
   bg?: 'g1' | 'g2' // 셀 배경 (g1 진한 회색 머리칸, g2 옅은 회색)
 }
 export type NoteBlock =
-  | { t: 'p'; h: string; ind?: number; al?: 'c' | 'r' }
+  | { t: 'p'; h: string; ind?: number; al?: 'c' | 'r'; hg?: 1; fl?: 1 } // hg 내어쓰기, fl 첫 줄 들여쓰기
   | { t: 'table'; rows: NoteCell[][]; sz?: 's' } // sz 's' = 원본에서 글자가 작은 표(기출 쟁점 표)
 export interface NoteSub {
   title: string
@@ -168,4 +168,17 @@ export function subsForExam<S>(body: { subs?: S[] }, item: NotesIndexItem, key: 
   if (!key) return all
   const picked = all.filter((_, i) => (item.subs?.[i]?.exams ?? []).some((e) => examKey(e) === key))
   return picked.length > 0 ? picked : all
+}
+
+/** 본문 문단의 내어쓰기·첫 줄 들여쓰기 클래스 (허용값 1 일 때만) */
+export function paragraphClass(block: { hg?: unknown; fl?: unknown }): string {
+  return [block?.hg === 1 && 'note-hg', block?.fl === 1 && 'note-fl'].filter(Boolean).join(' ')
+}
+
+/**
+ * 본문 문단의 왼쪽 여백(rem). 들여쓰기는 인라인 style 로 주므로, 내어쓰기(hg)의 한 칸(1.25rem)도
+ * 여기에 더한다 — CSS .note-hg 의 padding-left 는 인라인 style 에 가려진다
+ */
+export function paragraphPadding(block: { ind?: unknown; hg?: unknown }): number {
+  return (clampIndent(block?.ind) + (block?.hg === 1 ? 1 : 0)) * 1.25
 }
