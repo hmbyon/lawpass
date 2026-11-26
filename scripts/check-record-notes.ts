@@ -12,7 +12,7 @@ import { sanitizeNote } from '../lib/record/sanitizeNote'
 import { parseCaseFile } from '../lib/caseStudy/parse'
 import {
   clampIndent, clampSpan, examChipsFor, filterNoteItems, notePartsOf, noteSubjects, partLabel,
-  sortedExamKeys, type NotesIndex,
+  sortedExamKeys, isUntitledItem, alignClass, cellBgClass, type NotesIndex,
 } from '../lib/record/notes'
 import { decodeNoteFromStore, encodeNoteForStore } from '../lib/record/noteStorage'
 import type { NoteDoc } from '../lib/record/notes'
@@ -68,6 +68,13 @@ check(
 )
 for (const c of ['c1', 'c2', 'c3', 'c4', 'c5']) check(`span.${c}`, [el('span', { class: c }, tx(c))], `<span class="${c}">${c}</span>`)
 check('<b><span class="c2"><mark class="g">겹침</mark></span></b>', [el('b', {}, el('span', { class: 'c2' }, el('mark', { class: 'g' }, tx('겹침'))))], '<b><span class="c2"><mark class="g">겹침</mark></span></b>')
+// 문단 <p>: 정렬 class(al-c·al-r)만 남기고, 그 밖의 class·속성은 지운 <p>
+check('<p class="al-c">x</p>', [el('p', { class: 'al-c' }, tx('x'))], '<p class="al-c">x</p>')
+check('<p class="evil" onclick="x()">x</p>', [el('p', { class: 'evil', onclick: 'x()' }, tx('x'))], '<p>x</p>')
+check('<p class="al-r"><b>x</b></p>', [el('p', { class: 'al-r' }, el('b', {}, tx('x')))], '<p class="al-r"><b>x</b></p>')
+check('<p class="al-c al-r">x</p>', [el('p', { class: 'al-c al-r' }, tx('x'))], '<p>x</p>')
+check('<p><br></p><p>원고   김갑동</p>', [el('p', {}, el('br', {})), el('p', {}, tx('원고   김갑동'))], '<p><br></p><p>원고   김갑동</p>')
+check('<p style="x"><script>a</script><span class="c2">b</span></p>', [el('p', { style: 'x' }, el('script', {}, tx('a')), el('span', { class: 'c2' }, tx('b')))], '<p><span class="c2">b</span></p>')
 // DOMParser 가 없으면 빈 문자열
 const saved = (globalThis as { DOMParser?: unknown }).DOMParser
 delete (globalThis as { DOMParser?: unknown }).DOMParser
@@ -242,4 +249,9 @@ if (!notesDir) {
   console.log(`실데이터: ${files.length}개 파일 — encode 후 중첩 배열 없음·왕복 동일 (가장 큰 저장 형태 ${Math.round(maxBytes / 1000)}KB)`)
 }
 
-console.log('통과: sanitizeNote(차단·허용·DOMParser 없음), parseCaseFile(note·notesIndex, 기존 카드·_index 그대로), 회차 칩·필터·span/들여쓰기 범위, 저장 형태(중첩 배열 없음·왕복·옛 형태·표 없음)')
+// 제목 없는 항목·정렬·셀 배경
+assert.deepEqual([isUntitledItem({ title: '' }), isUntitledItem({ title: '  ' }), isUntitledItem({}), isUntitledItem({ title: '처분성' })], [true, true, true, false])
+assert.deepEqual([alignClass('c'), alignClass('r'), alignClass('l'), alignClass(undefined)], ['text-center', 'text-right', '', ''])
+assert.deepEqual([cellBgClass('g1'), cellBgClass('g2'), cellBgClass('g3'), cellBgClass('x" onclick="'), cellBgClass(undefined)], ['note-bg-g1', 'note-bg-g2', '', '', ''])
+
+console.log('통과: sanitizeNote(차단·허용·DOMParser 없음), parseCaseFile(note·notesIndex, 기존 카드·_index 그대로), 회차 칩·필터·span/들여쓰기 범위, 문단 p·정렬·셀 배경·제목 없는 항목, 저장 형태(중첩 배열 없음·왕복·옛 형태·표 없음)')

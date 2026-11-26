@@ -7,7 +7,7 @@ import { FilterChips } from '@/components/filter-chips'
 import { sanitizeNote } from '@/lib/record/sanitizeNote'
 import {
   clampIndent, clampSpan, examChipsFor, filterNoteItems, itemExams, notePartsOf, noteSubjects,
-  partLabel, sortedExamKeys, type NoteBlock, type NoteDoc, type NotesIndex,
+  partLabel, sortedExamKeys, isUntitledItem, alignClass, cellBgClass, type NoteBlock, type NoteDoc, type NoteItem, type NotesIndex,
 } from '@/lib/record/notes'
 
 // 정리본 html 은 sanitizeNote 출력만 dangerouslySetInnerHTML 에 넣는다
@@ -26,7 +26,7 @@ function Blocks({ blocks }: { blocks: NoteBlock[] }) {
                         key={c}
                         colSpan={clampSpan(cell?.cs)}
                         rowSpan={clampSpan(cell?.rs)}
-                        className="border border-border px-2 py-1 align-top"
+                        className={`border border-border px-2 py-1 align-top ${cellBgClass(cell?.bg)}`}
                         dangerouslySetInnerHTML={{ __html: sanitizeNote(cell?.h ?? '') }}
                       />
                     ))}
@@ -38,12 +38,26 @@ function Blocks({ blocks }: { blocks: NoteBlock[] }) {
         ) : (
           <p
             key={i}
-            className="text-sm leading-relaxed"
+            className={`text-sm leading-relaxed ${alignClass(b?.al)}`}
             style={{ paddingLeft: `${clampIndent(b?.ind) * 1.25}rem` }}
             dangerouslySetInnerHTML={{ __html: sanitizeNote(b?.h ?? '') }}
           />
         )
       )}
+    </>
+  )
+}
+
+function ItemBody({ body }: { body: NoteItem }) {
+  return (
+    <>
+      <Blocks blocks={body.blocks} />
+      {(body.subs ?? []).map((s, i) => (
+        <div key={i} className="pt-2 space-y-1">
+          <p className="text-sm font-semibold">{s.title}</p>
+          <Blocks blocks={s.blocks} />
+        </div>
+      ))}
     </>
   )
 }
@@ -169,6 +183,21 @@ export function NotesViewer() {
         <div className="space-y-2">
           {items.map((it) => {
             const body = partDoc?.items?.find((x) => x.id === it.id)
+            const loading = partDocState === 'loading' || partDocState === undefined
+            // 제목이 빈 항목은 머리줄 없이 본문을 펼쳐 둔다
+            if (isUntitledItem(it)) {
+              return (
+                <div key={it.id} className="bg-card border border-border rounded-xl">
+                  <div className="record-note p-3 space-y-1 text-foreground">
+                    {loading ? (
+                      <p className="text-xs text-muted-foreground">불러오는 중…</p>
+                    ) : body ? (
+                      <ItemBody body={body} />
+                    ) : null}
+                  </div>
+                </div>
+              )
+            }
             const open = openId === it.id
             return (
               <div key={it.id} className="bg-card border border-border rounded-xl">
@@ -188,20 +217,12 @@ export function NotesViewer() {
                 </button>
                 {open && (
                   <div className="record-note px-3 pb-3 space-y-1 text-foreground">
-                    {partDocState === 'loading' || partDocState === undefined ? (
+                    {loading ? (
                       <p className="text-xs text-muted-foreground">불러오는 중…</p>
                     ) : !body ? (
                       <p className="text-xs text-muted-foreground">본문을 찾지 못했습니다</p>
                     ) : (
-                      <>
-                        <Blocks blocks={body.blocks} />
-                        {(body.subs ?? []).map((s, i) => (
-                          <div key={i} className="pt-2 space-y-1">
-                            <p className="text-sm font-semibold">{s.title}</p>
-                            <Blocks blocks={s.blocks} />
-                          </div>
-                        ))}
-                      </>
+                      <ItemBody body={body} />
                     )}
                   </div>
                 )}

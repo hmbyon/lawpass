@@ -15,8 +15,9 @@ export interface NoteCell {
   h: string
   cs?: number
   rs?: number
+  bg?: 'g1' | 'g2' // 셀 배경 (g1 진한 회색 머리칸, g2 옅은 회색)
 }
-export type NoteBlock = { t: 'p'; h: string; ind?: number } | { t: 'table'; rows: NoteCell[][] }
+export type NoteBlock = { t: 'p'; h: string; ind?: number; al?: 'c' | 'r' } | { t: 'table'; rows: NoteCell[][] }
 export interface NoteSub {
   title: string
   blocks: NoteBlock[]
@@ -129,4 +130,19 @@ export function clampSpan(n: unknown): number {
 export function clampIndent(n: unknown): number {
   const v = Math.trunc(Number(n))
   return Number.isFinite(v) ? Math.min(6, Math.max(0, v)) : 0
+}
+
+/** 제목이 빈 항목 — 머리줄 없이 본문을 펼쳐 둔다 */
+export function isUntitledItem(item: { title?: unknown }): boolean {
+  return typeof item.title !== 'string' || item.title.trim() === ''
+}
+
+/** 문단 정렬 클래스 (허용값만) */
+export function alignClass(al: unknown): string {
+  return al === 'c' ? 'text-center' : al === 'r' ? 'text-right' : ''
+}
+
+/** 표 셀 배경 클래스 (허용값만) */
+export function cellBgClass(bg: unknown): string {
+  return bg === 'g1' || bg === 'g2' ? `note-bg-${bg}` : ''
 }

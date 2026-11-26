@@ -369,3 +369,26 @@ html.eye .record-note {
   text-decoration-line: underline;
   text-underline-offset: 3px;
 }
+/* 정리본 문단·표. 기재례처럼 공백이 의미 있는 글이라 연속 공백·들여쓰기를 살리고, 한글 단어 중간에서 끊지 않는다.
+   글자 크기는 그대로 두고 줄간격만 넓힌다 */
+.record-note p,
+.record-note td {
+  white-space: pre-wrap;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+.record-note p {
+  margin: 0;
+  line-height: 1.7;
+}
+.record-note p.al-c { text-align: center; }
+.record-note p.al-r { text-align: right; }
+.record-note table { border-collapse: collapse; }
+.record-note td,
+.record-note th {
+  border: 1px solid var(--border);
+  padding: 0.4rem 0.5rem;
+  vertical-align: top;
+}
+.record-note .note-bg-g1 { background-color: oklch(0.6 0 0 / 22%); }
+.record-note .note-bg-g2 { background-color: oklch(0.6 0 0 / 10%); }
