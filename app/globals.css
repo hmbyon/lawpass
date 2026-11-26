@@ -447,3 +447,10 @@ html.eye .record-note {
 .record-note p.note-p:not(.text-center):not(.text-right) {
   text-align: justify;
 }
+/* 목차 번호 문단("2. 위법성 조각") 위 간격. 본문 영역 맨 첫 문단이면 띄우지 않는다 */
+.record-note p.note-num {
+  margin-top: 0.9rem;
+}
+.record-note p.note-num:first-child {
+  margin-top: 0;
+}

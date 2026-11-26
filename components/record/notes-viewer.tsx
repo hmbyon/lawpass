@@ -6,7 +6,7 @@ import { fetchNoteDoc, fetchNotesIndex } from '@/lib/firebaseServices/caseStudy'
 import { sanitizeNote } from '@/lib/record/sanitizeNote'
 import {
   clampSpan, notePartsOf, noteSubjects, partLabel, isUntitledItem, alignClass, cellBgClass,
-  isBoxTable, tableSizeClass, examChipsOfItem, subsForExam, paragraphClass, paragraphPadding, splitTitleTag, type NoteBlock, type NoteDoc, type NoteItem, type NotesIndex,
+  isBoxTable, tableSizeClass, examChipsOfItem, subsForExam, paragraphClass, paragraphPadding, splitTitleTag, isNumberedHeading, type NoteBlock, type NoteDoc, type NoteItem, type NotesIndex,
 } from '@/lib/record/notes'
 
 // 정리본 html 은 sanitizeNote 출력만 dangerouslySetInnerHTML 에 넣는다
@@ -38,7 +38,7 @@ function Blocks({ blocks }: { blocks: NoteBlock[] }) {
         ) : (
           <p
             key={i}
-            className={`note-p text-sm leading-relaxed ${alignClass(b?.al)} ${paragraphClass(b)}`}
+            className={`note-p text-sm leading-relaxed ${alignClass(b?.al)} ${paragraphClass(b)} ${isNumberedHeading(b) ? 'note-num' : ''}`}
             style={{ paddingLeft: `${paragraphPadding(b)}rem` }}
             dangerouslySetInnerHTML={{ __html: sanitizeNote(b?.h ?? '') }}
           />

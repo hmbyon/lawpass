@@ -198,3 +198,12 @@ export function splitTitleTag(title: string): { text: string; tag: string | null
   const m = /\s*\((\d+회\s*(?:변시|모의))\)\s*$/.exec(title ?? '')
   return m ? { text: title.slice(0, m.index), tag: m[1] } : { text: title ?? '', tag: null }
 }
+
+/**
+ * 목차 번호 문단 "2. 위법성 조각" — 들여쓰기 없는 문단이 "숫자. " 로 시작한다. 위에 간격을 둬 목차를 가른다.
+ * 태그를 지우는 것은 판정용일 뿐이다(화면에는 sanitizeNote 출력만 그린다)
+ */
+export function isNumberedHeading(block: NoteBlock): boolean {
+  if (block?.t !== 'p' || clampIndent(block.ind) !== 0) return false
+  return /^\d+\.\s/.test(String(block.h ?? '').replace(/<[^>]*>/g, ''))
+}

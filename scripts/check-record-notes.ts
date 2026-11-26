@@ -13,7 +13,7 @@ import { parseCaseFile } from '../lib/caseStudy/parse'
 import {
   clampIndent, clampSpan, notePartsOf, noteSubjects, partLabel,
   sortedExamKeys, isUntitledItem, alignClass, cellBgClass, isBoxTable, tableSizeClass, isExamItem, examChipsOfItem,
-  subsForExam, paragraphClass, paragraphPadding, splitTitleTag, type NoteBlock, type NotesIndex,
+  subsForExam, paragraphClass, paragraphPadding, splitTitleTag, isNumberedHeading, type NoteBlock, type NotesIndex,
 } from '../lib/record/notes'
 import { decodeNoteFromStore, encodeNoteForStore } from '../lib/record/noteStorage'
 import type { NoteDoc } from '../lib/record/notes'
@@ -306,9 +306,19 @@ assert.deepEqual(splitTitleTag('[1] 행정소송 소장'), { text: '[1] 행정�
 assert.deepEqual(splitTitleTag('(변시 기출)'), { text: '(변시 기출)', tag: null })
 assert.deepEqual(splitTitleTag('[4] 답변서 (5회 변시) 보충'), { text: '[4] 답변서 (5회 변시) 보충', tag: null }, '맨 끝이 아니면 떼지 않는다')
 
+// 목차 번호 문단
+const para = (h: string, extra: object = {}) => ({ t: 'p', h, ...extra }) as NoteBlock
+assert.equal(isNumberedHeading(para('2. <b>위법성 조각</b>', { ind: 0 })), true)
+assert.equal(isNumberedHeading(para('<b>3. 책임 조각</b>')), true, '태그 안의 번호, ind 없음')
+assert.equal(isNumberedHeading(para('10. 열번째')), true)
+assert.equal(isNumberedHeading(para('■ 정당방위')), false)
+assert.equal(isNumberedHeading(para('1. 가', { ind: 1 })), false, '들여쓴 번호 문단')
+assert.equal(isNumberedHeading(para('1.5배')), false, '점 뒤에 공백이 없다')
+assert.equal(isNumberedHeading(tbl([[{ h: '1. 가' }]])), false, '표 블록')
+
 // 제목 없는 항목·정렬·셀 배경
 assert.deepEqual([isUntitledItem({ title: '' }), isUntitledItem({ title: '  ' }), isUntitledItem({}), isUntitledItem({ title: '처분성' })], [true, true, true, false])
 assert.deepEqual([alignClass('c'), alignClass('r'), alignClass('l'), alignClass(undefined)], ['text-center', 'text-right', '', ''])
 assert.deepEqual([cellBgClass('g1'), cellBgClass('g2'), cellBgClass('g3'), cellBgClass('x" onclick="'), cellBgClass(undefined)], ['note-bg-g1', 'note-bg-g2', '', '', ''])
 
-console.log('통과: sanitizeNote(차단·허용·DOMParser 없음), parseCaseFile(note·notesIndex, 기존 카드·_index 그대로), 회차 정렬·span/들여쓰기 범위, 기재례 박스·표 크기·기출 회차 칩·소항목 고르기, 문단 p·정렬·셀 배경·제목 없는 항목, sup·bx·문단 토큰·내어쓰기·제목 회차 꼬리표, 저장 형태(중첩 배열 없음·왕복·sz 유지·옛 형태·표 없음)')
+console.log('통과: sanitizeNote(차단·허용·DOMParser 없음), parseCaseFile(note·notesIndex, 기존 카드·_index 그대로), 회차 정렬·span/들여쓰기 범위, 기재례 박스·표 크기·기출 회차 칩·소항목 고르기, 문단 p·정렬·셀 배경·제목 없는 항목, sup·bx·문단 토큰·내어쓰기·제목 회차 꼬리표·번호 문단, 저장 형태(중첩 배열 없음·왕복·sz 유지·옛 형태·표 없음)')
