@@ -13,7 +13,7 @@ import { parseCaseFile } from '../lib/caseStudy/parse'
 import {
   clampIndent, clampSpan, notePartsOf, noteSubjects, partLabel,
   sortedExamKeys, isUntitledItem, alignClass, cellBgClass, isBoxTable, tableSizeClass, isExamItem, examChipsOfItem,
-  subsForExam, paragraphClass, paragraphPadding, splitTitleTag, isNumberedHeading, type NoteBlock, type NotesIndex,
+  subsForExam, paragraphClass, paragraphPadding, paragraphFirstLineEm, splitTitleTag, isNumberedHeading, type NoteBlock, type NotesIndex,
 } from '../lib/record/notes'
 import { decodeNoteFromStore, encodeNoteForStore } from '../lib/record/noteStorage'
 import type { NoteDoc } from '../lib/record/notes'
@@ -165,6 +165,9 @@ assert.deepEqual(sortedExamKeys([exam('모의', '24.6'), exam('변시', '14'), e
 assert.deepEqual(sortedExamKeys([exam('모의', '24.10'), exam('변시', '14'), exam('모의', '24.6'), exam('변시', '2')]), ['변시 2', '변시 14', '모의 24.6', '모의 24.10'])
 assert.deepEqual([clampSpan(undefined), clampSpan(0), clampSpan(3), clampSpan(99), clampSpan('2'), clampSpan('x'), clampSpan(2.7)], [1, 1, 3, 20, 2, 1, 2])
 assert.deepEqual([clampIndent(undefined), clampIndent(-1), clampIndent(3), clampIndent(9)], [0, 0, 3, 6])
+// 0.5 단위 반올림
+assert.deepEqual([1.4, 1.2, 2.7, 9, -1, undefined, 3].map(clampIndent), [1.5, 1, 2.5, 6, 0, 0, 3])
+assert.deepEqual([clampIndent('x'), clampIndent('2.5'), clampIndent(-0.2)], [0, 2.5, 0])
 
 // ── ④ Firestore 저장 형태 (배열 안의 배열 없음) ─────────────────────
 // 배열 안에 배열이 있으면 그 경로를 돌려준다
@@ -298,6 +301,8 @@ assert.deepEqual(subsForExam({}, examItem, '변시 2'), [], '본문에 소항목
 // 본문 문단의 내어쓰기·첫 줄 들여쓰기
 assert.deepEqual([paragraphClass({ hg: 1 }), paragraphClass({ fl: 1 }), paragraphClass({ hg: 1, fl: 1 }), paragraphClass({ hg: 2, fl: 'x' }), paragraphClass({})], ['note-hg', 'note-fl', 'note-hg note-fl', '', ''])
 assert.deepEqual([paragraphPadding({}), paragraphPadding({ ind: 2 }), paragraphPadding({ ind: 2, hg: 1 }), paragraphPadding({ ind: 9, hg: 1 }), paragraphPadding({ hg: true })], [0, 2.5, 3.75, 8.75, 0])
+assert.deepEqual([paragraphPadding({ ind: 1.5 }), paragraphPadding({ ind: 2.5, hg: 1 })], [1.875, 4.375])
+assert.deepEqual([1, 2, 4, 5, 0, undefined, 'x', 1.5].map((fl) => paragraphFirstLineEm({ fl })), [1, 2, 4, 0, 0, 0, 0, 0])
 
 // 제목 끝 회차 꼬리표
 assert.deepEqual(splitTitleTag('[2] 집행정지신청서 (5회 변시)'), { text: '[2] 집행정지신청서', tag: '5회 변시' })
@@ -314,6 +319,7 @@ assert.equal(isNumberedHeading(para('10. 열번째')), true)
 assert.equal(isNumberedHeading(para('■ 정당방위')), false)
 assert.equal(isNumberedHeading(para('▪ 정당방위')), false)
 assert.equal(isNumberedHeading(para('1. 가', { ind: 1 })), false, '들여쓴 번호 문단')
+assert.equal(isNumberedHeading(para('1. 가', { ind: 0.5 })), false, '반 칸 들여쓴 번호 문단도 들여쓴 것이다')
 assert.equal(isNumberedHeading(para('1.5배')), false, '점 뒤에 공백이 없다')
 assert.equal(isNumberedHeading(tbl([[{ h: '1. 가' }]])), false, '표 블록')
 

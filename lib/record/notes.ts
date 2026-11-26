@@ -18,7 +18,7 @@ export interface NoteCell {
   bg?: 'g1' | 'g2' // 셀 배경 (g1 진한 회색 머리칸, g2 옅은 회색)
 }
 export type NoteBlock =
-  | { t: 'p'; h: string; ind?: number; al?: 'c' | 'r'; hg?: 1; fl?: 1 } // hg 내어쓰기, fl 첫 줄 들여쓰기
+  | { t: 'p'; h: string; ind?: number; al?: 'c' | 'r'; hg?: 1; fl?: 1 | 2 | 3 | 4 } // ind 0.5 단위, hg 내어쓰기, fl 첫 줄 들여쓰기(em)
   | { t: 'table'; rows: NoteCell[][]; sz?: 's' } // sz 's' = 원본에서 글자가 작은 표(기출 쟁점 표)
 export interface NoteSub {
   title: string
@@ -117,9 +117,10 @@ export function clampSpan(n: unknown): number {
   return Number.isFinite(v) ? Math.min(20, Math.max(1, v)) : 1
 }
 
-/** 문단 들여쓰기 칸 수 — 정수 0~6 */
+/** 문단 들여쓰기 칸 수 — 0.5 단위 0~6 */
 export function clampIndent(n: unknown): number {
-  const v = Math.trunc(Number(n))
+  // 0.5 단위로 반올림한다 (데이터의 ind 가 1.5·2.5 처럼 온다). 정수는 그대로다
+  const v = Math.round(Number(n) * 2) / 2
   return Number.isFinite(v) ? Math.min(6, Math.max(0, v)) : 0
 }
 
@@ -206,4 +207,10 @@ export function splitTitleTag(title: string): { text: string; tag: string | null
 export function isNumberedHeading(block: NoteBlock): boolean {
   if (block?.t !== 'p' || clampIndent(block.ind) !== 0) return false
   return /^\d+\.\s/.test(String(block.h ?? '').replace(/<[^>]*>/g, ''))
+}
+
+/** 본문 문단의 첫 줄 들여쓰기(em). fl 이 1~4 정수일 때만 그 값, 그 밖(없음·0·문자열·4 초과)은 무시하고 0 */
+export function paragraphFirstLineEm(block: { fl?: unknown }): number {
+  const fl = block?.fl
+  return typeof fl === 'number' && Number.isInteger(fl) && fl >= 1 && fl <= 4 ? fl : 0
 }
