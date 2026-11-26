@@ -14,6 +14,9 @@ import {
   clampIndent, clampSpan, examChipsFor, filterNoteItems, notePartsOf, noteSubjects, partLabel,
   sortedExamKeys, type NotesIndex,
 } from '../lib/record/notes'
+import { decodeNoteFromStore, encodeNoteForStore } from '../lib/record/noteStorage'
+import type { NoteDoc } from '../lib/record/notes'
+import fs from 'node:fs'
 
 // ── ① sanitizeNote ────────────────────────────────────────────────
 type FakeNode = { nodeType: number; textContent?: string; tagName?: string; childNodes: FakeNode[]; getAttribute?: (n: string) => string | null }
@@ -151,4 +154,92 @@ assert.deepEqual(filterNoteItems(items, ['모의 24.10']), [])
 assert.deepEqual([clampSpan(undefined), clampSpan(0), clampSpan(3), clampSpan(99), clampSpan('2'), clampSpan('x'), clampSpan(2.7)], [1, 1, 3, 20, 2, 1, 2])
 assert.deepEqual([clampIndent(undefined), clampIndent(-1), clampIndent(3), clampIndent(9)], [0, 0, 3, 6])
 
-console.log('통과: sanitizeNote(차단·허용·DOMParser 없음), parseCaseFile(note·notesIndex, 기존 카드·_index 그대로), 회차 칩·필터·span/들여쓰기 범위')
+// ── ④ Firestore 저장 형태 (배열 안의 배열 없음) ─────────────────────
+// 배열 안에 배열이 있으면 그 경로를 돌려준다
+function nestedArrayAt(v: unknown, path = '$', inArray = false): string | null {
+  if (Array.isArray(v)) {
+    if (inArray) return path
+    for (let i = 0; i < v.length; i++) {
+      const hit = nestedArrayAt(v[i], `${path}[${i}]`, true)
+      if (hit) return hit
+    }
+    return null
+  }
+  if (v && typeof v === 'object') {
+    for (const [k, x] of Object.entries(v)) {
+      const hit = nestedArrayAt(x, `${path}.${k}`, false)
+      if (hit) return hit
+    }
+  }
+  return null
+}
+assert.equal(nestedArrayAt({ a: [[1]] }), '$.a[0]', '검사 함수 자체')
+assert.equal(nestedArrayAt({ a: [{ b: [1] }] }), null, '객체를 사이에 두면 중첩 배열이 아니다')
+
+const cell = (h: string, extra: object = {}) => ({ h, ...extra })
+const tableDoc = {
+  schema: 1, id: '정리-민사-4부', subject: '민사', title: '민사 4부', part: '4부',
+  items: [
+    {
+      id: 'i1', title: '표 항목', exams: [exam('변시', '14')],
+      blocks: [
+        { t: 'p', h: '<b>앞</b>', ind: 1 },
+        { t: 'table', rows: [[cell('가', { cs: 2 }), cell('나')], [cell('다', { rs: 3 })], []] },
+      ],
+      subs: [{ title: '소', exams: [exam('모의', '24.6')], blocks: [{ t: 'table', rows: [[cell('s1'), cell('s2', { cs: 1, rs: 2 })]] }] }],
+    },
+    { id: 'i2', title: '빈 항목', blocks: [], subs: [] },
+  ],
+} as unknown as NoteDoc
+const before = JSON.parse(JSON.stringify(tableDoc))
+assert.ok(nestedArrayAt(tableDoc), '원본에는 표 rows 의 중첩 배열이 있다')
+const enc = encodeNoteForStore(tableDoc)
+// ① encode 결과에 배열 안의 배열이 없다
+assert.equal(nestedArrayAt(enc), null)
+assert.deepEqual(tableDoc, before, 'encode 는 입력을 바꾸지 않는다')
+// ② 왕복 동일
+const dec = decodeNoteFromStore(JSON.parse(JSON.stringify(enc)))
+assert.deepEqual(dec, before)
+assert.deepEqual(enc, JSON.parse(JSON.stringify(enc)), 'encode 결과에 undefined 등 직렬화로 사라지는 값이 없다')
+// ③ cs/rs 유지
+const t0 = dec.items[0].blocks[1] as Extract<NoteDoc['items'][0]['blocks'][0], { t: 'table' }>
+assert.deepEqual(t0.rows[0][0], { h: '가', cs: 2 })
+assert.deepEqual(t0.rows[1][0], { h: '다', rs: 3 })
+assert.deepEqual((dec.items[0].subs[0].blocks[0] as typeof t0).rows[0][1], { h: 's2', cs: 1, rs: 2 })
+// ④ 옛 형태(행이 배열)는 decode 해도 그대로
+assert.deepEqual(decodeNoteFromStore(JSON.parse(JSON.stringify(tableDoc))), before)
+// ⑤ 표가 없는 문서는 값이 그대로
+assert.deepEqual(encodeNoteForStore(note as unknown as NoteDoc), note)
+assert.deepEqual(decodeNoteFromStore(note as unknown as NoteDoc), note)
+// 색인에는 중첩 배열이 없다
+assert.equal(nestedArrayAt(index), null)
+assert.equal(nestedArrayAt(nidx), null)
+
+// 실데이터 (환경 변수가 있을 때만. 데이터는 저장소에 두지 않는다)
+//   LAWPASS_NOTES_DIR — 정리본 JSON 폴더(정리-*.json, _notes_index.json)
+const notesDir = process.env.LAWPASS_NOTES_DIR
+if (!notesDir) {
+  console.log('실데이터: 건너뜀 (LAWPASS_NOTES_DIR 미설정)')
+} else {
+  const files = fs.readdirSync(notesDir).filter((f) => f.endsWith('.json')).sort()
+  let maxBytes = 0
+  for (const f of files) {
+    const raw: string = fs.readFileSync(`${notesDir}/${f}`, 'utf8')
+    const parsed = parseCaseFile(f, raw)
+    if (parsed.kind === 'notesIndex') {
+      assert.equal(nestedArrayAt(parsed.index), null, `${f}: 색인에 중첩 배열`)
+      continue
+    }
+    assert.equal(parsed.kind, 'note', f)
+    if (parsed.kind !== 'note') continue
+    const e = encodeNoteForStore(parsed.note)
+    assert.equal(nestedArrayAt(e), null, `${f}: encode 후 중첩 배열 ${nestedArrayAt(e)}`)
+    assert.deepEqual(decodeNoteFromStore(JSON.parse(JSON.stringify(e))), JSON.parse(raw), `${f}: 왕복`)
+    const bytes = Buffer.byteLength(JSON.stringify(e))
+    assert.ok(bytes <= 900_000, `${f}: ${bytes}B > 900KB`)
+    maxBytes = Math.max(maxBytes, bytes)
+  }
+  console.log(`실데이터: ${files.length}개 파일 — encode 후 중첩 배열 없음·왕복 동일 (가장 큰 저장 형태 ${Math.round(maxBytes / 1000)}KB)`)
+}
+
+console.log('통과: sanitizeNote(차단·허용·DOMParser 없음), parseCaseFile(note·notesIndex, 기존 카드·_index 그대로), 회차 칩·필터·span/들여쓰기 범위, 저장 형태(중첩 배열 없음·왕복·옛 형태·표 없음)')

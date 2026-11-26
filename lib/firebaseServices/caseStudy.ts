@@ -4,6 +4,7 @@ import { ADMIN_UID, byteLength } from '@/lib/firebaseServices/sync'
 import type { Card, CaseIndex } from '@/lib/caseStudy/types'
 import { isRecordCard } from '@/lib/caseStudy/group'
 import { NOTES_INDEX_ID, type NoteDoc, type NotesIndex } from '@/lib/record/notes'
+import { decodeNoteFromStore, encodeNoteForStore } from '@/lib/record/noteStorage'
 
 /**
  * 사례형 카드 — 관리자 계정 트리 아래 둔다 (docs/case-study-design.md).
@@ -90,9 +91,11 @@ function noteRef(mode: string, id: string) {
   return doc(db, 'users', ADMIN_UID, mode, 'caseStudy', 'notes', id)
 }
 
+// Firestore 는 배열 안의 배열을 못 쓴다 — 표의 행을 객체로 감싸 저장하고 읽을 때 되돌린다(lib/record/noteStorage)
 export async function saveNoteDoc(mode: string, note: NoteDoc): Promise<void> {
-  assertSize(note, `정리본 ${note.id}`)
-  await setDoc(noteRef(mode, note.id), note)
+  const stored = encodeNoteForStore(note)
+  assertSize(stored, `정리본 ${note.id}`)
+  await setDoc(noteRef(mode, note.id), stored)
 }
 
 export async function saveNotesIndex(mode: string, index: NotesIndex): Promise<void> {
@@ -107,5 +110,5 @@ export async function fetchNotesIndex(mode: string): Promise<NotesIndex | null> 
 
 export async function fetchNoteDoc(mode: string, id: string): Promise<NoteDoc | null> {
   const snap = await getDoc(noteRef(mode, id))
-  return snap.exists() ? (snap.data() as NoteDoc) : null
+  return snap.exists() ? decodeNoteFromStore(snap.data() as NoteDoc) : null
 }
