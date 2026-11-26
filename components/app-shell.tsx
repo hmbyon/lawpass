@@ -313,7 +313,7 @@ export function AppShell({ user }: Props) {
   useEffect(() => {
     if (view !== 'cases' || caseIndexMode === mode) return
     let alive = true
-    fetchCaseIndex(mode)
+    fetchCaseIndex(mode, { includeRecord: true })
       .then((index) => alive && setCaseIndex({ mode, index, error: false }))
       .catch((e) => {
         console.error('[app-shell] 사례형 판례 색인을 불러오지 못했습니다', e)

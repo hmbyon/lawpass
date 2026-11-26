@@ -3,6 +3,9 @@ import type { CaseIndex, IndexCard, IndexProblem } from './types'
 
 export type SubjectFilter = '전체' | string
 
+// 기록형 카드(공법·민사·형사 기록형). 판례 탭에만 쓰고 사례형 화면에서는 뺀다
+export const isRecordCard = (c: Pick<IndexCard, 'category'>): boolean => c.category === '기록형'
+
 const SUBJECT_ORDER = ['민법', '민소', '상법', '형법', '형소', '헌법', '행정법']
 // 목록에 없는 과목은 맨 뒤로
 const subjectRank = (s: string) => (SUBJECT_ORDER.includes(s) ? SUBJECT_ORDER.indexOf(s) : SUBJECT_ORDER.length)

@@ -15,7 +15,7 @@ import {
 import {
   buildUnifiedCaseDigest, filterCases, sortCases, periodLabel, PERIOD_OPTIONS, examYearLabel,
   findCaseMentions, allExplanationText, previewMention, selectedUnitsOf, mergeUnitSelection,
-  searchCases, inOrigin, CASE_STUDY_SUBJECT, caseStudyProblemCount, casesSummaryTail,
+  searchCases, inOrigin, caseStudySubjectLabel, caseStudyProblemCount, casesSummaryTail,
   stripBucketLabels, groupCaseStudySources, caseStudyExamLabel, caseStudyQuestionLabel, caseNumberSpans,
   toggleExpanded, allVisibleExpanded, setVisibleExpanded, expandAllNeedsConfirm,
   type CaseGroup, type CaseSort, type CaseOrigin, type CaseSource,
@@ -410,7 +410,7 @@ function CaseStudyQuestionLine({
       {open && (
         <div className="mt-1.5 mb-1 p-2.5 rounded-lg bg-muted/50 border border-border space-y-2 text-xs">
           <p className="text-[11px] text-muted-foreground">
-            <span className="text-xs font-semibold text-foreground">{CASE_STUDY_SUBJECT[source.subject]}</span>
+            <span className="text-xs font-semibold text-foreground">{caseStudySubjectLabel(source.subject)}</span>
             {' · '}
             {caseStudyExamLabel(source.examType, source.exam)} · {source.cardTitle}
           </p>
@@ -663,7 +663,7 @@ export function CasesTab({
   }
   // 기본은 최근 5개년·출제횟수순. 탭 이름이 '기출판례'인 만큼 전체도 한 번에 볼 수 있게 둔다
   const [years, setYears] = useState<number | null>(5)
-  const [subjects, setSubjects] = useState<Subject[]>([])
+  const [subjects, setSubjects] = useState<string[]>([])
   const [units, setUnits] = useState<string[]>([])
   const [examTypes, setExamTypes] = useState<ExamType[]>([])
   const [examMonths, setExamMonths] = useState<ExamMonthLabel[]>([])
@@ -761,7 +761,7 @@ export function CasesTab({
     const fromCaseStudy =
       effectiveOrigin === 'objective'
         ? []
-        : groups.flatMap((g) => g.sources.flatMap((s) => (s.kind === 'caseStudy' ? [CASE_STUDY_SUBJECT[s.subject]] : [])))
+        : groups.flatMap((g) => g.sources.flatMap((s) => (s.kind === 'caseStudy' ? [caseStudySubjectLabel(s.subject)] : [])))
     return Array.from(new Set([...groups.flatMap((g) => g.subjects), ...fromCaseStudy]))
   }, [digest.groups, effectiveOrigin])
   const availableExamTypes = useMemo(
@@ -819,11 +819,11 @@ export function CasesTab({
     if (!next.includes('모의고사')) setExamMonths([])
   }
 
-  function changeSubjects(next: Subject[]) {
+  function changeSubjects(next: string[]) {
     setSubjects(next)
     // 고른 과목에 없는 단원은 선택에서 뺀다. 남겨 두면 결과가 0건인데 이유가 안 보인다
     const allowed = new Set(
-      (next.length > 0 ? next : (Object.keys(SUBJECT_UNITS) as Subject[])).flatMap((s) => SUBJECT_UNITS[s] ?? [])
+      (next.length > 0 ? next : Object.keys(SUBJECT_UNITS)).flatMap((s) => (SUBJECT_UNITS as Record<string, string[]>)[s] ?? [])
     )
     setUnits((prev) => prev.filter((u) => allowed.has(u)))
   }
@@ -911,7 +911,11 @@ export function CasesTab({
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">과목 (복수 선택)</label>
               <FilterChips
-                options={Object.keys(SUBJECT_UNITS) as Subject[]}
+                options={[
+                  ...Object.keys(SUBJECT_UNITS),
+                  // 선택형 과목이 아닌 사례형 과목(공법 기록형 등)은 이름 그대로 뒤에 붙인다
+                  ...availableSubjects.filter((s) => !(s in SUBJECT_UNITS)),
+                ]}
                 selected={subjects}
                 onChange={changeSubjects}
                 available={availableSubjects}
@@ -1036,11 +1040,11 @@ export function CasesTab({
                   )}
                   {/* 과목마다 한 줄로 끊는다. 이어 붙이면 어느 단원이 어느 과목 것인지
                       이름만으로는 알 수 없다 */}
-                  {subjects.map((s) => (
+                  {subjects.filter((s) => s in SUBJECT_UNITS).map((s) => (
                     <div key={s} className="space-y-1">
                       <p className="text-[11px] text-muted-foreground">{s}</p>
                       <FilterChips
-                        options={SUBJECT_UNITS[s] ?? []}
+                        options={SUBJECT_UNITS[s as Subject] ?? []}
                         selected={units}
                         onChange={(next) => setUnits(mergeUnitSelection(s, units, next))}
                         available={availableUnits}

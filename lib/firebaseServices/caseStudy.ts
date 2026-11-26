@@ -2,6 +2,7 @@ import { db } from '@/lib/firebase'
 import { doc, getDoc, setDoc, writeBatch } from 'firebase/firestore'
 import { ADMIN_UID, byteLength } from '@/lib/firebaseServices/sync'
 import type { Card, CaseIndex } from '@/lib/caseStudy/types'
+import { isRecordCard } from '@/lib/caseStudy/group'
 
 /**
  * 사례형 카드 — 관리자 계정 트리 아래 둔다 (docs/case-study-design.md).
@@ -38,11 +39,13 @@ function assertSize(value: unknown, what: string) {
 // 판례번호(cases)는 색인 v1.1 에서 생긴 필드다. v1 문서에는 없으므로 읽을 때 [] 로 채워 둔다
 const withCases = <T extends { cases?: string[] }>(o: T): T => ({ ...o, cases: o.cases ?? [] })
 
-export async function fetchCaseIndex(mode: string): Promise<CaseIndex | null> {
+// 기록형 카드는 판례 탭(includeRecord: true)만 받는다. 사례형 화면은 기본값으로 빠진 색인을 받는다
+export async function fetchCaseIndex(mode: string, { includeRecord = false }: { includeRecord?: boolean } = {}): Promise<CaseIndex | null> {
   const snap = await getDoc(indexRef(mode))
   if (!snap.exists()) return null
   const index = snap.data() as CaseIndex
-  return { ...index, cards: index.cards.map((c) => ({ ...withCases(c), problems: (c.problems ?? []).map(withCases) })) }
+  const cards = includeRecord ? index.cards : index.cards.filter((c) => !isRecordCard(c))
+  return { ...index, cards: cards.map((c) => ({ ...withCases(c), problems: (c.problems ?? []).map(withCases) })) }
 }
 
 export async function fetchCaseCard(mode: string, id: string): Promise<Card | null> {

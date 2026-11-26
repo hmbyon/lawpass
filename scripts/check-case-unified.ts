@@ -10,7 +10,8 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
-import { buildCaseDigest, buildUnifiedCaseDigest, type CaseDigest } from '../lib/caseDigest'
+import { buildCaseDigest, buildUnifiedCaseDigest, caseStudySubjectLabel, filterCases, mergeUnitSelection, selectedUnitsOf, type CaseDigest } from '../lib/caseDigest'
+import { isRecordCard } from '../lib/caseStudy/group'
 import type { CaseIndex } from '../lib/caseStudy/types'
 import type { Question } from '../lib/types'
 
@@ -116,6 +117,43 @@ const v1 = { schema: 1, cards: [{ ...index.cards[0], problems: index.cards[0].pr
 assert.equal(full(buildUnifiedCaseDigest(objective, v1)), full(buildCaseDigest(objective)), 'v1 색인은 아무것도 더하지 않는다')
 
 console.log('통과: 골든(색인 없음·빈 색인·v1 색인 = buildCaseDigest), 합치기, 2자리/4자리, 사례형 전용, 중복 인용, stub 제외')
+
+// ── 기록형 카드: 판례 탭에 합쳐지고, 과목 이름은 그대로, undefined 없음 ──
+const recordIndex = {
+  schema: 1,
+  cards: [
+    ...index.cards,
+    {
+      id: '기록-공법', subject: '공법 기록형', category: '기록형', chapter: '', order: [0, 0], title: '공법 기록형', pages: '', cases: [],
+      problems: [
+        { id: '기록-공법#변시14', kind: '변시', exam: 14, qno: '기록형', cases: ['2001다46730', '2020두1'] },
+        { id: '기록-공법#모의24.6', kind: '모의', exam: '24.6', qno: '기록형', cases: ['2020두1'] },
+      ],
+    },
+  ],
+} as unknown as CaseIndex
+assert.equal(isRecordCard(recordIndex.cards[1]), true)
+assert.equal(isRecordCard(recordIndex.cards[0]), false)
+const ru = buildUnifiedCaseDigest(objective, recordIndex)
+const rKey = new Map(ru.groups.map((g) => [g.key, g]))
+assert.deepEqual(rKey.get('2001다46730')!.counts, { objective: 1, caseStudy: 2, total: 3 }, '기록형 인용이 선택형 판례에 합쳐진다')
+assert.deepEqual(rKey.get('2020두1')!.counts, { objective: 0, caseStudy: 2, total: 2 }, '기록형 전용 판례')
+const recSources = ru.groups.flatMap((g) => g.sources).filter((s) => s.kind === 'caseStudy' && s.cardId === '기록-공법')
+assert.deepEqual(
+  recSources.map((s) => s.kind === 'caseStudy' && s.problemLabel).sort(),
+  ['모의 24.6 기록형', '변시 14회 기록형', '변시 14회 기록형']
+)
+// 과목 칩(cases-tab availableSubjects 와 같은 계산): 기록형 이름이 그대로, undefined 없음
+const chips = Array.from(new Set(ru.groups.flatMap((g) => [...g.subjects, ...g.sources.flatMap((s) => (s.kind === 'caseStudy' ? [caseStudySubjectLabel(s.subject)] : []))])))
+assert.ok(chips.includes('공법 기록형'))
+assert.ok(chips.every((s) => typeof s === 'string' && s !== 'undefined'), JSON.stringify(chips))
+assert.equal(caseStudySubjectLabel('민소'), '민사소송법')
+// 기록형 과목으로 거르면 기록형 판례만, 단원이 골라져 있어도 예외 없이 동작한다
+assert.deepEqual(filterCases(ru.groups, { subjects: ['공법 기록형'], origin: 'all' }).map((g) => g.key).sort(), ['2001다46730', '2020두1'])
+assert.deepEqual(filterCases(ru.groups, { subjects: ['공법 기록형'], units: ['채권총론'], origin: 'all' }).map((g) => g.key).sort(), ['2001다46730', '2020두1'])
+assert.deepEqual(selectedUnitsOf('공법 기록형', ['채권총론']), [])
+assert.deepEqual(mergeUnitSelection('공법 기록형', ['채권총론'], ['x']), ['채권총론'])
+console.log('통과: 기록형 카드 — 합치기, 문항 라벨, 과목 칩 이름, 기록형 과목 필터·단원 없음')
 
 // ── 실데이터 통계 (환경 변수가 있을 때만) ───────────────────────────
 const objDir = process.env.LAWPASS_OBJECTIVE_DIR

@@ -325,9 +325,12 @@ export function sortCases(groups: CaseGroup[], sort: CaseSort, origin?: CaseOrig
  * 걸린다. 선택 상태가 단원 이름의 목록이라 어느 과목에서 눌렀는지가 남지 않는다 —
  * 다만 칩도 두 과목에서 함께 보라로 켜지므로 화면과 결과는 여전히 어긋나지 않는다
  */
-export function selectedUnitsOf(subject: Subject, units: string[]): string[] {
+// 선택형 과목이 아닌 이름(기록형 등)은 단원이 없다 — 빈 배열
+const unitsOfSubject = (subject: string): string[] => (SUBJECT_UNITS as Record<string, string[]>)[subject] ?? []
+
+export function selectedUnitsOf(subject: string, units: string[]): string[] {
   if (units.length === 0) return []
-  return (SUBJECT_UNITS[subject] ?? []).filter((u) => units.includes(u))
+  return unitsOfSubject(subject).filter((u) => units.includes(u))
 }
 
 /**
@@ -337,8 +340,8 @@ export function selectedUnitsOf(subject: Subject, units: string[]): string[] {
  * [누른 것] 하나만 돌려준다. 그대로 받으면 다른 과목에서 골라 둔 단원이 함께 지워진다.
  * 그 과목 몫만 갈아끼우고 나머지는 그대로 둔다
  */
-export function mergeUnitSelection(subject: Subject, current: string[], next: string[]): string[] {
-  const mine = new Set(SUBJECT_UNITS[subject] ?? [])
+export function mergeUnitSelection(subject: string, current: string[], next: string[]): string[] {
+  const mine = new Set(unitsOfSubject(subject))
   return [...current.filter((u) => !mine.has(u)), ...next.filter((u) => mine.has(u))]
 }
 
@@ -352,6 +355,10 @@ export function mergeUnitSelection(subject: Subject, current: string[], next: st
  */
 // 사례형 과목 이름 → 선택형 과목 이름 (필터 칩은 선택형 이름으로 그려진다)
 export const CASE_STUDY_SUBJECT: Record<CaseSubject, Subject> = { 민법: '민법', 민소: '민사소송법' }
+// 표에 없는 사례형 과목('공법 기록형' 등)은 그 이름 그대로 쓴다
+export function caseStudySubjectLabel(subject: string): string {
+  return CASE_STUDY_SUBJECT[subject] ?? subject
+}
 
 /** 출제연도 라벨. 칩에 그대로 쓰는 문자열이라 필터와 화면이 같은 함수를 쓴다 (문제 풀기 화면의 연도 칩과 같은 표기) */
 export function examYearLabel(year: number): string {
@@ -385,7 +392,7 @@ export function filterCases(
   } = opts
   // 과목별로 한 번만 추려 둔다. 문제마다 다시 계산하면 목록 전체를 훑는 일이 반복된다
   const chosen = new Map<string, string[]>()
-  const unitsFor = (subject: Subject): string[] => {
+  const unitsFor = (subject: string): string[] => {
     let got = chosen.get(subject)
     if (!got) {
       got = selectedUnitsOf(subject, units)
@@ -397,7 +404,7 @@ export function filterCases(
   // 사례형 문항이 조건에 드는가. 과목·시험유형은 선택형 이름으로 옮겨 견준다.
   // 사례형에는 단원이 없다 — 그 과목의 단원을 골랐으면 사례형 출처는 빠진다
   const caseStudyMatches = (s: Extract<CaseSource, { kind: 'caseStudy' }>): boolean => {
-    const subject = CASE_STUDY_SUBJECT[s.subject]
+    const subject = caseStudySubjectLabel(s.subject)
     if (subjects.length > 0 && !subjects.includes(subject)) return false
     if (unitsFor(subject).length > 0) return false
     const examType: ExamType = s.examType === '변시' ? '변호사시험' : '모의고사'
