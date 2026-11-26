@@ -5,14 +5,14 @@
  * ① parseCaseFile 의 recordCards 분기 ② 저장 형태 왕복 ③ 자가채점 결과·고르기·통계·섞기
  *
  * 실데이터는 환경 변수가 있을 때만 (데이터는 저장소에 두지 않는다):
- *   LAWPASS_CARDS_DIR — 카드-민사-변시.json·카드-민사-모의.json 이 든 폴더
+ *   LAWPASS_CARDS_DIR — 카드-{공법·민사·형사}-{변시·모의}.json 이 든 폴더 (없는 파일은 건너뛴다)
  */
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { parseCaseFile } from '../lib/caseStudy/parse'
-import { decodeCardsFromStore, encodeCardsForStore, type RecordCard, type RecordCardsDoc } from '../lib/record/cardStorage'
+import { cardsWithSubject, decodeCardsFromStore, encodeCardsForStore, RECORD_CARD_DOC_IDS, type RecordCard, type RecordCardsDoc } from '../lib/record/cardStorage'
 import {
-  applyResult, drillStats, examChipsOfCards, filterCards, isWrong, orderCards, type DrillResults,
+  applyResult, drillStats, examChipsOfCards, filterCards, isWrong, orderCards, subjectsOfCards, type DrillResults,
 } from '../lib/record/drillProgress'
 
 const J = (o: unknown) => JSON.stringify(o)
@@ -121,7 +121,11 @@ if (!dir) {
 } else {
   let n = 0
   let maxBytes = 0
-  for (const f of ['카드-민사-변시.json', '카드-민사-모의.json']) {
+  const found: string[] = []
+  for (const id of RECORD_CARD_DOC_IDS) {
+    const f = `${id}.json`
+    if (!fs.existsSync(`${dir}/${f}`)) continue
+    found.push(id)
     const raw: string = fs.readFileSync(`${dir}/${f}`, 'utf8')
     const p = parseCaseFile(f, raw)
     assert.equal(p.kind, 'recordCards', f)
@@ -134,7 +138,7 @@ if (!dir) {
     maxBytes = Math.max(maxBytes, bytes)
     n += p.cards.cards.length
   }
-  console.log(`실데이터: 카드 ${n}장 — 중첩 배열 없음·왕복 동일 (가장 큰 저장 형태 ${Math.round(maxBytes / 1000)}KB)`)
+  console.log(`실데이터: 묶음 ${found.length}개 · 카드 ${n}장 — 중첩 배열 없음·왕복 동일 (가장 큰 저장 형태 ${Math.round(maxBytes / 1000)}KB)`)
 }
 
-console.log('통과: recordCards 가져오기(정상·id·필드 검증·정리본과 구분), 저장 왕복, 채점 반영·오답 판정·고르기·회차 칩·통계·섞기(seed 고정)')
+console.log('통과: recordCards 가져오기(정상·id·필드 검증·정리본과 구분), 저장 왕복, 채점 반영·오답 판정·고르기·회차 칩·통계·섞기(seed 고정), 과목(붙이기·칩·필터·과목별 현황)')

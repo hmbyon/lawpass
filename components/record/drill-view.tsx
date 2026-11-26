@@ -6,9 +6,9 @@ import { getAppMode } from '@/lib/appMode'
 import { fetchAllRecordCards } from '@/lib/firebaseServices/caseStudy'
 import { fetchDrillResults, saveDrillResult } from '@/lib/firebaseServices/recordDrill'
 import { sanitizeNote } from '@/lib/record/sanitizeNote'
-import type { RecordCard } from '@/lib/record/cardStorage'
+import { cardsWithSubject, type RecordCard } from '@/lib/record/cardStorage'
 import {
-  applyResult, drillStats, examChipsOfCards, filterCards, orderCards,
+  applyResult, drillStats, examChipsOfCards, filterCards, orderCards, subjectsOfCards,
   type DrillMark, type DrillResults,
 } from '@/lib/record/drillProgress'
 import { FilterChips } from '@/components/filter-chips'
@@ -56,7 +56,7 @@ function Frame({ children }: { children: ReactNode }) {
 }
 
 /**
- * 기록형 문제 풀기 — 민사 기출 청구취지·청구원인 카드. 앞면(당사자·청구 제목) → 직접 써 보기 → 정답 표 → 자가채점.
+ * 기록형 문제 풀기 — 공법·민사·형사 기출 카드. 앞면(당사자·문제 제목) → 직접 써 보기 → 정답 표 → 자가채점.
  * 결과는 카드마다 본인 계정에 저장해, 틀린·아쉬운 카드만 다시 풀 수 있게 한다
  */
 export function DrillView({ isAdmin }: { isAdmin: boolean }) {
@@ -66,6 +66,7 @@ export function DrillView({ isAdmin }: { isAdmin: boolean }) {
   const [saveError, setSaveError] = useState('')
 
   // 시작 화면 조건
+  const [subjects, setSubjects] = useState<string[]>([])
   const [kinds, setKinds] = useState<string[]>([])
   const [exams, setExams] = useState<string[]>([])
   const [wrongOnly, setWrongOnly] = useState(false)
@@ -82,7 +83,7 @@ export function DrillView({ isAdmin }: { isAdmin: boolean }) {
     const uid = auth.currentUser?.uid
     Promise.all([fetchAllRecordCards(mode), uid ? fetchDrillResults(uid, mode) : Promise.resolve({})])
       .then(([docs, res]) => {
-        setCards(docs.flatMap((d) => d.cards ?? []))
+        setCards(cardsWithSubject(docs))
         setResults(res)
       })
       .catch((e: Error) => setLoadError(e.message || '불러오지 못했습니다'))
@@ -90,12 +91,25 @@ export function DrillView({ isAdmin }: { isAdmin: boolean }) {
   useEffect(load, [load])
 
   const byId = useMemo(() => new Map((cards ?? []).map((c) => [c.id, c])), [cards])
-  const examChips = useMemo(() => examChipsOfCards(cards ?? [], kinds), [cards, kinds])
-  const chosen = useMemo(
-    () => filterCards(cards ?? [], { kinds, exams: exams.filter((e) => examChips.includes(e)), wrongOnly }, results),
-    [cards, kinds, exams, examChips, wrongOnly, results]
+  // 고른 과목(없으면 전부)의 카드 — 시험 유형·회차 칩, 현황 숫자가 이 기준이다
+  const subjectOptions = useMemo(() => subjectsOfCards(cards ?? []), [cards])
+  const ofSubjects = useCallback(
+    (list: string[]) => filterCards(cards ?? [], { subjects: list, kinds: [], exams: [], wrongOnly: false }, {}),
+    [cards]
   )
-  const stats = useMemo(() => drillStats(cards ?? [], results), [cards, results])
+  const subjectCards = useMemo(() => ofSubjects(subjects), [ofSubjects, subjects])
+  const examChips = useMemo(() => examChipsOfCards(subjectCards, kinds), [subjectCards, kinds])
+  const chosen = useMemo(
+    () => filterCards(cards ?? [], { subjects, kinds, exams: exams.filter((e) => examChips.includes(e)), wrongOnly }, results),
+    [cards, subjects, kinds, exams, examChips, wrongOnly, results]
+  )
+  const stats = useMemo(() => drillStats(subjectCards, results), [subjectCards, results])
+  // 과목을 바꾸면 새 선택지에 없는 회차 선택은 푼다
+  function changeSubjects(next: string[]) {
+    setSubjects(next)
+    const chips = examChipsOfCards(ofSubjects(next), kinds)
+    setExams((prev) => prev.filter((e) => chips.includes(e)))
+  }
 
   function start(list: RecordCard[]) {
     if (list.length === 0) return
@@ -194,7 +208,7 @@ export function DrillView({ isAdmin }: { isAdmin: boolean }) {
             <div className={SECTION}>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="shrink-0 rounded-md border border-primary bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
-                  {card.label}
+                  {card.subject ? `${card.subject} · ${card.label}` : card.label}
                 </span>
                 {card.note && <span className="text-[11px] text-yellow-400">{card.note}</span>}
               </div>
@@ -211,7 +225,7 @@ export function DrillView({ isAdmin }: { isAdmin: boolean }) {
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 rows={8}
-                placeholder="청구취지·청구원인을 적어 보세요 (저장되지 않습니다)"
+                placeholder="답안을 적어 보세요 (저장되지 않습니다)"
                 className={TEXTAREA}
               />
             </div>
@@ -267,8 +281,13 @@ export function DrillView({ isAdmin }: { isAdmin: boolean }) {
       <div>
         <h2 className="text-lg font-bold text-foreground mb-1">문제 풀기</h2>
         <p className="text-sm text-muted-foreground">
-          민사 기출 청구 카드를 보고 청구취지·청구원인을 직접 써 본 뒤 정답과 비교해요. 필터를 고르지 않으면 전체입니다.
+          기출 카드를 보고 직접 써 본 뒤 정답과 비교해요. 필터를 고르지 않으면 전체입니다.
         </p>
+      </div>
+
+      <div className={SECTION}>
+        <label className={LABEL}>과목 (복수 선택)</label>
+        <FilterChips options={subjectOptions} selected={subjects} onChange={changeSubjects} />
       </div>
 
       <div className={SECTION}>
@@ -277,7 +296,7 @@ export function DrillView({ isAdmin }: { isAdmin: boolean }) {
           options={KINDS}
           selected={kinds}
           onChange={setKinds}
-          available={KINDS.filter((k) => cards.some((c) => c.exam?.kind === k))}
+          available={KINDS.filter((k) => subjectCards.some((c) => c.exam?.kind === k))}
         />
       </div>
 

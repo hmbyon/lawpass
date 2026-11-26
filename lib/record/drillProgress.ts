@@ -40,15 +40,17 @@ export function isWrong(rec: DrillRecord | undefined): boolean {
 }
 
 export interface DrillFilter {
+  subjects?: string[] // '공법'·'민사'·'형사'. 비거나 없으면 전부
   kinds: string[] // '변시'·'모의'. 비면 전부
   exams: string[] // examKey("변시 15"). 비면 전부
   wrongOnly: boolean
 }
 
-/** 종류·회차·오답만 조건으로 카드를 고른다 */
+/** 과목·종류·회차·오답만 조건으로 카드를 고른다 */
 export function filterCards(cards: RecordCard[], f: DrillFilter, results: DrillResults): RecordCard[] {
   return cards.filter(
     (c) =>
+      (!f.subjects?.length || f.subjects.includes(c.subject ?? '')) &&
       (f.kinds.length === 0 || f.kinds.includes(c.exam?.kind)) &&
       (f.exams.length === 0 || f.exams.includes(examKey(c.exam))) &&
       (!f.wrongOnly || isWrong(results[c.id]))
@@ -106,4 +108,12 @@ export function drillStats(cards: RecordCard[], results: DrillResults): DrillSta
     else s.none++
   }
   return s
+}
+
+const SUBJECT_ORDER = ['공법', '민사', '형사']
+
+/** 과목 칩: 카드가 실제로 있는 과목만, 공법 → 민사 → 형사 (그 밖은 뒤) */
+export function subjectsOfCards(cards: RecordCard[]): string[] {
+  const rank = (s: string) => (SUBJECT_ORDER.includes(s) ? SUBJECT_ORDER.indexOf(s) : SUBJECT_ORDER.length)
+  return Array.from(new Set(cards.map((c) => c.subject).filter((s): s is string => !!s))).sort((a, b) => rank(a) - rank(b))
 }
