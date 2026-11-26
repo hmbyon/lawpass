@@ -389,8 +389,23 @@ html.eye .record-note {
 .record-note td,
 .record-note th {
   border: 1px solid var(--border);
-  padding: 0.4rem 0.5rem;
   vertical-align: top;
+}
+/* 셀 여백: 기재례 박스는 넉넉하게, 그 밖의 일반 표는 컴팩트하게 */
+.record-note table.note-box td,
+.record-note table.note-box th {
+  padding: 0.4rem 0.5rem;
+}
+.record-note table:not(.note-box) td,
+.record-note table:not(.note-box) th {
+  padding: 0.2rem 0.4rem;
+}
+.record-note table:not(.note-box) td p {
+  line-height: 1.5;
+}
+/* 일반 표 셀 끝에 붙은 빈 줄(<p><br></p>)은 숨긴다. 문단이 하나뿐인 빈 셀과 셀 중간의 빈 줄은 그대로 둔다 */
+.record-note table:not(.note-box) td > p:last-child:not(:first-child):has(> br:only-child) {
+  display: none;
 }
 .record-note .note-bg-g1 { background-color: oklch(0.6 0 0 / 22%); }
 .record-note .note-bg-g2 { background-color: oklch(0.6 0 0 / 10%); }
