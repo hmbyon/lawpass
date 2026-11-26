@@ -8,20 +8,25 @@ import { fetchDrillResults, saveDrillResult } from '@/lib/firebaseServices/recor
 import { sanitizeNote } from '@/lib/record/sanitizeNote'
 import { cardsWithSubject, type RecordCard } from '@/lib/record/cardStorage'
 import {
-  applyResult, drillStats, examChipsOfCards, filterCards, orderCards, subjectsOfCards,
-  type DrillMark, type DrillResults,
+  applyResult, filterByCbt, orderCards, recentYears, selectableOf, sortCardsForList, subjectGroupsOfCards,
+  unsolvedCards, yearOptionsOf, type DrillMark, type DrillResults,
 } from '@/lib/record/drillProgress'
+import { EXAM_MONTH_OPTIONS, type ExamMonthLabel } from '@/lib/questionSource'
 import { FilterChips } from '@/components/filter-chips'
 import { NoteTable, type TableBlock } from '@/components/record/notes-viewer'
 
+// 시험 유형 — case-cbt.tsx 의 KINDS·KIND_LABEL·kindOf 와 같다(기록형에는 '유사'가 없다)
 const KINDS = ['변시', '모의']
+const KIND_LABEL: Record<string, string> = { 변시: '변호사시험', 모의: '모의고사' }
+const kindOf = (label: string) => KINDS.find((k) => KIND_LABEL[k] === label) ?? label
+// 랜덤 출제 카드 수 — case-cbt.tsx 의 COUNT_OPTIONS 와 같다
+const COUNT_OPTIONS = [1, 2, 3, 5]
+type PickMode = '랜덤 출제' | '직접 선택'
 const MARKS: { id: DrillMark; label: string }[] = [
   { id: 'o', label: '맞음' },
   { id: 'h', label: '아쉬움' },
   { id: 'x', label: '틀림' },
 ]
-const OPT_WRONG = '틀린·아쉬운 카드만'
-const OPT_SHUFFLE = '섞어서 풀기'
 
 // 사례형 화면과 같은 클래스. 그쪽 상수가 export 되지 않아 같은 값을 둔다(사례형 파일은 건드리지 않는다)
 // case-cbt.tsx: SECTION · LABEL · smallBtn · 결과 카드 · 시작 버튼
@@ -65,12 +70,19 @@ export function DrillView({ isAdmin }: { isAdmin: boolean }) {
   const [results, setResults] = useState<DrillResults>({})
   const [saveError, setSaveError] = useState('')
 
-  // 시작 화면 조건
+  // 시작 화면 조건 — 사례형 CBT 실전과 같은 필터(과목 / 시험 유형 / 모의고사 회차 / 연도)·출제 방식
   const [subjects, setSubjects] = useState<string[]>([])
   const [kinds, setKinds] = useState<string[]>([])
-  const [exams, setExams] = useState<string[]>([])
-  const [wrongOnly, setWrongOnly] = useState(false)
-  const [shuffle, setShuffle] = useState(false)
+  const [months, setMonths] = useState<ExamMonthLabel[]>([])
+  const [years, setYears] = useState<string[]>([])
+  const [pickMode, setPickMode] = useState<PickMode>('랜덤 출제')
+  const [count, setCount] = useState(1)
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  // 랜덤 출제는 필터·카드 수가 바뀔 때 미리 뽑아 둔다. 시작하면 다시 뽑는다
+  const [seed, setSeed] = useState(() => Date.now())
+  // 안 푼 카드만 풀기 — 풀이 결과 문서에 결과가 있으면 푼 카드. 못 읽으면 체크박스만 막는다
+  const [onlyUnsolved, setOnlyUnsolved] = useState(false)
+  const [solvedError, setSolvedError] = useState(false)
 
   // 풀이 중인 묶음 (카드 id 순서·위치·정답 펼침·이번 묶음 채점)
   const [session, setSession] = useState<{ ids: string[]; pos: number; revealed: boolean; marks: Record<string, DrillMark> } | null>(null)
@@ -79,42 +91,82 @@ export function DrillView({ isAdmin }: { isAdmin: boolean }) {
   const load = useCallback(() => {
     setCards(undefined)
     setLoadError('')
+    setSolvedError(false)
     const mode = getAppMode()
     const uid = auth.currentUser?.uid
-    Promise.all([fetchAllRecordCards(mode), uid ? fetchDrillResults(uid, mode) : Promise.resolve({})])
-      .then(([docs, res]) => {
-        setCards(cardsWithSubject(docs))
-        setResults(res)
-      })
+    if (uid) {
+      fetchDrillResults(uid, mode)
+        .then(setResults)
+        .catch(() => setSolvedError(true))
+    } else setSolvedError(true)
+    fetchAllRecordCards(mode)
+      .then((docs) => setCards(cardsWithSubject(docs)))
       .catch((e: Error) => setLoadError(e.message || '불러오지 못했습니다'))
   }, [])
   useEffect(load, [load])
 
-  const byId = useMemo(() => new Map((cards ?? []).map((c) => [c.id, c])), [cards])
-  // 고른 과목(없으면 전부)의 카드 — 시험 유형·회차 칩, 현황 숫자가 이 기준이다
-  const subjectOptions = useMemo(() => subjectsOfCards(cards ?? []), [cards])
-  const ofSubjects = useCallback(
-    (list: string[]) => filterCards(cards ?? [], { subjects: list, kinds: [], exams: [], wrongOnly: false }, {}),
-    [cards]
+  const all = useMemo(() => sortCardsForList(cards ?? []), [cards])
+  const byId = useMemo(() => new Map(all.map((c) => [c.id, c])), [all])
+  const groups = useMemo(() => subjectGroupsOfCards(all), [all])
+  const allSubjects = useMemo(() => groups.flatMap((g) => g.subjects), [groups])
+  const selectable = useMemo(() => selectableOf(all, subjects), [all, subjects])
+  const yearOptions = useMemo(() => yearOptionsOf(all), [all])
+  const filteredAll = useMemo(() => filterByCbt(all, { subjects, kinds, months, years }), [all, subjects, kinds, months, years])
+  const unsolvedCount = unsolvedCards(filteredAll, results).length
+  const filtered = useMemo(
+    () => (onlyUnsolved ? unsolvedCards(filteredAll, results) : filteredAll),
+    [filteredAll, onlyUnsolved, results]
   )
-  const subjectCards = useMemo(() => ofSubjects(subjects), [ofSubjects, subjects])
-  const examChips = useMemo(() => examChipsOfCards(subjectCards, kinds), [subjectCards, kinds])
-  const chosen = useMemo(
-    () => filterCards(cards ?? [], { subjects, kinds, exams: exams.filter((e) => examChips.includes(e)), wrongOnly }, results),
-    [cards, subjects, kinds, exams, examChips, wrongOnly, results]
-  )
-  const stats = useMemo(() => drillStats(subjectCards, results), [subjectCards, results])
-  // 과목을 바꾸면 새 선택지에 없는 회차 선택은 푼다
+  const chosenInList = filtered.filter((c) => picked.has(c.id))
+  const allPicked = filtered.length > 0 && chosenInList.length === filtered.length
+  const drawn = useMemo(() => new Set(orderCards(filtered, true, seed).slice(0, count)), [filtered, count, seed])
+  // 풀이 화면에는 목록 순서(회차·과목)로 넣는다
+  const chosen = pickMode === '랜덤 출제' ? filtered.filter((c) => drawn.has(c)) : chosenInList
+
   function changeSubjects(next: string[]) {
     setSubjects(next)
-    const chips = examChipsOfCards(ofSubjects(next), kinds)
-    setExams((prev) => prev.filter((e) => chips.includes(e)))
+    // 과목을 모두 빼면 나머지 선택도 비운다(CBT 와 같다)
+    if (next.length === 0) {
+      setKinds([])
+      setMonths([])
+      setYears([])
+    }
+  }
+  function toggleGroup(groupSubjects: string[]) {
+    const every = groupSubjects.every((s) => subjects.includes(s))
+    changeSubjects(every ? subjects.filter((s) => !groupSubjects.includes(s)) : [...new Set([...subjects, ...groupSubjects])])
+  }
+  // 모의고사를 켜면 회차를 모두 켜고, 끄면 비운다(CBT 와 같다)
+  function changeKinds(next: string[]) {
+    if (next.includes('모의') && !kinds.includes('모의')) setMonths(selectable.months)
+    else if (!next.includes('모의')) setMonths([])
+    setKinds(next)
+  }
+  function togglePick(id: string) {
+    setPicked((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  function toggleAll() {
+    setPicked((prev) => {
+      const next = new Set(prev)
+      for (const c of filtered) {
+        if (allPicked) next.delete(c.id)
+        else next.add(c.id)
+      }
+      return next
+    })
   }
 
+  // 목록 순서 그대로 풀이 화면에 넣는다
   function start(list: RecordCard[]) {
     if (list.length === 0) return
-    setSession({ ids: orderCards(list, shuffle, Date.now()).map((c) => c.id), pos: 0, revealed: false, marks: {} })
+    setSession({ ids: list.map((c) => c.id), pos: 0, revealed: false, marks: {} })
     setText('')
+    setSeed((n) => n + 1)
     window.scrollTo({ top: 0 })
   }
   function grade(card: RecordCard, mark: DrillMark) {
@@ -273,68 +325,210 @@ export function DrillView({ isAdmin }: { isAdmin: boolean }) {
     )
   }
 
-  // ── 시작 화면 ─────────────────────────────────────────────
-  const allExams = examChips.length > 0 && examChips.every((e) => exams.includes(e))
-  const options = [...(wrongOnly ? [OPT_WRONG] : []), ...(shuffle ? [OPT_SHUFFLE] : [])]
+  // ── 시작 화면 — 사례형 CBT 실전(case-cbt.tsx)과 같은 구조·문구 ─────────
+  const allYearsSelected = selectable.years.length > 0 && selectable.years.every((y) => years.includes(y))
+  const allMonthsSelected = selectable.months.length > 0 && selectable.months.every((m) => months.includes(m))
+  const random = pickMode === '랜덤 출제'
+  const startCount = chosen.length
   return (
     <Frame>
       <div>
         <h2 className="text-lg font-bold text-foreground mb-1">문제 풀기</h2>
         <p className="text-sm text-muted-foreground">
-          기출 카드를 보고 직접 써 본 뒤 정답과 비교해요. 필터를 고르지 않으면 전체입니다.
+          기록형 카드를 무작위로 뽑거나 목록에서 골라 직접 써 본 뒤 정답과 비교합니다. 필터를 고르지 않으면 전체입니다.
         </p>
       </div>
 
+      {/* 과목 — 각 시험 과목 버튼 아래에 그 묶음의 과목 칩 */}
       <div className={SECTION}>
-        <label className={LABEL}>과목 (복수 선택)</label>
-        <FilterChips options={subjectOptions} selected={subjects} onChange={changeSubjects} />
+        <label className={LABEL}>과목</label>
+        <div className={`grid gap-2 items-start ${groups.length >= 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+          {groups.map((g) => {
+            const every = g.subjects.every((s) => subjects.includes(s))
+            const some = g.subjects.some((s) => subjects.includes(s))
+            return (
+              <div key={g.label} className="space-y-2">
+                <button
+                  onClick={() => toggleGroup(g.subjects)}
+                  className={`w-full py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                    every
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : some
+                        ? 'bg-primary/20 text-primary border-primary/50'
+                        : 'bg-muted text-muted-foreground border-border hover:border-primary/40'
+                  }`}
+                >
+                  {g.label}
+                </button>
+                <FilterChips
+                  options={g.subjects}
+                  selected={subjects}
+                  onChange={(next) => changeSubjects(allSubjects.filter((s) => next.includes(s)))}
+                  centered
+                />
+              </div>
+            )
+          })}
+        </div>
       </div>
 
-      <div className={SECTION}>
+      {/* 시험 유형 */}
+      <div className="bg-card border border-border rounded-xl p-4 space-y-2">
         <label className={LABEL}>시험 유형 (복수 선택)</label>
         <FilterChips
-          options={KINDS}
-          selected={kinds}
-          onChange={setKinds}
-          available={KINDS.filter((k) => subjectCards.some((c) => c.exam?.kind === k))}
+          options={KINDS.map((k) => KIND_LABEL[k])}
+          selected={kinds.map((k) => KIND_LABEL[k])}
+          onChange={(labels) => changeKinds(labels.map(kindOf))}
+          available={selectable.kinds.map((k) => KIND_LABEL[k])}
         />
       </div>
 
-      {examChips.length > 0 && (
+      {/* 모의고사 회차 — '모의고사'를 고른 동안에만 보인다 */}
+      {kinds.includes('모의') && (
         <div className={SECTION}>
           <div className="flex items-center justify-between">
-            <label className={LABEL}>회차 (복수 선택)</label>
-            <button onClick={() => setExams(allExams ? [] : examChips)} className={smallBtn(allExams)}>
+            <label className={LABEL}>모의고사 회차 (복수 선택)</label>
+            <button onClick={() => setMonths(allMonthsSelected ? [] : selectable.months)} className={smallBtn(allMonthsSelected)}>
               전체
             </button>
           </div>
-          <FilterChips options={examChips} selected={exams.filter((e) => examChips.includes(e))} onChange={setExams} />
+          <FilterChips options={[...EXAM_MONTH_OPTIONS]} selected={months} onChange={setMonths} available={selectable.months} />
         </div>
       )}
 
+      {/* 연도 — 연도를 못 읽은 카드는 연도를 고르면 빠진다 */}
+      {yearOptions.length > 0 && (
+        <div className={SECTION}>
+          <div className="flex items-center justify-between">
+            <label className={LABEL}>연도 (복수 선택)</label>
+            <div className="flex gap-1.5">
+              {[1, 3, 5].map((n) => (
+                <button key={n} onClick={() => setYears(recentYears(yearOptions, selectable.years, n))} className={smallBtn(false)}>
+                  최근 {n}개년
+                </button>
+              ))}
+              <button onClick={() => setYears(allYearsSelected ? [] : selectable.years)} className={smallBtn(allYearsSelected)}>
+                전체
+              </button>
+            </div>
+          </div>
+          <FilterChips options={yearOptions} selected={years} onChange={setYears} available={selectable.years} />
+        </div>
+      )}
+
+      {/* 풀이 기록 — CBT 와 같은 카드 */}
+      <div className="bg-card border border-border rounded-xl p-4">
+        <label className="flex items-center justify-between gap-2 cursor-pointer">
+          <span className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={onlyUnsolved}
+              onChange={(e) => setOnlyUnsolved(e.target.checked)}
+              disabled={solvedError}
+              className="accent-[oklch(0.65_0.2_290)] w-3.5 h-3.5"
+            />
+            <span className="text-sm text-foreground">안 푼 카드만 풀기</span>
+          </span>
+          <span className="text-xs text-muted-foreground">
+            지금 조건에서 안 푼 카드 <span className="text-foreground font-medium">{unsolvedCount}</span>
+            /{filteredAll.length}장
+          </span>
+        </label>
+        {solvedError ? (
+          <p className="mt-1.5 text-xs text-muted-foreground">풀이 기록을 불러오지 못했습니다</p>
+        ) : (
+          onlyUnsolved && (
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              한 번이라도 채점한 카드는 빠지고, 한 번도 안 푼 카드만 나와요.
+            </p>
+          )
+        )}
+      </div>
+
+      {/* 출제 방식 — 필터 결과에서 무작위로 뽑거나 목록에서 직접 고른다 */}
       <div className={SECTION}>
-        <label className={LABEL}>옵션</label>
-        <FilterChips
-          options={[OPT_WRONG, OPT_SHUFFLE]}
-          selected={options}
-          onChange={(next) => {
-            setWrongOnly(next.includes(OPT_WRONG))
-            setShuffle(next.includes(OPT_SHUFFLE))
-          }}
+        <label className={LABEL}>출제 방식</label>
+        <FilterChips<PickMode>
+          options={['랜덤 출제', '직접 선택']}
+          selected={[pickMode]}
+          single
+          onChange={(m) => setPickMode(m[0] ?? pickMode)}
         />
       </div>
 
-      <div className={`${RESULT_CARD} flex-wrap gap-2`}>
+      {/* 카드 수 — 랜덤 출제. 필터 결과보다 많은 수는 고를 수 없다 */}
+      {random && (
+        <div className={SECTION}>
+          <label className={LABEL}>카드 수</label>
+          <div className="grid grid-cols-4 gap-2">
+            {COUNT_OPTIONS.map((n) => (
+              <button
+                key={n}
+                onClick={() => setCount(n)}
+                disabled={n > filtered.length}
+                className={`py-2 rounded-lg text-sm font-medium border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                  count === n
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-muted text-muted-foreground border-border hover:border-primary/40'
+                }`}
+              >
+                {n}장
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 카드 목록 — 직접 선택 */}
+      {!random && (
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <label className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-muted text-xs text-foreground cursor-pointer">
+            <input type="checkbox" checked={allPicked} onChange={toggleAll} disabled={filtered.length === 0} className="accent-primary" />
+            <span className="font-medium">전체 선택</span>
+            <span className="ml-auto tabular-nums text-muted-foreground">
+              {chosenInList.length} / {filtered.length}장
+            </span>
+          </label>
+          {filtered.length === 0 ? (
+            <p className="text-center text-xs text-muted-foreground py-8">조건에 맞는 카드가 없습니다</p>
+          ) : (
+            <ul className="max-h-[28rem] overflow-y-auto divide-y divide-border">
+              {filtered.map((c) => (
+                <li key={c.id}>
+                  <label className="flex items-start gap-2 px-4 py-2 cursor-pointer hover:bg-muted/50">
+                    <input type="checkbox" checked={picked.has(c.id)} onChange={() => togglePick(c.id)} className="mt-0.5 accent-primary" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] leading-snug text-foreground">{c.title}</span>
+                      <span className="block text-[11px] text-muted-foreground">
+                        {c.subject ? `${c.subject} · ${c.label}` : c.label}
+                      </span>
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* 결과 */}
+      <div className={RESULT_CARD}>
         <span className="text-muted-foreground">
-          선택된 카드: <span className="text-foreground font-medium">{chosen.length}장</span>
+          필터 결과: <span className="text-foreground font-medium">{filtered.length}장</span>
         </span>
-        <span className="text-xs text-muted-foreground tabular-nums">
-          맞음 {stats.o} · 아쉬움 {stats.h} · 틀림 {stats.x} · 안 푼 {stats.none}
-        </span>
+        {random && filtered.length < count && filtered.length > 0 && (
+          <span className="text-yellow-400 text-xs">전체 {filtered.length}장만 출제</span>
+        )}
       </div>
 
-      <button className={START_BTN} disabled={chosen.length === 0} onClick={() => start(chosen)}>
-        {chosen.length > 0 ? `풀기 시작 — ${chosen.length}장` : '조건에 맞는 카드가 없습니다'}
+      <button className={START_BTN} disabled={subjects.length === 0 || startCount === 0} onClick={() => start(chosen)}>
+        {subjects.length === 0
+          ? '과목을 선택해주세요'
+          : filtered.length === 0
+            ? '조건에 맞는 카드가 없습니다'
+            : startCount === 0
+              ? '풀 카드를 골라 주세요'
+              : `풀기 시작 — ${startCount}장`}
       </button>
     </Frame>
   )

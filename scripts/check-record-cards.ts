@@ -13,6 +13,7 @@ import { parseCaseFile } from '../lib/caseStudy/parse'
 import { cardsWithSubject, decodeCardsFromStore, encodeCardsForStore, RECORD_CARD_DOC_IDS, type RecordCard, type RecordCardsDoc } from '../lib/record/cardStorage'
 import {
   applyResult, drillStats, examChipsOfCards, filterCards, isWrong, orderCards, subjectsOfCards, type DrillResults,
+  cardMonth, cardYear, filterByCbt, recentYears, selectableOf, sortCardsForList, subjectGroupsOfCards, unsolvedCards, yearOptionsOf,
 } from '../lib/record/drillProgress'
 
 const J = (o: unknown) => JSON.stringify(o)
@@ -114,6 +115,68 @@ assert.notDeepEqual(ids(orderCards(many, true, 7)), s1, '다른 seed → 다른 
 assert.deepEqual([...s1].sort(), ids(many).sort(), '섞어도 카드는 그대로')
 assert.notDeepEqual(s1, ids(many), '실제로 섞인다')
 
+// 과목: 묶음의 subject 를 카드에 붙이고, 과목 조건으로 고른다
+const crim: RecordCardsDoc = {
+  schema: 1, kind: 'recordCards', id: '카드-형사-변시', subject: '형사', title: '형사 변시 카드',
+  cards: [card('형사-변시-15-1', '변시', '15'), card('형사-모의-24.6-1', '모의', '24.6')],
+}
+const pub: RecordCardsDoc = { ...crim, id: '카드-공법-변시', subject: '공법', cards: [card('공법-변시-15-소장-취소', '변시', '15')] }
+const merged = cardsWithSubject([doc, crim, pub])
+assert.equal(merged.length, 7)
+assert.deepEqual([...new Set(merged.map((c) => c.subject))], ['민사', '형사', '공법'])
+assert.ok(!('subject' in doc.cards[0]), 'cardsWithSubject 는 입력을 바꾸지 않는다')
+assert.deepEqual(subjectsOfCards(merged), ['공법', '민사', '형사'], '과목 칩 순서')
+assert.deepEqual(subjectsOfCards(cardsWithSubject([crim])), ['형사'], '카드가 있는 과목만')
+assert.deepEqual(ids(filterCards(merged, { subjects: ['형사'], kinds: [], exams: [], wrongOnly: false }, r)), ['형사-변시-15-1', '형사-모의-24.6-1'])
+assert.deepEqual(ids(filterCards(merged, { subjects: ['형사', '공법'], kinds: ['변시'], exams: [], wrongOnly: false }, r)), ['형사-변시-15-1', '공법-변시-15-소장-취소'], '과목은 합집합, 다른 조건과 AND')
+assert.deepEqual(ids(filterCards(merged, { subjects: [], kinds: [], exams: ['변시 15'], wrongOnly: false }, r)), ['b15-1', '형사-변시-15-1', '공법-변시-15-소장-취소'], '과목 없음 → 전부')
+assert.equal(filterCards(merged, { kinds: [], exams: [], wrongOnly: false }, r).length, 7, 'subjects 필드가 없어도 전부')
+assert.deepEqual(ids(filterCards(merged, { subjects: ['민사'], kinds: [], exams: [], wrongOnly: true }, r)), ['b2-1', 'm26.6-1'], '민사 결과는 그대로 남는다')
+assert.deepEqual(drillStats(filterCards(merged, { subjects: ['형사'], kinds: [], exams: [], wrongOnly: false }, r), r), { o: 0, h: 0, x: 0, none: 2 }, '과목별 현황')
+assert.deepEqual(examChipsOfCards(filterCards(merged, { subjects: ['형사'], kinds: [], exams: [], wrongOnly: false }, r), []), ['변시 15', '모의 24.6'], '과목별 회차 칩')
+assert.equal(RECORD_CARD_DOC_IDS.length, 6)
+
+// ── 시작 화면 필터 (사례형 CBT 와 같은 규칙) ─────────────────────
+const cbt = cardsWithSubject([
+  { ...doc, cards: [card('민사-변시-15-1', '변시', '15'), card('민사-변시-2-1', '변시', '2'), card('민사-모의-26.6-1', '모의', '26.6'), card('민사-모의-24.10-1', '모의', '24.10'), card('민사-모의-24.3-1', '모의', '24.3')] },
+  { ...crim, cards: [card('형사-변시-14-1', '변시', '14'), card('형사-모의-25.8-1', '모의', '25.8')] },
+  { ...pub, cards: [card('공법-변시-15-소장', '변시', '15'), card('공법-x', '변시', '가')] },
+])
+// 연도·월: CBT 의 examYear·mockMonth 와 같다
+assert.deepEqual(cbt.map(cardYear), ['2026', '2013', '2026', '2024', '2024', '2025', '2025', '2026', null])
+assert.deepEqual(cbt.map(cardMonth), [null, null, '6모', '10모', null, null, '8모', null, null], '6·8·10 이 아닌 모의(24.3)는 회차가 없다')
+// 과목 묶음: 민사법 → 형사법 → 공법, 카드가 있는 과목만
+assert.deepEqual(subjectGroupsOfCards(cbt), [{ label: '민사법', subjects: ['민사'] }, { label: '형사법', subjects: ['형사'] }, { label: '공법', subjects: ['공법'] }])
+assert.deepEqual(subjectGroupsOfCards(cardsWithSubject([crim])), [{ label: '형사법', subjects: ['형사'] }])
+// 과목을 안 골랐으면 시험 유형·회차·연도 칩이 모두 회색
+assert.deepEqual(selectableOf(cbt, []), { kinds: [], months: [], years: [] }, '과목 미선택 → 고를 수 있는 것 없음')
+assert.deepEqual(selectableOf(cbt, ['형사']), { kinds: ['변시', '모의'], months: ['8모'], years: ['2025'] })
+assert.deepEqual(selectableOf(cbt, ['공법']), { kinds: ['변시'], months: [], years: ['2026'] }, '연도를 못 읽은 카드는 연도 후보가 아니다')
+// 연도 후보·최근 N개년
+assert.deepEqual(yearOptionsOf(cbt), ['2026', '2025', '2024', '2013'])
+assert.deepEqual(recentYears(yearOptionsOf(cbt), ['2026', '2024', '2013'], 3), ['2026', '2024'], '최근 3개년 중 고를 수 있는 것만')
+assert.deepEqual(recentYears(yearOptionsOf(cbt), ['2026'], 1), ['2026'])
+const keys = (f: Parameters<typeof filterByCbt>[1]) => ids(filterByCbt(cbt, f))
+const none = { subjects: [], kinds: [], months: [], years: [] }
+assert.equal(keys(none).length, cbt.length, '필터 없음 → 전체')
+assert.deepEqual(keys({ ...none, subjects: ['형사', '공법'] }), ['형사-변시-14-1', '형사-모의-25.8-1', '공법-변시-15-소장', '공법-x'])
+// 모의 월: 모의를 골랐을 때 모의 카드에만, 월을 못 읽은 모의 카드는 거르지 않는다
+assert.deepEqual(keys({ ...none, subjects: ['민사'], kinds: ['모의'], months: ['6모'] }), ['민사-모의-26.6-1', '민사-모의-24.3-1'])
+assert.deepEqual(keys({ ...none, subjects: ['민사'], kinds: ['변시'], months: ['6모'] }), ['민사-변시-15-1', '민사-변시-2-1'], '모의를 안 고르면 월은 무시')
+assert.deepEqual(keys({ ...none, subjects: ['민사'], kinds: ['변시', '모의'], months: ['10모'] }), ['민사-변시-15-1', '민사-변시-2-1', '민사-모의-24.10-1', '민사-모의-24.3-1'], '변시 카드는 월에 걸리지 않는다')
+// 연도: 연도를 못 읽은 카드는 연도를 고르면 빠진다
+assert.deepEqual(keys({ ...none, years: ['2026'] }), ['민사-변시-15-1', '민사-모의-26.6-1', '공법-변시-15-소장'])
+assert.deepEqual(keys({ ...none, subjects: ['공법'], years: ['2026'] }), ['공법-변시-15-소장'], "연도 없는 '공법-x' 는 빠진다")
+// 안 푼 카드 = 결과 문서에 결과가 없는 카드
+const solvedR = applyResult(applyResult({}, '민사-변시-15-1', 'o', 1), '형사-모의-25.8-1', 'x', 2)
+assert.deepEqual(ids(unsolvedCards(filterByCbt(cbt, { ...none, subjects: ['민사', '형사'] }), solvedR)), ['민사-변시-2-1', '민사-모의-26.6-1', '민사-모의-24.10-1', '민사-모의-24.3-1', '형사-변시-14-1'], '틀린 카드도 푼 카드다')
+assert.equal(unsolvedCards(cbt, {}).length, cbt.length)
+// 목록 순서(CBT 와 같다): 변시 회차 오름차순 → 모의 최신순, 같은 회차는 공법 → 형사 → 민사
+assert.deepEqual(ids(sortCardsForList(cbt)), [
+  '민사-변시-2-1', '형사-변시-14-1', '공법-변시-15-소장', '민사-변시-15-1', '공법-x',
+  '민사-모의-26.6-1', '형사-모의-25.8-1', '민사-모의-24.10-1', '민사-모의-24.3-1',
+])
+
 // ── 실데이터 (환경 변수가 있을 때만) ──────────────────────────────
 const dir = process.env.LAWPASS_CARDS_DIR
 if (!dir) {
@@ -141,4 +204,4 @@ if (!dir) {
   console.log(`실데이터: 묶음 ${found.length}개 · 카드 ${n}장 — 중첩 배열 없음·왕복 동일 (가장 큰 저장 형태 ${Math.round(maxBytes / 1000)}KB)`)
 }
 
-console.log('통과: recordCards 가져오기(정상·id·필드 검증·정리본과 구분), 저장 왕복, 채점 반영·오답 판정·고르기·회차 칩·통계·섞기(seed 고정), 과목(붙이기·칩·필터·과목별 현황)')
+console.log('통과: recordCards 가져오기(정상·id·필드 검증·정리본과 구분), 저장 왕복, 채점 반영·오답 판정·고르기·회차 칩·통계·섞기(seed 고정), 과목(붙이기·칩·필터·과목별 현황), CBT 필터(과목 묶음·미선택 회색·모의 월·연도·최근 N개년·안 푼 카드·목록 순서)')
