@@ -434,3 +434,19 @@ html.eye .record-note {
 .record-note .note-fl {
   text-indent: 1em;
 }
+/* 정리본 항목 제목 — 원본처럼 굵게 + 노란 형광(.record-note mark 와 같은 칠). 머리줄은 .record-note 밖이라 따로 둔다 */
+.note-title {
+  font-weight: 600;
+  background-color: oklch(0.92 0.17 105 / 45%);
+  border-radius: 2px;
+  padding: 0 0.2em;
+}
+/* 본문 문단(표 밖). 문단 사이를 띄우고 양쪽 맞춤 — 가운데·오른쪽 정렬 문단은 그 정렬을 둔다.
+   표 셀 안 문단은 note-p 가 없어 위의 margin 0 그대로다 */
+.record-note p.note-p {
+  margin-bottom: 0.4rem;
+  line-height: 1.6;
+}
+.record-note p.note-p:not(.text-center):not(.text-right) {
+  text-align: justify;
+}

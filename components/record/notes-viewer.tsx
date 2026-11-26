@@ -38,7 +38,7 @@ function Blocks({ blocks }: { blocks: NoteBlock[] }) {
         ) : (
           <p
             key={i}
-            className={`text-sm leading-relaxed ${alignClass(b?.al)} ${paragraphClass(b)}`}
+            className={`note-p text-sm leading-relaxed ${alignClass(b?.al)} ${paragraphClass(b)}`}
             style={{ paddingLeft: `${paragraphPadding(b)}rem` }}
             dangerouslySetInnerHTML={{ __html: sanitizeNote(b?.h ?? '') }}
           />
@@ -207,7 +207,7 @@ export function NotesViewer() {
                 {/* 제목 토글·회차 칩·▸ 는 서로 다른 형제 버튼이다 (버튼 안에 버튼을 두지 않는다) */}
                 <div className="p-3 flex flex-wrap items-center gap-1.5">
                   <button type="button" aria-expanded={open} onClick={toggle} className="text-left text-sm font-medium text-foreground mr-1">
-                    {it.title}
+                    <span className="note-title">{it.title}</span>
                   </button>
                   {examChipsOfItem(it).map((k) => (
                     <button key={k} type="button" aria-pressed={picked === k} onClick={() => pickExam(k)} className={chip(picked === k)}>
