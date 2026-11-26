@@ -1,9 +1,7 @@
 /**
  * 문제 유형 스위치(객관식 / 사례형 / 기록형). 이 브라우저에만 남는 화면 선택이다 —
  * 계정을 따라다니지 않고 동기화하지도 않는다 (appMode 와 같은 방식).
- *
- * 'record'(기록형)는 아직 화면이 없다. 저장돼 있어도 객관식으로 되돌린다 —
- * 아니면 빈 화면에 갇혀 스위치로만 빠져나올 수 있다
+ * 세 값 모두 저장·복원한다. 모르는 값이나 읽기 실패는 객관식이다
  */
 export type StudyKind = 'objective' | 'caseStudy' | 'record'
 
@@ -12,7 +10,8 @@ const KEY = 'lawpass_study_kind'
 export function getStudyKind(): StudyKind {
   // 사생활 보호 모드·SSR 에서는 localStorage 접근 자체가 던질 수 있다
   try {
-    return localStorage.getItem(KEY) === 'caseStudy' ? 'caseStudy' : 'objective'
+    const saved = localStorage.getItem(KEY)
+    return saved === 'caseStudy' || saved === 'record' ? saved : 'objective'
   } catch {
     return 'objective'
   }

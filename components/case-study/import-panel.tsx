@@ -8,6 +8,7 @@ import { chunkForBatch, parseCaseFile, type ParsedFile } from '@/lib/caseStudy/p
 import { indexCaseStats } from '@/lib/caseStudy/sanitize'
 import {
   BATCH_MAX_BYTES, BATCH_MAX_OPS, caseCardExists, saveCaseCard, saveCaseCardsBatch, saveCaseIndex,
+  saveNoteDoc, saveNotesIndex,
 } from '@/lib/firebaseServices/caseStudy'
 
 interface Result {
@@ -136,6 +137,32 @@ export function ImportPanel() {
       }
       setProgress({ done: ++done, total })
     }
+    // 기록형 정리본도 같은 원칙 — 문서를 전부 쓴 뒤에 색인을 쓴다
+    const noteDocs = parsed.flatMap((p) => (p.kind === 'note' ? [p] : []))
+    const noteIndexes = parsed.flatMap((p) => (p.kind === 'notesIndex' ? [p] : []))
+    const savedNoteIds = new Set<string>()
+    for (const n of noteDocs) {
+      try {
+        await saveNoteDoc(mode, n.note) // 크기(900KB)를 넘으면 쓰지 않고 실패로 알린다
+        savedNoteIds.add(n.note.id)
+        ok++
+      } catch (e) {
+        failed.push({ name: n.name, reason: reason(e) })
+      }
+      setProgress({ done: ++done, total })
+    }
+    for (const ix of noteIndexes) {
+      try {
+        await saveNotesIndex(mode, ix.index)
+        ok++
+        const missing = ix.index.docs.map((d) => d.id).filter((id) => !savedNoteIds.has(id))
+        if (missing.length > 0) warnings.push(`정리본 색인에는 있는데 이번에 올라오지 않은 문서 ${missing.length}개: ${missing.join(', ')}`)
+      } catch (e) {
+        failed.push({ name: ix.name, reason: reason(e) })
+      }
+      setProgress({ done: ++done, total })
+    }
+
     if (indexes.length === 0 && cards.length > 0) {
       warnings.push('_index.json 을 함께 올리지 않아 목록(색인)은 바뀌지 않았습니다')
     }

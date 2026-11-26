@@ -328,3 +328,44 @@ mark[data-erasing] {
   padding: 0;
   border-radius: 0;
 }
+
+/* 기록형 정리본 열람 (components/record/notes-viewer). 글자색 c1~c5 는 정리본 원본(엑셀·한글)의 색을 따른다 —
+   기본(다크)은 밝게, 라이트·눈 보호는 원본에 가깝게 어둡게 잡아 배경 위에서 읽히게 한다.
+   형광(mark·mark.g)은 노랑, law·case·res 는 .case-study mark 와 같은 칠이다 */
+.record-note {
+  --note-c1: oklch(0.83 0.12 85);
+  --note-c2: oklch(0.76 0.13 245);
+  --note-c3: oklch(0.76 0.13 305);
+  --note-c4: oklch(0.72 0.17 25);
+}
+html.light .record-note,
+html.eye .record-note {
+  --note-c1: oklch(0.5 0.11 85);
+  --note-c2: oklch(0.52 0.15 248);
+  --note-c3: oklch(0.45 0.17 305);
+  --note-c4: oklch(0.52 0.2 27);
+}
+.record-note .c1 { color: var(--note-c1); }
+.record-note .c2 { color: var(--note-c2); }
+.record-note .c3 { color: var(--note-c3); }
+.record-note .c4 { color: var(--note-c4); }
+.record-note .c5 { color: var(--muted-foreground); }
+.record-note mark {
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+  background-color: oklch(0.92 0.17 105 / 45%);
+}
+.record-note mark.law {
+  background-color: oklch(0.82 0.09 230 / 35%);
+}
+.record-note mark.case {
+  background-color: oklch(0.84 0.1 60 / 35%);
+}
+.record-note mark.res {
+  background-color: oklch(0.9 0.12 100 / 40%);
+}
+.record-note u {
+  text-decoration-line: underline;
+  text-underline-offset: 3px;
+}

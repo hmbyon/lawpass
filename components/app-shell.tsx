@@ -25,6 +25,7 @@ import { CasesTab } from '@/components/tabs/cases-tab'
 import { OnboardingModal } from '@/components/onboarding-modal'
 import { getStudyKind, setStudyKind, type StudyKind } from '@/lib/studyKind'
 import { CaseStudyShell } from '@/components/case-study/case-study-shell'
+import { RecordShell } from '@/components/record/record-shell'
 import type { CaseOpenRequest } from '@/components/case-study/case-study-browse'
 import { fetchCaseIndex } from '@/lib/firebaseServices/caseStudy'
 import type { CaseIndex } from '@/lib/caseStudy/types'
@@ -63,7 +64,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 const STUDY_KINDS: { id: StudyKind; label: string; title: string }[] = [
   { id: 'objective', label: '선택', title: '선택형' },
   { id: 'caseStudy', label: '사례', title: '사례형' },
-  { id: 'record', label: '기록', title: '기록형 (준비 중)' },
+  { id: 'record', label: '기록', title: '기록형' },
 ]
 
 interface Props {
@@ -435,23 +436,24 @@ export function AppShell({ user }: Props) {
               {appBadge}
             </span>
             {/* 390px 폭에서는 세그먼트 셋이 헤더 한 줄에 들어가지 않는다(남는 폭이 40px 남짓).
-                모바일은 지금 유형만 보이는 알약 하나로 객관식↔사례형을 오간다 — 기록형은 어차피 고를 수 없다 */}
+                모바일은 지금 유형만 보이는 알약 하나로 선택형·사례형·기록형을 오간다 */}
             {mode !== 'general' && (
               <div ref={kindMenuRef} className="sm:hidden relative shrink-0">
                 <button
                   onClick={() => setKindMenu((v) => !v)}
                   aria-expanded={kindMenu}
                   aria-haspopup="menu"
-                  title={`문제 유형 · 판례 (지금: ${view === 'cases' ? '판례' : kind === 'objective' ? '선택형' : '사례형'})`}
+                  title={`문제 유형 · 판례 (지금: ${view === 'cases' ? '판례' : kind === 'objective' ? '선택형' : kind === 'record' ? '기록형' : '사례형'})`}
                   className={`rounded-full border border-primary/40 bg-primary/10 text-primary text-[10px] font-semibold leading-none py-1 ${compactHeader ? 'px-0.5' : 'px-1'}`}
                 >
-                  {!compactHeader && (view === 'cases' ? '판례' : kind === 'objective' ? '선택' : '사례')}⇄
+                  {!compactHeader && (view === 'cases' ? '판례' : kind === 'objective' ? '선택' : kind === 'record' ? '기록' : '사례')}⇄
                 </button>
                 {kindMenu && (
                   <div role="menu" className="absolute left-0 top-8 z-50 w-32 rounded-xl border border-border bg-card py-1 shadow-lg">
                     {([
                       { id: 'objective', label: '선택형', active: view === 'study' && kind === 'objective' },
                       { id: 'caseStudy', label: '사례형', active: view === 'study' && kind === 'caseStudy' },
+                      { id: 'record', label: '기록형', active: view === 'study' && kind === 'record' },
                       { id: 'cases', label: '⚖️ 판례', active: view === 'cases' },
                     ] as const).map((item) => (
                       <button
@@ -478,8 +480,6 @@ export function AppShell({ user }: Props) {
                 {STUDY_KINDS.map((k) => (
                   <button
                     key={k.id}
-                    // 기록형은 아직 화면이 없다
-                    disabled={k.id === 'record'}
                     title={k.title}
                     onClick={() => chooseKind(k.id)}
                     className={`rounded-full px-1.5 py-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
@@ -672,7 +672,7 @@ export function AppShell({ user }: Props) {
       {/* 학습 화면 — 판례를 여는 동안에는 숨길 뿐 언마운트하지 않는다(진행 중이던 탭·세션이 그대로).
           'contents' 라 감싸도 nav 의 sticky·main 의 flex 배치는 예전과 같다 */}
       <div className={view === 'cases' ? 'hidden' : 'contents'}>
-      {/* 객관식은 기존 nav·main 그대로다. 사례형만 전용 탭 줄과 화면으로 갈아 끼운다.
+      {/* 객관식은 기존 nav·main 그대로다. 사례형·기록형은 전용 탭 줄과 화면으로 갈아 끼운다.
           동기화·인증·피드백 훅은 위에서 kind 와 무관하게 늘 돈다 */}
       {kind === 'objective' ? (<>
       <nav className="sticky top-14 z-30 bg-background/90 backdrop-blur-sm border-b border-border no-print">
@@ -727,7 +727,9 @@ export function AppShell({ user }: Props) {
         {tab === 'wrong' && <WrongTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
         {tab === 'memo' && <MemoTab key={syncedAt} notes={wrongNotes} onNotesChanged={refreshAndSync} />}
       </main>
-      </>) : (
+      </>) : kind === 'record' ? (
+        <RecordShell isAdmin={isAdmin} />
+      ) : (
         <CaseStudyShell
           isAdmin={isAdmin}
           openRequest={caseOpenRequest}

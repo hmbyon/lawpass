@@ -3,6 +3,7 @@ import { doc, getDoc, setDoc, writeBatch } from 'firebase/firestore'
 import { ADMIN_UID, byteLength } from '@/lib/firebaseServices/sync'
 import type { Card, CaseIndex } from '@/lib/caseStudy/types'
 import { isRecordCard } from '@/lib/caseStudy/group'
+import { NOTES_INDEX_ID, type NoteDoc, type NotesIndex } from '@/lib/record/notes'
 
 /**
  * 사례형 카드 — 관리자 계정 트리 아래 둔다 (docs/case-study-design.md).
@@ -78,4 +79,33 @@ export async function saveCaseCardsBatch(mode: string, cards: Card[]): Promise<v
     batch.set(cardRef(mode, card.id), card)
   }
   await batch.commit()
+}
+
+// ── 기록형 정리본 ────────────────────────────────────────────────
+//   users/{ADMIN_UID}/{mode}/caseStudy/notes/{id}     정리본 문서
+//   users/{ADMIN_UID}/{mode}/caseStudy/notes/_index   색인
+// 읽기는 firestore.rules 의 caseStudy/{document=**} 블록이 그대로 덮는다
+
+function noteRef(mode: string, id: string) {
+  return doc(db, 'users', ADMIN_UID, mode, 'caseStudy', 'notes', id)
+}
+
+export async function saveNoteDoc(mode: string, note: NoteDoc): Promise<void> {
+  assertSize(note, `정리본 ${note.id}`)
+  await setDoc(noteRef(mode, note.id), note)
+}
+
+export async function saveNotesIndex(mode: string, index: NotesIndex): Promise<void> {
+  assertSize(index, '정리본 색인')
+  await setDoc(noteRef(mode, NOTES_INDEX_ID), index)
+}
+
+export async function fetchNotesIndex(mode: string): Promise<NotesIndex | null> {
+  const snap = await getDoc(noteRef(mode, NOTES_INDEX_ID))
+  return snap.exists() ? (snap.data() as NotesIndex) : null
+}
+
+export async function fetchNoteDoc(mode: string, id: string): Promise<NoteDoc | null> {
+  const snap = await getDoc(noteRef(mode, id))
+  return snap.exists() ? (snap.data() as NoteDoc) : null
 }
