@@ -5,6 +5,7 @@ import type { Card, CaseIndex } from '@/lib/caseStudy/types'
 import { isRecordCard } from '@/lib/caseStudy/group'
 import { NOTES_INDEX_ID, type NoteDoc, type NotesIndex } from '@/lib/record/notes'
 import { decodeNoteFromStore, encodeNoteForStore } from '@/lib/record/noteStorage'
+import { decodeCardsFromStore, encodeCardsForStore, RECORD_CARD_DOC_IDS, type RecordCardsDoc } from '@/lib/record/cardStorage'
 
 /**
  * 사례형 카드 — 관리자 계정 트리 아래 둔다 (docs/case-study-design.md).
@@ -111,4 +112,30 @@ export async function fetchNotesIndex(mode: string): Promise<NotesIndex | null> 
 export async function fetchNoteDoc(mode: string, id: string): Promise<NoteDoc | null> {
   const snap = await getDoc(noteRef(mode, id))
   return snap.exists() ? decodeNoteFromStore(snap.data() as NoteDoc) : null
+}
+
+// ── 기록형 문제 풀기 카드 ────────────────────────────────────────
+//   users/{ADMIN_UID}/{mode}/caseStudy/recordCards/{id}
+// 정리본처럼 표의 행을 객체로 감싸 저장하고(lib/record/cardStorage) 읽을 때 되돌린다.
+// 읽기는 firestore.rules 의 caseStudy/{document=**} 블록이 그대로 덮는다
+
+function recordCardsRef(mode: string, id: string) {
+  return doc(db, 'users', ADMIN_UID, mode, 'caseStudy', 'recordCards', id)
+}
+
+export async function saveRecordCardsDoc(mode: string, cards: RecordCardsDoc): Promise<void> {
+  const stored = encodeCardsForStore(cards)
+  assertSize(stored, `기록형 카드 ${cards.id}`)
+  await setDoc(recordCardsRef(mode, cards.id), stored)
+}
+
+export async function fetchRecordCardsDoc(mode: string, id: string): Promise<RecordCardsDoc | null> {
+  const snap = await getDoc(recordCardsRef(mode, id))
+  return snap.exists() ? decodeCardsFromStore(snap.data() as RecordCardsDoc) : null
+}
+
+/** 색인 대신 정해 둔 카드 묶음(변시·모의)을 읽는다. 아직 안 올라온 묶음은 빠진다 */
+export async function fetchAllRecordCards(mode: string): Promise<RecordCardsDoc[]> {
+  const docs = await Promise.all(RECORD_CARD_DOC_IDS.map((id) => fetchRecordCardsDoc(mode, id)))
+  return docs.filter((d): d is RecordCardsDoc => d !== null)
 }

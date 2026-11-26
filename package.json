@@ -24,7 +24,8 @@
     "check:case-progress": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseStudy/progress.ts scripts/check-case-progress.ts && node .tmp-check/scripts/check-case-progress.js",
     "check:case-d1-stars": "tsc --jsx react-jsx --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseStudy/d1Stars.ts scripts/check-case-d1-stars.ts && node .tmp-check/scripts/check-case-d1-stars.js",
     "check:case-nav": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/caseDigest.ts scripts/check-case-nav.ts && node .tmp-check/scripts/check-case-nav.js",
-    "check:record-notes": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/record/sanitizeNote.ts lib/record/notes.ts lib/caseStudy/parse.ts scripts/check-record-notes.ts && node .tmp-check/scripts/check-record-notes.js"
+    "check:record-notes": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/record/sanitizeNote.ts lib/record/notes.ts lib/caseStudy/parse.ts scripts/check-record-notes.ts && node .tmp-check/scripts/check-record-notes.js",
+    "check:record-cards": "tsc --module commonjs --moduleResolution node --target es2022 --skipLibCheck --esModuleInterop --outDir .tmp-check lib/record/cardStorage.ts lib/record/drillProgress.ts lib/caseStudy/parse.ts scripts/check-record-cards.ts && node .tmp-check/scripts/check-record-cards.js"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

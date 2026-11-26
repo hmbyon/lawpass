@@ -8,7 +8,7 @@ import { chunkForBatch, parseCaseFile, type ParsedFile } from '@/lib/caseStudy/p
 import { indexCaseStats } from '@/lib/caseStudy/sanitize'
 import {
   BATCH_MAX_BYTES, BATCH_MAX_OPS, caseCardExists, saveCaseCard, saveCaseCardsBatch, saveCaseIndex,
-  saveNoteDoc, saveNotesIndex,
+  saveNoteDoc, saveNotesIndex, saveRecordCardsDoc,
 } from '@/lib/firebaseServices/caseStudy'
 
 interface Result {
@@ -159,6 +159,17 @@ export function ImportPanel() {
         if (missing.length > 0) warnings.push(`정리본 색인에는 있는데 이번에 올라오지 않은 문서 ${missing.length}개: ${missing.join(', ')}`)
       } catch (e) {
         failed.push({ name: ix.name, reason: reason(e) })
+      }
+      setProgress({ done: ++done, total })
+    }
+
+    // 기록형 문제 풀기 카드 묶음 — 색인 없이 문서만 쓴다
+    for (const rc of parsed.flatMap((p) => (p.kind === 'recordCards' ? [p] : []))) {
+      try {
+        await saveRecordCardsDoc(mode, rc.cards) // 크기(900KB)를 넘으면 쓰지 않고 실패로 알린다
+        ok++
+      } catch (e) {
+        failed.push({ name: rc.name, reason: reason(e) })
       }
       setProgress({ done: ++done, total })
     }

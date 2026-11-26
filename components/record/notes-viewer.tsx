@@ -10,11 +10,11 @@ import {
   isBoxTable, tableSizeClass, examChipsOfItem, subsForExam, paragraphClass, paragraphPadding, paragraphFirstLineEm, splitTitleTag, isNumberedHeading, type NoteBlock, type NoteDoc, type NoteItem, type NotesIndex,
 } from '@/lib/record/notes'
 
-type TableBlock = Extract<NoteBlock, { t: 'table' }>
+export type TableBlock = Extract<NoteBlock, { t: 'table' }>
 
 // 정리본 표. 기재례 박스가 아닌 표는 여러 행에 걸친 칸의 높이를 걸친 행들이 균등하게 나눠 갖게 맞춘다
 // (tr 높이 인라인 style 만 더한다). 폭이 바뀌면 줄바꿈이 달라지므로 다시 맞추고, 높이 변화에는 반응하지 않는다
-function NoteTable({ b }: { b: TableBlock }) {
+export function NoteTable({ b }: { b: TableBlock }) {
   const ref = useRef<HTMLDivElement>(null)
   const box = isBoxTable(b)
   useLayoutEffect(() => {
@@ -101,7 +101,7 @@ function ItemBody({ body, subs = body.subs }: { body: NoteItem; subs?: NoteItem[
   )
 }
 
-const chip = (on: boolean) =>
+export const chip = (on: boolean) =>
   `px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
     on ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted text-muted-foreground border-border hover:border-primary/50'
   }`

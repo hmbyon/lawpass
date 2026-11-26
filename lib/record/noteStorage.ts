@@ -11,6 +11,18 @@ import type { NoteBlock, NoteCell, NoteDoc } from './notes'
 
 type StoredRow = { c: NoteCell[] }
 
+/** 표의 행을 { c: [...] } 로 감싼다 (기록형 카드 저장도 쓴다) */
+export function encodeRows(rows: NoteCell[][]): StoredRow[] {
+  return rows.map((row) => ({ c: row }))
+}
+
+/** { c: [...] } 행을 배열로 되돌린다. 옛 형태(행이 배열)도 그대로 받는다 */
+export function decodeRows(rows: unknown[]): NoteCell[][] {
+  return rows.map((row) =>
+    Array.isArray(row) ? row : Array.isArray((row as StoredRow | null)?.c) ? (row as StoredRow).c : []
+  ) as NoteCell[][]
+}
+
 function mapBlocks(doc: NoteDoc, fn: (b: NoteBlock) => NoteBlock): NoteDoc {
   const blocks = (list: NoteBlock[]) => (Array.isArray(list) ? list.map(fn) : list)
   return {
@@ -27,7 +39,7 @@ function mapBlocks(doc: NoteDoc, fn: (b: NoteBlock) => NoteBlock): NoteDoc {
 export function encodeNoteForStore(doc: NoteDoc): NoteDoc {
   return mapBlocks(doc, (b) =>
     b?.t === 'table' && Array.isArray(b.rows)
-      ? ({ ...b, rows: b.rows.map((row) => ({ c: row }) as StoredRow) } as unknown as NoteBlock)
+      ? ({ ...b, rows: encodeRows(b.rows) } as unknown as NoteBlock)
       : b
   )
 }
@@ -36,9 +48,6 @@ export function encodeNoteForStore(doc: NoteDoc): NoteDoc {
 export function decodeNoteFromStore(doc: NoteDoc): NoteDoc {
   return mapBlocks(doc, (b) => {
     if (b?.t !== 'table' || !Array.isArray(b.rows)) return b
-    const rows = (b.rows as unknown[]).map((row) =>
-      Array.isArray(row) ? row : Array.isArray((row as StoredRow | null)?.c) ? (row as StoredRow).c : []
-    ) as NoteCell[][]
-    return { ...b, rows }
+    return { ...b, rows: decodeRows(b.rows as unknown[]) }
   })
 }
