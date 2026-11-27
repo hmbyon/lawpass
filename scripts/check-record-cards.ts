@@ -15,6 +15,7 @@ import {
   applyResult, drillStats, examChipsOfCards, filterCards, isWrong, orderCards, subjectsOfCards, type DrillResults,
   cardMonth, cardYear, filterByCbt, recentYears, selectableOf, sortCardsForList, subjectGroupsOfCards, unsolvedCards, yearOptionsOf,
 } from '../lib/record/drillProgress'
+import { filterRecordMisses, recordMisses, sortRecordMisses } from '../lib/record/missView'
 
 const J = (o: unknown) => JSON.stringify(o)
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v))
@@ -177,6 +178,47 @@ assert.deepEqual(ids(sortCardsForList(cbt)), [
   '민사-모의-26.6-1', '형사-모의-25.8-1', '민사-모의-24.10-1', '민사-모의-24.3-1',
 ])
 
+// ── 오답노트 (풀이 결과 + 카드) ────────────────────────────────────
+const DAY = 86_400_000
+const NOW = 100 * DAY
+const missCards = cardsWithSubject([
+  { ...doc, cards: [card('민사-변시-15-1', '변시', '15'), card('민사-모의-26.6-1', '모의', '26.6'), card('민사-변시-2-1', '변시', '2')] },
+  { ...crim, cards: [card('형사-변시-14-1', '변시', '14'), card('형사-모의-25.8-1', '모의', '25.8')] },
+])
+const missResults: DrillResults = {
+  '민사-변시-15-1': { last: 'o', tries: 3, wrong: 1, meh: 1, at: NOW - 2 * DAY }, // 틀렸다가 최근 ✓
+  '민사-모의-26.6-1': { last: 'h', tries: 1, wrong: 0, meh: 1, at: NOW - 10 * DAY }, // 아쉬움 1
+  '민사-변시-2-1': { last: 'o', tries: 2, wrong: 0, meh: 0, at: NOW - 1 * DAY }, // 한 번도 안 틀림 → 빠진다
+  '형사-변시-14-1': { last: 'x', tries: 4, wrong: 3, meh: 0, at: NOW - 40 * DAY }, // 많이 틀림, 오래됨
+  '사라진-카드': { last: 'x', tries: 1, wrong: 1, meh: 0, at: NOW }, // 카드 데이터에 없음 → 건너뜀
+}
+const misses = recordMisses(missCards, missResults)
+const mids = (list: { card: RecordCard }[]) => list.map((m) => m.card.id)
+// 포함 조건: wrong + meh > 0, 카드에 없는 id 는 건너뛴다, 카드 순서
+assert.deepEqual(mids(misses), ['민사-변시-15-1', '민사-모의-26.6-1', '형사-변시-14-1'])
+assert.deepEqual(misses.map((m) => m.wrongCount), [2, 1, 3], '틀린 횟수 = 틀림 + 아쉬움')
+// 최근 ✓ = 마지막 결과가 맞음
+assert.deepEqual(misses.map((m) => m.recentOk), [true, false, false])
+assert.deepEqual(misses.map((m) => m.last), ['o', 'h', 'x'])
+assert.equal(misses[0].card.subject, '민사')
+assert.deepEqual(recordMisses(missCards, {}), [], '결과가 없으면 비어 있다')
+// 기간: 마지막 채점 시각 기준 7일·30일·전체
+const per = (period: 7 | 30 | 'all') => mids(filterRecordMisses(misses, { subjects: [], kinds: [], period }, NOW))
+assert.deepEqual(per(7), ['민사-변시-15-1'])
+assert.deepEqual(per(30), ['민사-변시-15-1', '민사-모의-26.6-1'])
+assert.deepEqual(per('all'), ['민사-변시-15-1', '민사-모의-26.6-1', '형사-변시-14-1'])
+// 과목·시험 유형
+assert.deepEqual(mids(filterRecordMisses(misses, { subjects: ['형사'], kinds: [], period: 'all' }, NOW)), ['형사-변시-14-1'])
+assert.deepEqual(mids(filterRecordMisses(misses, { subjects: [], kinds: ['모의'], period: 'all' }, NOW)), ['민사-모의-26.6-1'])
+assert.deepEqual(mids(filterRecordMisses(misses, { subjects: ['민사'], kinds: ['변시'], period: 'all' }, NOW)), ['민사-변시-15-1'], '조건은 AND')
+// 정렬 두 가지 (사례형 sortMissProblems 와 같은 규칙)
+assert.deepEqual(mids(sortRecordMisses(misses, 'count')), ['형사-변시-14-1', '민사-변시-15-1', '민사-모의-26.6-1'], '많이 틀린 순')
+assert.deepEqual(mids(sortRecordMisses(misses, 'recent')), ['민사-변시-15-1', '민사-모의-26.6-1', '형사-변시-14-1'], '최근 빠진 순')
+const tie = [{ ...misses[1], wrongCount: 2 }, misses[0]]
+assert.deepEqual(mids(sortRecordMisses(tie, 'count')), ['민사-변시-15-1', '민사-모의-26.6-1'], '같은 횟수면 최근 순')
+assert.deepEqual(mids(sortRecordMisses(misses, 'count')), mids(sortRecordMisses(misses)), '기본은 많이 틀린 순')
+assert.deepEqual(mids(misses), ['민사-변시-15-1', '민사-모의-26.6-1', '형사-변시-14-1'], '정렬은 입력을 바꾸지 않는다')
+
 // ── 실데이터 (환경 변수가 있을 때만) ──────────────────────────────
 const dir = process.env.LAWPASS_CARDS_DIR
 if (!dir) {
@@ -204,4 +246,4 @@ if (!dir) {
   console.log(`실데이터: 묶음 ${found.length}개 · 카드 ${n}장 — 중첩 배열 없음·왕복 동일 (가장 큰 저장 형태 ${Math.round(maxBytes / 1000)}KB)`)
 }
 
-console.log('통과: recordCards 가져오기(정상·id·필드 검증·정리본과 구분), 저장 왕복, 채점 반영·오답 판정·고르기·회차 칩·통계·섞기(seed 고정), 과목(붙이기·칩·필터·과목별 현황), CBT 필터(과목 묶음·미선택 회색·모의 월·연도·최근 N개년·안 푼 카드·목록 순서)')
+console.log('통과: recordCards 가져오기(정상·id·필드 검증·정리본과 구분), 저장 왕복, 채점 반영·오답 판정·고르기·회차 칩·통계·섞기(seed 고정), 과목(붙이기·칩·필터·과목별 현황), CBT 필터(과목 묶음·미선택 회색·모의 월·연도·최근 N개년·안 푼 카드·목록 순서), 오답노트(포함 조건·최근 ✓·7일/30일/전체·과목·유형·정렬 두 가지)')

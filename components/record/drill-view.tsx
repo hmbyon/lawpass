@@ -64,7 +64,16 @@ function Frame({ children }: { children: ReactNode }) {
  * 기록형 문제 풀기 — 공법·민사·형사 기출 카드. 앞면(당사자·문제 제목) → 직접 써 보기 → 정답 표 → 자가채점.
  * 결과는 카드마다 본인 계정에 저장해, 틀린·아쉬운 카드만 다시 풀 수 있게 한다
  */
-export function DrillView({ isAdmin }: { isAdmin: boolean }) {
+export function DrillView({
+  isAdmin,
+  openRequest,
+  onOpenRequestDone,
+}: {
+  isAdmin: boolean
+  // 오답노트의 '이 카드 풀어 보기' — 그 카드 한 장으로 풀이를 연다(nonce 가 바뀔 때마다)
+  openRequest?: { cardId: string; nonce: number } | null
+  onOpenRequestDone?: () => void
+}) {
   const [cards, setCards] = useState<RecordCard[] | undefined>(undefined) // undefined = 불러오는 중
   const [loadError, setLoadError] = useState('')
   const [results, setResults] = useState<DrillResults>({})
@@ -169,6 +178,16 @@ export function DrillView({ isAdmin }: { isAdmin: boolean }) {
     setSeed((n) => n + 1)
     window.scrollTo({ top: 0 })
   }
+  // 카드 id 하나로 풀이를 시작한다. 카드를 다 읽은 뒤에 연다
+  const requestNonce = openRequest?.nonce
+  useEffect(() => {
+    if (!openRequest || !cards) return
+    const card = byId.get(openRequest.cardId)
+    if (card) start([card])
+    onOpenRequestDone?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestNonce, cards])
+
   function grade(card: RecordCard, mark: DrillMark) {
     const next = applyResult(results, card.id, mark, Date.now())
     setResults(next)
